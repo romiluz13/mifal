@@ -18,7 +18,7 @@ body:
     id: versions
     attributes:
       label: Mifal, macOS and Python versions
-      placeholder: "Mifal 0.1.2, macOS 15.6, Python 3.9.6"
+      placeholder: "Mifal 0.2.0, macOS 15.6, Python 3.9.6"
     validations:
       required: true
   - type: textarea

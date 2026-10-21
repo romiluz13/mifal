@@ -110,6 +110,76 @@ class Preview(Update):
         self.assertEqual((self.home / ".agents/skills/grilling/NOTE.md").read_text(), "first\n")
 
 
+class Releases(Update):
+    """With release tags on the remote the update follows the newest vX.Y.Z tag, not the branch."""
+
+    def tag(self, name, *args):
+        self.git(self.work, "tag", *args, name)
+        self.git(self.work, "push", "-q", "origin", name)
+
+    def test_the_newest_release_is_installed_and_commits_after_it_are_not(self):
+        released = self.publish("released", **{"skills/grilling/NOTE.md": "released\n"})
+        self.tag("v0.2.0")
+        self.publish("after the release", **{"skills/grilling/NOTE.md": "unreleased\n"})
+        result = self.update("--yes")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("release v0.2.0", result.stdout)
+        self.assertEqual(self.head(), released)
+        self.assertEqual(self.manifest()["source"]["revision"], released)
+        self.assertEqual((self.home / ".agents/skills/grilling/NOTE.md").read_text(), "released\n")
+
+    def test_a_commit_on_the_branch_that_is_not_released_is_not_offered(self):
+        self.tag("v0.1.0", "-a", "-m", "release 0.1.0")
+        self.publish("site only", **{"skills/grilling/NOTE.md": "note\n"})
+        result = self.update("--yes")
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertIn("up to date", result.stdout)
+        self.assertEqual(snapshot(self.home), self.installed)
+        self.assertEqual(self.head(), self.old)
+
+    def test_a_clone_already_past_the_newest_release_is_current_not_refused(self):
+        self.publish("released", **{"skills/grilling/NOTE.md": "released\n"})
+        self.tag("v0.2.0")
+        self.publish("after the release", **{"skills/grilling/NOTE.md": "unreleased\n"})
+        self.git(self.clone, "pull", "-q", "--ff-only")
+        ahead = self.head()
+        result = self.update("--yes")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("already includes release v0.2.0", result.stdout)
+        self.assertEqual(snapshot(self.home), self.installed)
+        self.assertEqual(self.head(), ahead)
+
+    def test_versions_sort_numerically_and_prereleases_are_not_releases(self):
+        self.publish("nine", **{"skills/grilling/NOTE.md": "nine\n"})
+        self.tag("v0.9.0")
+        ten = self.publish("ten", **{"skills/grilling/NOTE.md": "ten\n"})
+        self.tag("v0.10.0", "-a", "-m", "release 0.10.0")
+        self.publish("candidate", **{"skills/grilling/NOTE.md": "rc\n"})
+        self.tag("v0.11.0-rc1")
+        result = self.update("--yes")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("release v0.10.0", result.stdout)
+        self.assertEqual(self.head(), ten)
+
+    def test_a_diverged_clone_is_still_refused_with_a_release(self):
+        self.publish("released", **{"skills/grilling/NOTE.md": "released\n"})
+        self.tag("v0.2.0")
+        (self.clone / "LOCAL.md").write_text("local\n")
+        self.git(self.clone, "add", "-A")
+        self.git(self.clone, "commit", "-q", "-m", "local work")
+        local = self.head()
+        result = self.update("--yes")
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertIn("not a fast-forward", result.stdout)
+        self.assertEqual(self.head(), local)
+
+    def test_without_release_tags_the_recorded_branch_is_followed(self):
+        new = self.publish("untagged remote", **{"skills/grilling/NOTE.md": "note\n"})
+        result = self.update("--yes")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.head(), new)
+
+
 class Refusals(Update):
     def refused(self, reason):
         result = self.update("--yes")
@@ -142,7 +212,7 @@ class Refusals(Update):
     def test_an_unfetched_candidate_is_refused(self):
         self.git(self.clone, "config", "remote.origin.fetch", "+refs/heads/main:refs/remotes/origin/elsewhere")
         (self.clone / ".git/refs/remotes/origin/main").write_text("1" * 40 + "\n")
-        self.refused(r"git fetch --quiet origin failed .*bad object")
+        self.refused(r"git fetch --quiet --tags origin failed .*bad object")
         self.assertEqual(self.head(), self.old)
 
     def test_without_a_recorded_clone_it_prints_the_two_commands(self):

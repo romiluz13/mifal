@@ -36,7 +36,7 @@ mifal uninstall --dry-run
 mifal uninstall
 ```
 
-`mifal update` fetches in the clone you installed from, shows the incoming commits and the exact writes, and asks before it changes anything (`--yes` applies without asking). It installs exactly the revision you saw, and refuses a clone with uncommitted changes or one that is not a fast-forward of its upstream. An interrupted install or update is rolled back the next time you run `mifal` or the installer.
+`mifal update` fetches in the clone you installed from and moves to the newest release tag (`vX.Y.Z`, never a pre-release), so commits on `main` that are not yet released are not offered; a clone whose remote has no release tags follows its recorded upstream branch instead. It shows the incoming commits and the exact writes, and asks before it changes anything (`--yes` applies without asking). It installs exactly the revision you saw, and refuses a clone with uncommitted changes or one that is not a fast-forward of its upstream. An interrupted install or update is rolled back the next time you run `mifal` or the installer.
 
 `mifal uninstall` removes every file and link Mifal wrote and every Marked block it added, restores what it moved aside, and keeps anything you changed since, saying so. Herdr stays installed after uninstall, because other tools may use it. If Mifal installed it with Homebrew, remove it with:
 

@@ -1,0 +1,33 @@
+name: release
+
+on:
+  pull_request:
+    paths: [VERSION]
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: macos-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: The tag equals VERSION and sits on main
+        if: github.ref_type == 'tag'
+        run: |
+          [ "$GITHUB_REF_NAME" = "v$(cat VERSION)" ] || { echo "tag $GITHUB_REF_NAME does not match VERSION $(cat VERSION)"; exit 1; }
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main || { echo "tag $GITHUB_REF_NAME is not on main"; exit 1; }
+      - name: Every suite, under both Pythons
+        run: /bin/bash tests/run.sh
+      - name: Upgrade rehearsal from the previous release
+        run: |
+          git branch -f main HEAD
+          previous="$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' | sort -V | grep -v -- '-' | grep -vx "v$(cat VERSION)" | tail -1)"
+          [ -n "$previous" ] || { echo "no earlier release to rehearse from"; exit 0; }
+          /bin/bash maint/rehearse-upgrade.sh "$GITHUB_WORKSPACE" "$previous"
