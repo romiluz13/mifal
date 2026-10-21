@@ -109,12 +109,16 @@ addEventListener('pagehide', () => {
   film.pause();
 });
 
-document.querySelectorAll('img').forEach(image => image.addEventListener('error', () => {
-  image.hidden = true;
-  if (image.id === 'workshop-poster') {
-    image.parentElement.querySelector('figcaption').textContent = 'The workshop illustration could not load. Explore the written shift below.';
+document.querySelectorAll('img').forEach(image => {
+  function unavailable() {
+    image.hidden = true;
+    if (image.id === 'workshop-poster') {
+      image.parentElement.querySelector('figcaption').textContent = 'The workshop illustration could not load. Explore the written shift below.';
+    }
   }
-}));
+  image.addEventListener('error', unavailable);
+  if (image.complete && !image.naturalWidth) unavailable();
+});
 const copy = document.querySelector('#copy');
 copy.disabled = false;
 copy.addEventListener('click', async () => {
