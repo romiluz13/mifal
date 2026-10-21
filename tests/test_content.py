@@ -207,6 +207,33 @@ class Denylist(unittest.TestCase):
             self.assertTrue(denied("site/index.html", plant(leak)), plant(leak))
 
 
+# Mifal's core is free and open source: nothing it ships may name, or so depend on, a paid or proprietary
+# generation platform. Kept as sha256 prefixes of single lowercase tokens so this file names none of them.
+# To add one, hash its lowercase token the same way; leave out ordinary English words.
+PAID_SERVICES = {
+    "50b2676afbe30c83", "66f4068e63b8c53e", "d931372ba7f836a0", "66c6f57f73358bfa", "1472950b8ae0b5cd",
+    "5ab4f0fdb3e6cd4f", "8a105898989c6e17", "af759d1d0ef00484", "194cbf5c4433b278",
+}
+
+
+def names_a_paid_service(line):
+    return {hashlib.sha256(t.encode()).hexdigest()[:16] for t in TOKEN.findall(line.lower())} & PAID_SERVICES
+
+
+class FreeCore(unittest.TestCase):
+    def test_nothing_shipped_names_a_paid_generation_service(self):
+        found = [f"{rel}:{n}" for rel in tracked()
+                 for n, line in enumerate((REPO / rel).read_text(encoding="utf-8", errors="replace").splitlines(), 1)
+                 if names_a_paid_service(line)]
+        self.assertEqual(found, [])
+
+    def test_the_check_sees_a_planted_service_and_not_an_ordinary_word(self):
+        plant = lambda text: codecs.decode(text, "rot13")
+        for name in ("uvttfsvryq", "zvqwbhearl", "xvr", "qnyyr", "qnyy-r"):
+            self.assertTrue(names_a_paid_service(f"use {plant(name)} for the hero"), plant(name))
+        self.assertFalse(names_a_paid_service("a runway of light, a kiosk, and a cling film"))
+
+
 class Provenance(unittest.TestCase):
     def setUp(self):
         self.components = json.loads((REPO / "third_party/provenance.json").read_text())["components"]
