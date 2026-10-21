@@ -8,7 +8,11 @@ repo="$1" from="$2"
 home="$(mktemp -d)"
 trap 'rm -rf "${home:?}"' EXIT
 home="$(cd -P "$home" && pwd)"
-run() { env -i HOME="$home" PATH="$PATH" LANG=en_US.UTF-8 TERM=dumb "$@"; }
+python="$(dirname "$(command -v python3)")"
+mkdir -p "$home/stub"
+printf '#!/bin/sh\n[ "$1" = "--version" ] && echo "herdr 0.9.5"\n' >"$home/stub/herdr"
+chmod +x "$home/stub/herdr"
+run() { env -i HOME="$home" PATH="$home/stub:$python:/usr/bin:/bin" LANG=en_US.UTF-8 TERM=dumb "$@"; }
 fail() { echo "REHEARSAL FAILED: $*" >&2; exit 1; }
 
 git clone -q "$repo" "$home/clone"
@@ -18,6 +22,7 @@ run /bin/bash "$home/clone/install.sh" --harness claude >"$home/install.log" 2>&
 
 mkdir -p "$home/.agents/skills/my-own-skill"
 echo "my own skill" >"$home/.agents/skills/my-own-skill/SKILL.md"
+ln -s "$home/.agents/skills/my-own-skill" "$home/.claude/skills/my-own-skill"
 mifal="$home/.local/bin/mifal"
 
 echo "-- first update, run by $from's own code"
