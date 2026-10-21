@@ -17,6 +17,12 @@ run() { env -i HOME="$home" PATH="$home/stub:$python:/usr/bin:/bin" LANG=en_US.U
 fail() { echo "REHEARSAL FAILED: $*" >&2; exit 1; }
 
 git clone -q --bare "$repo" "$home/origin.git"
+# The candidate is REPO's checked-out revision, published as the private origin's main and, when it is a new
+# version, as its release tag, the way a release is published; a stale local main in REPO is never used.
+git -C "$home/origin.git" update-ref refs/heads/main HEAD
+git -C "$home/origin.git" symbolic-ref HEAD refs/heads/main
+next="$(git -C "$home/origin.git" show main:VERSION)"
+git -C "$home/origin.git" rev-parse -q --verify "refs/tags/v$next" >/dev/null || git -C "$home/origin.git" tag "v$next" main
 git clone -q "$home/origin.git" "$home/clone"
 git -C "$home/clone" checkout -q -B main "$from"
 git -C "$home/clone" branch -q --set-upstream-to=origin/main main
