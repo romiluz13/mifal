@@ -28,6 +28,8 @@ Rules files are never replaced. Mifal adds only its own Marked block, and leaves
 
 An existing skill or file in Mifal's way is moved to `~/.agents/mifal/backup/` and restored on uninstall. A file you edit after the install is yours: a reinstall stops before overwriting it, and `--overwrite-edits` saves a copy to `~/.agents/mifal-saved/` first.
 
+Skills of your own can live beside Mifal's in `~/.agents/skills/`. Mifal's skill names are reserved: if a skill of yours has the same name as one Mifal installs, the install moves your folder to `~/.agents/mifal/backup/` and uninstall puts it back. Files you add inside a Mifal skill's folder are kept on update and uninstall. Skills with other names are never touched.
+
 ## Update and uninstall
 
 ```sh
