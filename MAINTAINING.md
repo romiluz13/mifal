@@ -71,6 +71,14 @@ One maintainer, several agents. Production is `main`; everything else is short-l
 5. **Weekly cleanup.** `git fetch --prune`, `git worktree prune`, and `git branch --merged main`; delete a branch only after checking that it holds no commit `main` lacks (`git log main..<branch>`). Remove the worktrees of merged branches.
 6. **Never:** force-push, push to `main`, delete a tag, or edit a shipped file inside an installed copy.
 
+What publishes what: merging a pull request that changes `site/` publishes the website within about a minute. Only a pushed `vX.Y.Z` tag gives users a new version. Merging code to `main` alone changes neither for users.
+
+Words to give a coding agent:
+
+- Start: "In the Mifal clone, create a worktree and branch `agent/<you>-<topic>` from `origin/main`. Do `<task>`. Run `tests/run.sh -q`. Do not push."
+- Publish a website change: "Open a pull request for this branch. Wait for the `mifal` check. Show me the diff and screenshots. Wait for my yes, then squash-merge and confirm the Pages deploy passed."
+- Release to users: "Raise `VERSION` to X in a pull request. Wait for the `release` workflow to pass. After my yes, merge it, tag that exact merge commit `vX`, push the tag, and confirm the tag's run passed."
+
 ## Releasing
 
 `main` is protected: every change goes in by pull request, and the `mifal` check must pass. Release tags `v*` cannot be moved or deleted. `mifal update` follows the newest `vX.Y.Z` tag, so merging to `main` does not reach users; tagging does.
