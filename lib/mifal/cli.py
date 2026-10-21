@@ -40,6 +40,8 @@ def _parser():
     u.add_argument("--dry-run", action="store_true", help="print what would be removed or restored")
     up = sub.add_parser("update", help="fetch in the recorded clone, preview the new revision, then install it")
     up.add_argument("--yes", action="store_true", help="apply without asking")
+    up.add_argument("--branch", action="store_true",
+                    help="follow the clone's recorded upstream branch instead of the newest release tag")
     up.add_argument("--overwrite-edits", action="store_true",
                     help="save a copy of each file you changed since Mifal wrote it, then replace it")
     sub.add_parser("doctor", help="check the install; read-only")

@@ -111,25 +111,34 @@ class Preview(Update):
 
 
 class Releases(Update):
-    """With release tags on the remote the update follows the newest vX.Y.Z tag, not the branch."""
+    """With release tags on the remote the update follows the newest valid vX.Y.Z tag, not the branch."""
 
     def tag(self, name, *args):
         self.git(self.work, "tag", *args, name)
         self.git(self.work, "push", "-q", "origin", name)
 
+    def cut(self, version, note=None, *args):
+        """Publish a commit whose VERSION is version, tag it v<version>, and return its sha."""
+        sha = self.publish(f"release {version}", VERSION=version + "\n",
+                           **{"skills/grilling/NOTE.md": (note or version) + "\n"})
+        self.tag("v" + version, *args)
+        return sha
+
+    def note(self):
+        return (self.home / ".agents/skills/grilling/NOTE.md").read_text().strip()
+
     def test_the_newest_release_is_installed_and_commits_after_it_are_not(self):
-        released = self.publish("released", **{"skills/grilling/NOTE.md": "released\n"})
-        self.tag("v0.2.0")
+        released = self.cut("0.2.0")
         self.publish("after the release", **{"skills/grilling/NOTE.md": "unreleased\n"})
         result = self.update("--yes")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("release v0.2.0", result.stdout)
         self.assertEqual(self.head(), released)
         self.assertEqual(self.manifest()["source"]["revision"], released)
-        self.assertEqual((self.home / ".agents/skills/grilling/NOTE.md").read_text(), "released\n")
+        self.assertEqual(self.note(), "0.2.0")
 
     def test_a_commit_on_the_branch_that_is_not_released_is_not_offered(self):
-        self.tag("v0.1.0", "-a", "-m", "release 0.1.0")
+        self.tag("v" + (self.work / "VERSION").read_text().strip(), "-a", "-m", "the release the install is at")
         self.publish("site only", **{"skills/grilling/NOTE.md": "note\n"})
         result = self.update("--yes")
         self.assertEqual(result.returncode, 0, result.stdout)
@@ -137,33 +146,92 @@ class Releases(Update):
         self.assertEqual(snapshot(self.home), self.installed)
         self.assertEqual(self.head(), self.old)
 
-    def test_a_clone_already_past_the_newest_release_is_current_not_refused(self):
-        self.publish("released", **{"skills/grilling/NOTE.md": "released\n"})
-        self.tag("v0.2.0")
+    def test_a_release_the_install_is_already_past_is_current(self):
+        self.cut("0.2.0")
+        self.publish("after the release", **{"skills/grilling/NOTE.md": "unreleased\n"})
+        self.git(self.clone, "pull", "-q", "--ff-only")
+        self.install()
+        installed = snapshot(self.home)
+        result = self.update("--yes")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("already includes release v0.2.0", result.stdout)
+        self.assertEqual(snapshot(self.home), installed)
+
+    def test_a_clone_pulled_past_the_release_still_installs_it_when_the_install_is_older(self):
+        released = self.cut("0.2.0")
         self.publish("after the release", **{"skills/grilling/NOTE.md": "unreleased\n"})
         self.git(self.clone, "pull", "-q", "--ff-only")
         ahead = self.head()
         result = self.update("--yes")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("already includes release v0.2.0", result.stdout)
-        self.assertEqual(snapshot(self.home), self.installed)
+        self.assertEqual(self.manifest()["source"]["revision"], released)
+        self.assertEqual(self.note(), "0.2.0")
         self.assertEqual(self.head(), ahead)
 
     def test_versions_sort_numerically_and_prereleases_are_not_releases(self):
-        self.publish("nine", **{"skills/grilling/NOTE.md": "nine\n"})
-        self.tag("v0.9.0")
-        ten = self.publish("ten", **{"skills/grilling/NOTE.md": "ten\n"})
-        self.tag("v0.10.0", "-a", "-m", "release 0.10.0")
-        self.publish("candidate", **{"skills/grilling/NOTE.md": "rc\n"})
+        self.cut("0.9.0")
+        ten = self.cut("0.10.0", None, "-a", "-m", "release 0.10.0")
+        self.publish("candidate", VERSION="0.11.0-rc1\n")
         self.tag("v0.11.0-rc1")
         result = self.update("--yes")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("release v0.10.0", result.stdout)
         self.assertEqual(self.head(), ten)
 
+    def test_a_tag_whose_version_file_disagrees_is_ignored(self):
+        good = self.cut("0.2.0")
+        self.publish("mistaken tag", **{"skills/grilling/NOTE.md": "oops\n"})
+        self.tag("v2.0.0")
+        result = self.update("--yes")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("release v0.2.0", result.stdout)
+        self.assertEqual(self.head(), good)
+
+    def test_a_tag_that_is_not_on_the_branch_is_ignored(self):
+        good = self.cut("0.2.0")
+        self.git(self.work, "checkout", "-q", "-b", "hotfix", self.old)
+        (self.work / "VERSION").write_text("3.0.0\n")
+        self.git(self.work, "add", "-A")
+        self.git(self.work, "commit", "-q", "-m", "hotfix")
+        self.tag("v3.0.0")
+        result = self.update("--yes")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("release v0.2.0", result.stdout)
+        self.assertEqual(self.head(), good)
+
+    def test_a_tag_of_the_users_own_cannot_become_the_release(self):
+        good = self.cut("0.2.0")
+        self.git(self.clone, "tag", "v9.0.0", self.old)
+        result = self.update("--yes")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("release v0.2.0", result.stdout)
+        self.assertEqual(self.head(), good)
+
+    def test_a_local_tag_with_a_remote_tags_name_does_not_stop_the_update(self):
+        good = self.cut("0.2.0")
+        self.git(self.clone, "tag", "v0.2.0", self.old)
+        result = self.update("--yes")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.head(), good)
+
+    def test_non_ascii_digits_are_not_a_version(self):
+        good = self.cut("0.2.0")
+        self.publish("odd tag", VERSION="\u0661.0.0\n")
+        self.tag("v\u0661.0.0")
+        result = self.update("--yes")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.head(), good)
+
+    def test_branch_follows_the_branch_even_when_releases_exist(self):
+        self.cut("0.2.0")
+        tip = self.publish("after the release", **{"skills/grilling/NOTE.md": "unreleased\n"})
+        result = self.update("--yes", "--branch")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.head(), tip)
+        self.assertEqual(self.note(), "unreleased")
+
     def test_a_diverged_clone_is_still_refused_with_a_release(self):
-        self.publish("released", **{"skills/grilling/NOTE.md": "released\n"})
-        self.tag("v0.2.0")
+        self.cut("0.2.0")
         (self.clone / "LOCAL.md").write_text("local\n")
         self.git(self.clone, "add", "-A")
         self.git(self.clone, "commit", "-q", "-m", "local work")
@@ -212,7 +280,7 @@ class Refusals(Update):
     def test_an_unfetched_candidate_is_refused(self):
         self.git(self.clone, "config", "remote.origin.fetch", "+refs/heads/main:refs/remotes/origin/elsewhere")
         (self.clone / ".git/refs/remotes/origin/main").write_text("1" * 40 + "\n")
-        self.refused(r"git fetch --quiet --tags origin failed .*bad object")
+        self.refused(r"git fetch --quiet origin failed .*bad object")
         self.assertEqual(self.head(), self.old)
 
     def test_without_a_recorded_clone_it_prints_the_two_commands(self):

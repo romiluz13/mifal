@@ -69,4 +69,6 @@ The vendored `herdr` skill updates through `maint/upstream.py` like any other.
 3. Merge it, then tag that merge commit `vX.Y.Z` (the `release` workflow checks that the tag equals `VERSION` and sits on `main`) and push the tag. Tags are permanent, so a release found broken is fixed by the next version.
 4. Users run `mifal update`: it fetches their clone, previews the incoming commits and every write, asks, and installs exactly the revision it showed.
 
-Installs from 0.1.2 or earlier follow the branch, not tags: their first update runs the old code and lands on the tip of `main`. Keep `main` at the release commit until you have tagged it, so that first update lands on the release. After it, the install runs the tag-following code.
+Installs from 0.1.2 or earlier follow the branch, not tags: an update at any later time runs the old code and lands on the tip of `main`, and from then on the install runs the tag-following code. Keep `main` releasable, and keep it at the release commit until you have tagged it, so that landing is a release.
+
+A tag counts only if it is `vX.Y.Z`, sits on the branch the clone tracks, and its `VERSION` file is the tag. A mistyped or off-branch tag is ignored by `mifal update`. Tags are still permanent. A fork that keeps its own commits without tagging follows them with `mifal update --branch`.
