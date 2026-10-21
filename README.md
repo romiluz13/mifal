@@ -30,7 +30,7 @@ Claude Code, Codex, Droid, Pi and OpenCode each read their own rules file, and e
 
 ## Quickstart
 
-You need macOS, git and python3 3.9 or later (`xcode-select --install` provides both). The installer installs Herdr if it is missing, asking before it runs anything from the network.
+You need macOS, git and python3 3.9 or later (`xcode-select --install` provides both). The dry run lists every write and changes nothing. If Herdr is missing, the installer runs `brew install herdr`, which the dry run shows first; without Homebrew, in a terminal it downloads Herdr's install script, shows its checksum and asks before running it, and without a terminal it stops unless you pass `--herdr-script`.
 
 ```sh
 git clone https://github.com/romiluz13/mifal.git
