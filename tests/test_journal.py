@@ -143,12 +143,12 @@ class RulesFiles(Sandbox):
         self.seed()
         self.install()
         installed = snapshot(self.home)
-        self.release("0.2.0")
+        self.release("99.0.0")
         result = self.install(check=False, MIFAL_TEST_FAIL_AT="before-publication")
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(snapshot(self.home), installed)
         self.install()
-        self.assertIn("version=0.2.0", (self.home / ".codex/AGENTS.md").read_text())
+        self.assertIn("version=99.0.0", (self.home / ".codex/AGENTS.md").read_text())
 
     def test_a_user_edit_during_the_interrupted_install_is_kept(self):
         self.seed()
