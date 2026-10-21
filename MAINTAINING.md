@@ -60,6 +60,17 @@ The vendored `herdr` skill updates through `maint/upstream.py` like any other.
 | Pi | `$PI_CODING_AGENT_DIR/AGENTS.md` | `AGENTS.override.md`, then `AGENTS.md`, `AGENTS.MD`, `CLAUDE.md`, `CLAUDE.MD` | native |
 | OpenCode | `AGENTS.md` in its config folder | `~/.claude/CLAUDE.md` is its fallback when its own file is absent, unless `OPENCODE_DISABLE_CLAUDE_CODE` or `..._PROMPT` is `true` or `1` | native |
 
+## The routine
+
+One maintainer, several agents. Production is `main`; everything else is short-lived.
+
+1. **Dogfood first.** Try a change in your own setup. A change that proves itself there becomes a pull request here; nothing flows back automatically.
+2. **One branch, one worktree, one writer per task.** `git worktree add ../.worktrees/mifal/<task> -b agent/<who>-<topic> main`. Check `git worktree list` before starting, so two agents never share a branch or a folder. Never work in the folder you installed from.
+3. **Pull request, then merge.** `main` takes only pull requests whose `mifal` check passed; merged branches delete themselves.
+4. **Release on purpose.** Follow Releasing below. Only a pushed `vX.Y.Z` tag reaches users, and a tag cannot be moved or deleted, so a bad release is fixed by the next one.
+5. **Weekly cleanup.** `git fetch --prune`, `git worktree prune`, and `git branch --merged main`; delete a branch only after checking that it holds no commit `main` lacks (`git log main..<branch>`). Remove the worktrees of merged branches.
+6. **Never:** force-push, push to `main`, delete a tag, or edit a shipped file inside an installed copy.
+
 ## Releasing
 
 `main` is protected: every change goes in by pull request, and the `mifal` check must pass. Release tags `v*` cannot be moved or deleted. `mifal update` follows the newest `vX.Y.Z` tag, so merging to `main` does not reach users; tagging does.
