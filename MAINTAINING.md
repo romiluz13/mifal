@@ -65,13 +65,13 @@ The vendored `herdr` skill updates through `maint/upstream.py` like any other.
 One maintainer, several agents. Production is `main`; everything else is short-lived.
 
 1. **Dogfood first.** Try a change in your own setup. A change that proves itself there becomes a pull request here; nothing flows back automatically.
-2. **One branch, one worktree, one writer per task.** `git worktree add ../.worktrees/mifal/<task> -b agent/<who>-<topic> main`. Check `git worktree list` before starting, so two agents never share a branch or a folder. Never work in the folder you installed from.
+2. **One branch, one worktree, one writer per task.** `git worktree add ../.worktrees/mifal/<task> -b agent/<who>-<topic> origin/main` (run `git fetch` first). Check `git worktree list` before starting, so two agents never share a branch or a folder. Never work in the folder you installed from.
 3. **Pull request, then merge.** `main` takes only pull requests whose `mifal` check passed; merged branches delete themselves.
 4. **Release on purpose.** Follow Releasing below. Only a pushed `vX.Y.Z` tag reaches users, and a tag cannot be moved or deleted, so a bad release is fixed by the next one.
 5. **Weekly cleanup.** `git fetch --prune`, `git worktree prune`, and `git branch --merged main`; delete a branch only after checking that it holds no commit `main` lacks (`git log main..<branch>`). Remove the worktrees of merged branches.
 6. **Never:** force-push, push to `main`, delete a tag, or edit a shipped file inside an installed copy.
 
-What publishes what: merging a pull request that changes `site/` publishes the website within about a minute. Only a pushed `vX.Y.Z` tag gives users a new version. Merging code to `main` alone changes neither for users.
+What publishes what: merging a pull request that changes `site/` publishes the website within about a minute. Only a pushed `vX.Y.Z` tag gives users a new version, if they updated to 0.2.0 or later. Installs on 0.1.x, and anyone who cloned `main` from the README or the site, still follow the tip of `main`, so keep `main` releasable.
 
 Words to give a coding agent:
 
