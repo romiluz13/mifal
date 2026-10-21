@@ -79,6 +79,9 @@ def doctor(h: mf.Home, env, out) -> int:
     guide_sha = hashlib.sha256(guide.read_bytes()).hexdigest() if guide.is_file() else None
     blocks = {e["path"]: e for e in data["entries"] if e["kind"] == "block"}
     skills = sorted(p.name for p in h.pool.iterdir() if (p / "SKILL.md").is_file()) if h.pool.is_dir() else []
+    pool_prefix = str(h.pool) + os.sep
+    mifal_skills = {e["path"][len(pool_prefix):].split(os.sep, 1)[0] for e in data["entries"]
+                    if e["kind"] in ("file", "symlink") and e["path"].startswith(pool_prefix)}
     for name, rec in sorted(data.get("harnesses", {}).items()):
         if rec["status"] != "wired":
             w = harness.plan(name, h.home, env, Path(rec["root"]), show)
@@ -91,13 +94,19 @@ def doctor(h: mf.Home, env, out) -> int:
         rules, root = Path(rec["rules"]), Path(rec["root"])
         _guide(r, name, rules, root, blocks.get(rec["rules"]), guide_sha, h, env)
         if name == "claude":
-            wrong = [n for n in skills if not os.path.islink(root / "skills" / n)
-                     or os.readlink(root / "skills" / n) != str(h.pool / n)]
+            unlinked = [n for n in skills if not os.path.islink(root / "skills" / n)
+                        or os.readlink(root / "skills" / n) != str(h.pool / n)]
+            wrong = [n for n in unlinked if n in mifal_skills]
+            yours = [n for n in unlinked if n not in mifal_skills]
             if wrong:
                 r.line("FAIL", "skills claude", f"{len(wrong)} skill link(s) missing or changed in "
                        f"{show(root / 'skills')}: " + ", ".join(wrong[:5]), REINSTALL)
             else:
-                r.line("PASS", "skills claude", f"{len(skills)} links in {show(root / 'skills')}")
+                r.line("PASS", "skills claude", f"{len(skills) - len(yours)} links in {show(root / 'skills')}")
+            if yours:
+                r.line("WARN", "your skills claude", f"{len(yours)} skill(s) of your own in {show(h.pool)} are not "
+                       f"linked into {show(root / 'skills')}, so Claude Code does not see them: " + ", ".join(yours[:5]),
+                       f"ln -s {show(h.pool)}/{yours[0]} {show(root / 'skills')}/{yours[0]}")
         else:
             r.line("PASS", f"skills {name}", f"reads {show(h.pool)} natively, {len(skills)} skills")
 

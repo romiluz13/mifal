@@ -114,6 +114,30 @@ class Broken(Doctor):
         (self.home / ".claude/skills/tdd").unlink()
         self.assert_fails_with_fix(self.doctor(), "skills claude")
 
+    def test_a_skill_of_the_users_own_in_the_pool_warns_with_its_fix_and_does_not_fail(self):
+        own = self.home / ".agents/skills/my-own-skill"
+        own.mkdir()
+        (own / "SKILL.md").write_text("mine\n")
+        result = self.doctor()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.failed(result), [])
+        lines = result.stdout.splitlines()
+        at = next((i for i, line in enumerate(lines) if line.startswith("WARN your skills claude")), None)
+        self.assertIsNotNone(at, result.stdout)
+        self.assertIn("my-own-skill", lines[at])
+        self.assertIn("ln -s", lines[at + 1])
+        (self.home / ".claude/skills/my-own-skill").symlink_to(own)
+        result = self.doctor()
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertNotIn("your skills claude", result.stdout)
+
+    def test_a_missing_link_for_a_mifal_skill_still_fails_next_to_the_users_own(self):
+        own = self.home / ".agents/skills/my-own-skill"
+        own.mkdir()
+        (own / "SKILL.md").write_text("mine\n")
+        (self.home / ".claude/skills/tdd").unlink()
+        self.assert_fails_with_fix(self.doctor(), "skills claude")
+
     def test_a_codex_override_created_after_install_fails_with_its_fix(self):
         (self.home / ".codex/AGENTS.override.md").write_text("override\n")
         self.assert_fails_with_fix(self.doctor(), "guide codex")
