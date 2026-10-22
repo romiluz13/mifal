@@ -57,6 +57,42 @@ def roots(home: Path, env) -> dict:
     }
 
 
+VARIABLES = {"claude": "CLAUDE_CONFIG_DIR", "codex": "CODEX_HOME", "pi": "PI_CODING_AGENT_DIR",
+             "opencode": "OPENCODE_CONFIG_DIR"}
+
+
+def recorded_env(data: dict, env, show=str):
+    """(env, notes): the environment an update or a doctor run uses, so it serves the homes the install recorded.
+
+    Each wired agent's variable is set to its recorded root and the variables of the other agents are removed. A
+    manifest without a harness record passes env unchanged. A variable the shell set to another home is noted."""
+    records = data.get("harnesses") or {}
+    if not records:
+        return env, []
+    out, notes = dict(env), []
+    for name, variable in VARIABLES.items():
+        rec = records.get(name)
+        if not rec or rec["status"] != "wired":
+            out.pop(variable, None)
+            continue
+        shell = env.get(variable)
+        if shell and os.path.realpath(shell) != os.path.realpath(rec["root"]):
+            notes.append(f"note {variable} is {show(shell)}, but Mifal serves {show(rec['root'])}; "
+                         "to serve another home, run ./install.sh")
+        out[variable] = rec["root"]
+    return out, notes
+
+
+def unserved(home: Path, data: dict, env, show=str) -> list:
+    """A note for each harness detected in the shell's environment that the install does not serve."""
+    records = data.get("harnesses") or {}
+    if not records:
+        return []
+    found = roots(home, env)
+    return [f"note found {name} at {show(found[name])}, not served; run ./install.sh to add it"
+            for name in detect(home, env, found) if records.get(name, {}).get("status") != "wired"]
+
+
 def _binary(name, env) -> bool:
     found = shutil.which(name, path=env.get("PATH", ""))
     if not found:

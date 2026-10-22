@@ -54,6 +54,10 @@ def doctor(h: mf.Home, env, out) -> int:
         r.line("FAIL", "manifest", "an install was interrupted", "run ./install.sh in your Mifal clone to roll it back")
         return 1
     show = h.show
+    shell = env
+    env, notes = harness.recorded_env(data, shell, show)
+    for line in notes:
+        out(line)
 
     for line in moved_folders(h, data.get("folders", {})):
         r.line("FAIL", "folders", line, "put the folder back where it was")
@@ -142,10 +146,10 @@ def doctor(h: mf.Home, env, out) -> int:
         r.line("WARN", "agent-browser", "the agent-browser skill's CLI is not on PATH, and Mifal does not install it; "
                "browser checks need it", "npm i -g agent-browser && agent-browser install")
 
-    if env.get("FACTORY_HOME_OVERRIDE"):
+    if shell.get("FACTORY_HOME_OVERRIDE"):
         r.line("WARN", "droid", "FACTORY_HOME_OVERRIDE is set; Droid may not read the wiring in ~/.factory")
     for variable in ROOT_VARIABLES:
-        value = env.get(variable)
+        value = shell.get(variable)
         if value and os.path.isabs(value) and not (os.path.realpath(value) + os.sep).startswith(str(h.real) + os.sep):
             out(f"WARN {variable} is {value}, outside your home folder")
             r.counts["WARN"] += 1

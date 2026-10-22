@@ -154,7 +154,7 @@ def make_plan(h: Home, source: Path, version: str, overwrite_edits: bool = False
 
     found_roots = harness.roots(h.home, env)
     was_wired = [n for n, r in (old or {}).get("harnesses", {}).items() if r["status"] == "wired"]
-    names = [n for n in harness.NAMES if n in set(selected or harness.detect(h.home, env, found_roots)) | set(was_wired)]
+    names = [n for n in harness.NAMES if n in set(harness.detect(h.home, env, found_roots) if selected is None else selected) | set(was_wired)]
     now_folders = folders(h, found_roots, names)
     plan.stops += moved_folders(h, {k: f for k, f in (old or {}).get("folders", {}).items() if k in now_folders})
     for key, f in now_folders.items():

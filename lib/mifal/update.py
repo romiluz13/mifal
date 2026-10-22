@@ -9,6 +9,7 @@ import tarfile
 import tempfile
 from pathlib import Path
 
+from . import harness
 from . import install as inst
 from . import journal
 
@@ -108,6 +109,18 @@ def export(clone: Path, sha: str, into: Path) -> None:
     archive.unlink()
 
 
+def _plan(h, tree, version, args, data, src):
+    """The plan for installing tree into the recorded homes. Agents that were skipped stay recorded as skipped."""
+    records = data.get("harnesses") or {}
+    env, notes = harness.recorded_env(data, os.environ, h.show)
+    notes += harness.unserved(h.home, data, os.environ, h.show)
+    wired = [n for n, r in records.items() if r["status"] == "wired"]
+    plan = inst.make_plan(h, tree, version, args.overwrite_edits, wired if records else None, env, source_record=src)
+    for name, rec in records.items():
+        plan.data["harnesses"].setdefault(name, rec)
+    return plan, notes
+
+
 def update(h, data, args, out) -> int:
     source = data.get("source") or {}
     clone = Path(source["path"]) if source.get("path") else None
@@ -133,12 +146,14 @@ def update(h, data, args, out) -> int:
         tree = Path(temp) / "tree"
         version = (tree / "VERSION").read_text(encoding="utf-8").strip()
         src = dict(source, revision=sha)
-        plan = inst.make_plan(h, tree, version, args.overwrite_edits, env=os.environ, source_record=src)
+        plan, notes = _plan(h, tree, version, args, data, src)
         known = installed and _git(clone, "cat-file", "-e", installed + "^{commit}", check=False).returncode == 0
         log = _git(clone, "log", "--oneline", f"{installed}..{sha}" if known else sha, "-n", "50").stdout
         out(f"Update {installed[:12] if installed else 'unknown'} -> {sha[:12]} ({upstream}), Mifal {version}:")
         for line in log.splitlines():
             out(f"  {line}")
+        for line in notes:
+            out(line)
         if plan.conflicts or plan.stops:
             for line in plan.stops + plan.conflicts:
                 out(line)
@@ -146,7 +161,7 @@ def update(h, data, args, out) -> int:
             if plan.unwritable:
                 for line in inst.unwritable_advice(plan, False):
                     out(line)
-            if any(line not in hard for line in plan.conflicts) or (plan.stops and not plan.unwritable):
+            if any(line not in hard for line in plan.conflicts):
                 out("Nothing was changed. Restore those paths, or run mifal update --overwrite-edits to save a copy of each first.")
             else:
                 out("Nothing was changed.")
@@ -161,7 +176,7 @@ def update(h, data, args, out) -> int:
             if input(f"Apply {len(lines)} change(s)? [y/N] ").strip().lower() not in ("y", "yes"):
                 out("Not applied.")
                 return 1
-            plan = inst.make_plan(h, tree, version, args.overwrite_edits, env=os.environ, source_record=src)
+            plan, _ = _plan(h, tree, version, args, data, src)
             if plan.conflicts or plan.stops or list(plan.lines()) != lines:
                 for line in plan.stops + plan.conflicts:
                     out(line)
