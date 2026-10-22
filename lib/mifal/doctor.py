@@ -94,10 +94,16 @@ def doctor(h: mf.Home, env, out) -> int:
         rules, root = Path(rec["rules"]), Path(rec["root"])
         _guide(r, name, rules, root, blocks.get(rec["rules"]), guide_sha, h, env)
         if name == "claude":
-            unlinked = [n for n in skills if not os.path.islink(root / "skills" / n)
-                        or os.readlink(root / "skills" / n) != str(h.pool / n)]
-            wrong = [n for n in unlinked if n in mifal_skills]
-            yours = [n for n in unlinked if n not in mifal_skills]
+            def exact(n):
+                return os.path.islink(root / "skills" / n) and os.readlink(root / "skills" / n) == str(h.pool / n)
+
+            def resolves(n):
+                link = root / "skills" / n
+                return os.path.islink(link) and os.path.realpath(link) == os.path.realpath(h.pool / n)
+
+            # Uninstall matches the recorded link text, so Mifal's own links must match exactly; a link of yours only has to work.
+            wrong = [n for n in skills if n in mifal_skills and not exact(n)]
+            yours = [n for n in skills if n not in mifal_skills and not resolves(n)]
             if wrong:
                 r.line("FAIL", "skills claude", f"{len(wrong)} skill link(s) missing or changed in "
                        f"{show(root / 'skills')}: " + ", ".join(wrong[:5]), REINSTALL)

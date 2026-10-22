@@ -131,6 +131,42 @@ class Broken(Doctor):
         self.assertEqual(result.returncode, 0, result.stdout)
         self.assertNotIn("your skills claude", result.stdout)
 
+    def own_skill(self):
+        own = self.home / ".agents/skills/my-own-skill"
+        own.mkdir()
+        (own / "SKILL.md").write_text("mine\n")
+        return own
+
+    def test_a_relative_link_to_a_skill_of_the_users_own_counts_as_linked(self):
+        self.own_skill()
+        (self.home / ".claude/skills/my-own-skill").symlink_to("../../.agents/skills/my-own-skill")
+        result = self.doctor()
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertNotIn("your skills claude", result.stdout)
+
+    def test_a_link_to_a_skill_of_the_users_own_through_a_linked_pool_path_counts_as_linked(self):
+        self.own_skill()
+        (self.root / "alias").symlink_to(self.home / ".agents/skills")
+        (self.home / ".claude/skills/my-own-skill").symlink_to(self.root / "alias/my-own-skill")
+        result = self.doctor()
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertNotIn("your skills claude", result.stdout)
+
+    def test_a_link_that_resolves_elsewhere_still_warns_about_a_skill_of_the_users_own(self):
+        self.own_skill()
+        elsewhere = self.root / "elsewhere"
+        elsewhere.mkdir()
+        (self.home / ".claude/skills/my-own-skill").symlink_to(elsewhere)
+        result = self.doctor()
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertRegex(result.stdout, r"(?m)^WARN your skills claude.*my-own-skill")
+
+    def test_a_relative_link_to_a_mifal_skill_still_fails_because_uninstall_matches_the_recorded_text(self):
+        link = self.home / ".claude/skills/tdd"
+        link.unlink()
+        link.symlink_to("../../.agents/skills/tdd")
+        self.assert_fails_with_fix(self.doctor(), "skills claude")
+
     def test_a_missing_link_for_a_mifal_skill_still_fails_next_to_the_users_own(self):
         own = self.home / ".agents/skills/my-own-skill"
         own.mkdir()
