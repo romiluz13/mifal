@@ -21,8 +21,9 @@ Rules that matter most:
 - **Never ring DONE with an unverified claim.** If a done-means claim is
   untested, say so in the receipt — then ring. The receipt, not the ring,
   proves delivery.
-- **Write the return file first, ring once.** If the lead isn't ready within
-  a bounded wait, leave the file — it stands alone.
+- **Write the return file first, ring once.** If the lead is busy, try again
+  every 2 minutes for up to 30 minutes, never typing into a busy pane; after
+  that, leave the file — it stands alone.
 - **Ring the attempt you are closing** on corrections: `DONE 7.2 ...` — a
   late `DONE 7` closes nothing while `7.2` is open.
 

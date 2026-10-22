@@ -116,17 +116,21 @@ The return happens in three parts:
    sending one line: `herdr agent prompt <lead> "DONE <id> <path>"`. Use
    `HELP <id> <specific question>` for guidance, `HELD <id> <approval needed>`
    for a human approval, or `STOPPED <id> <reason>` after a stop. These follow
-   the [doorbell contract](contracts/doorbell.md). On timeout it skips the
-   ring; the file is enough. A draft or unreadable composer also skips the
-   ring without clearing any input.
+   the [doorbell contract](contracts/doorbell.md). If the wait times out, the
+   prompt is refused with `agent_blocked` (you are at a question or approval
+   dialog), or your composer holds a draft or can't be read, the worker leaves
+   your input alone and tries the whole step again every 2 minutes for up to
+   30 minutes. It never sends to a busy lead. After 30 minutes it stops trying;
+   the file is enough.
 
 Put these steps and your pane's name in every brief that expects a return.
-Tell workers to ring at most once. The file is authoritative; the ring is
-only a hint. The durable detail survives compaction, while the summary stays
+Tell workers to deliver one ring: a refused or skipped attempt is retried,
+and a ring that was sent is never sent again. The file is authoritative; the
+ring is only a hint. The durable detail survives compaction, while the summary stays
 visible in chat. This is the Team Lead task-return protocol; Herdr's
 chat-first guidance for ad hoc command/output exchange still applies there.
 A foreground `agent wait` on a worker shows you as `working`, so its ring
-gets skipped: run your wait in the background where the harness allows,
+has to wait: run your wait in the background where the harness allows,
 otherwise keep it short and check the expected return files on each wake.
 
 ## Reading a pane

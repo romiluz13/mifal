@@ -147,6 +147,21 @@ class Loading(unittest.TestCase):
             with self.subTest(rule=rule):
                 self.assertIn(rule, head)
 
+    def test_a_refused_ring_is_retried_and_never_sent_to_a_busy_lead(self):
+        def flat(rel):
+            return " ".join((REPO / "skills/team-lead" / rel).read_text(encoding="utf-8").split())
+        herdr = flat("references/herdr.md")
+        for rule in ("Prompt only a teammate that is `idle` or `done`.", "`agent_blocked`",
+                     "every 2 minutes for up to 30 minutes", "never sends to a busy lead"):
+            with self.subTest(rule=rule):
+                self.assertTrue(rule in herdr, f"references/herdr.md lacks: {rule}")
+        for rel in ["references/herdr.md", "references/communication.md"] + sorted(
+                str(p.relative_to(REPO / "skills/team-lead")) for p in (REPO / "skills/team-lead/roles").rglob("DOORBELL.md")):
+            text = flat(rel)
+            for dropped in ("skips the ring", "skip it if the lead isn't ready", "isn't ready within a bounded wait"):
+                with self.subTest(file=rel, dropped=dropped):
+                    self.assertFalse(dropped in text, f"{rel} still drops the ring: {dropped}")
+
 
 class Closure(unittest.TestCase):
     def test_no_shipped_body_names_an_unshipped_skill(self):

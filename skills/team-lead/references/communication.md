@@ -215,8 +215,9 @@ task/attempt, outcome, decisive checks, blockers and the evidence path. The
 lead gives the human a summary of acceptance and remaining limits. These
 summaries derive from the receipt; they do not become another task record.
 Keep the separate signal compact: status, task id, and path. The declared
-receipt surface is authoritative and the signal only a hint: send it at
-most once, and skip it if the lead isn't ready within a bounded wait. The
+receipt surface is authoritative and the signal only a hint: deliver it
+once. If the lead isn't ready, retry every 2 minutes for up to 30 minutes
+rather than sending to a busy lead, then let the receipt stand alone. The
 lead's own wait checks the declared receipt surface, not only the signal
 channel.
 
