@@ -7,7 +7,7 @@ from . import harness
 from .herdr import removal_hint
 from .install import moved_folders
 from .journal import Fs
-from .manifest import Home, diverted, expected, read_rules, state, write_text
+from .manifest import Home, diverted, expected, linked_skill_folders, read_rules, state, write_text
 
 
 def _depth_first(entries):
@@ -24,8 +24,9 @@ def uninstall(h: Home, data: dict, fs: Fs) -> int:
     kept = []
     links = {}
     entries = []
+    through = linked_skill_folders(data)
     for e in data["entries"]:
-        link = diverted(e["path"]) or (diverted(e["backup"]) if e["kind"] == "backup" else None)
+        link = diverted(e["path"], through) or (diverted(e["backup"], through) if e["kind"] == "backup" else None)
         if link:
             links.setdefault(link, h.show(e["path"]))
         else:

@@ -169,8 +169,9 @@ def update_note(journal: dict):
 
 def rollback(h, journal: dict, fs: Fs) -> None:
     steps, pre = journal["steps"], journal["pre"]
+    through = mf.linked_skill_folders(journal)
     for op in reversed(steps[pre:]):
-        _undo(h, op, fs)
+        _undo(h, op, fs, through)
     if journal["previous"] is None:
         fs.remove(h.manifest, f"remove {h.show(h.manifest)}")
     else:
@@ -180,13 +181,13 @@ def rollback(h, journal: dict, fs: Fs) -> None:
     if not fs.dry_run:
         _remove_txn(h)
     for op in reversed(steps[:pre]):
-        _undo(h, op, fs)
+        _undo(h, op, fs, through)
 
 
-def _undo(h, op: dict, fs: Fs) -> None:
+def _undo(h, op: dict, fs: Fs, through=()) -> None:
     kind = op["op"]
     touched = [Path(op[k]) for k in ("path", "from", "to") if k in op]
-    link = next((d for d in map(mf.diverted, touched) if d), None)
+    link = next((d for d in (mf.diverted(t, through) for t in touched) if d), None)
     if link:
         fs.out(f"kept {h.show(touched[0])}: {h.show(link)} is a link now, changed after the interrupted install")
         return

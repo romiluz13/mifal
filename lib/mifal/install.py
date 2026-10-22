@@ -118,6 +118,25 @@ def moved_folders(h: Home, recorded: dict) -> list:
     return lines
 
 
+def linked_folder(h: Home, folder: Path):
+    """How to treat a skills folder that is a symlink: ("ok", target), ("outside", target) or ("refuse", why).
+
+    Only a link that leads straight to a real folder is written through. A dangling link, a link to a file or to
+    another link, and a path through a symlinked folder inside the home are refused: none is a folder the person
+    plainly means Mifal to write into."""
+    target = Path(os.path.normpath(os.path.join(folder.parent, os.readlink(folder))))
+    if not os.path.lexists(target):
+        return "refuse", "which does not exist", target
+    if target.is_symlink():
+        return "refuse", "which is itself a link", target
+    if not target.is_dir():
+        return "refuse", "which is not a folder", target
+    for parent in target.parents:
+        if parent not in (h.home, h.real) and (_inside(parent, h.home) or _inside(parent, h.real)) and parent.is_symlink():
+            return "refuse", f"which lies behind the link {h.show(parent)}", target
+    return ("ok" if _inside(Path(os.path.realpath(target)), h.real) else "outside"), None, target
+
+
 def make_plan(h: Home, source: Path, version: str, overwrite_edits: bool = False, selected=None, env=None,
               allow_outside: bool = False, source_record=None) -> Plan:
     loaded = mf.load(h)
@@ -155,6 +174,29 @@ def make_plan(h: Home, source: Path, version: str, overwrite_edits: bool = False
 
     for folder, real in h.linked():
         plan.notes.append(f"note {show(folder)} is a link to {show(real)}; Mifal writes there")
+
+    through = set()
+    for w in wirings:
+        folder = w.root / "skills"
+        if not (w.mode == "import" and (not w.skip or w.rules in old_blocks) and folder.is_symlink()):
+            continue
+        through.add(folder)
+        verdict, why, target = linked_folder(h, folder)
+        if verdict == "refuse":
+            plan.stops.append(
+                f"{show(folder)} is a link to {os.readlink(folder)}, {why}. Mifal writes into a skills folder behind "
+                f"a link only when the link leads straight to a real folder in your home. Point the link at one, or "
+                f"leave {harness.TITLES[w.name]} out with --harness and name the other agents.")
+        elif verdict == "outside" and not allow_outside:
+            plan.stops.append(f"{show(folder)} is a link to {target}, outside your home folder. "
+                              "Run with --allow-root-outside-home to write there.")
+        else:
+            plan.notes.append(f"note {show(folder)} is a link to {show(target)}; Mifal writes there")
+            shared = {Path(r[w.name]) for r in (harness.roots(h.home, env), harness.roots(h.home, {}))}
+            for other in sorted(shared):
+                if (os.path.realpath(other) != str(w.root) and os.path.isdir(other / "skills")
+                        and os.path.realpath(other / "skills") == os.path.realpath(folder)):
+                    plan.notes.append(f"note also seen by {show(other)}: it shares {show(target)}")
 
     moves, gone = [], []
 
@@ -286,7 +328,8 @@ def make_plan(h: Home, source: Path, version: str, overwrite_edits: bool = False
              recorded)
     need(h.link.parent, h.link, recorded)
     for path in skill_links:
-        need(path.parent, path.parent.parent, recorded)
+        if path.parent not in through:
+            need(path.parent, path.parent.parent, recorded)
     for step in blocks:
         rules = Path(step.op["path"])
         need(rules.parent, rules.parent, recorded)

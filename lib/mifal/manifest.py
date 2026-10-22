@@ -71,13 +71,22 @@ def state(path: Path) -> tuple:
     return ("other",) if os.path.lexists(path) else MISSING
 
 
-def diverted(path: Path):
+def diverted(path: Path, through=()):
     """The nearest folder above path that is now a symlink, or None. Manifest paths are realpaths, so a link above
-    one means the user replaced that folder since install, and what it leads to is not Mifal's."""
+    one means the user replaced that folder since install, and what it leads to is not Mifal's. A folder named in
+    through is a link of the user's that Mifal wrote into, so it is not a replacement."""
     for parent in Path(path).parents:
-        if parent.is_symlink():
+        if parent.is_symlink() and parent not in through:
             return parent
     return None
+
+
+def linked_skill_folders(data: dict) -> set:
+    """The wired agents' skills folders that are links and were never Mifal's own folders: the person's link, which
+    Mifal wrote its skill links through. A recorded dir entry is a folder Mifal made, so it never counts."""
+    made = {Path(e["path"]) for e in data.get("entries", []) if e["kind"] == "dir"}
+    found = {Path(r["root"]) / "skills" for r in data.get("harnesses", {}).values() if r.get("status") == "wired"}
+    return {f for f in found if f.is_symlink() and f not in made}
 
 
 def replace_file(path: Path, data: bytes, mode: int, tmp: Path | None = None) -> None:
