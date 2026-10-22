@@ -218,9 +218,12 @@ class LinkedRulesFile(Sandbox):
         self.assertIn("~/.codex/AGENTS.md", text)
         self.assertIn("symbolic link", text)
         self.assertIn(str(target) if outside else "~/policy.md", text)
-        self.assertIn("regular file", text)
-        self.assertIn("--harness claude", text)
+        self.assertIn("To wire that agent, replace the link with a regular file and run again; "
+                      f"the agent then reads its own copy, not {str(target) if outside else '~/policy.md'}.", text)
+        self.assertIn("Or wire only the other agents: ./install.sh --harness claude", text)
         self.assertNotIn("--overwrite-edits", text)
+        self.assertNotIn("cp -L", text)
+        self.assertEqual(text.count("does not write through a link"), 1)
         return text
 
     def test_install_refuses_and_names_the_link_and_the_two_ways_out(self):
@@ -237,8 +240,9 @@ class LinkedRulesFile(Sandbox):
         text = result.stdout + result.stderr
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("symbolic link", text)
-        self.assertIn("regular file", text)
+        self.assertIn("To wire that agent, replace the link with a regular file", text)
         self.assertNotIn("--harness", text)
+        self.assertNotIn("other agents", text)
         self.assertNotIn("--overwrite-edits", text)
 
     def test_a_folder_in_place_of_a_rules_file_is_called_a_folder(self):
@@ -248,7 +252,9 @@ class LinkedRulesFile(Sandbox):
         text = result.stdout + result.stderr
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("~/.codex/AGENTS.md", text)
-        self.assertIn("folder", text)
+        self.assertIn("is a folder", text)
+        self.assertIn("To wire that agent, replace it with a regular file and run again.", text)
+        self.assertNotIn("its own copy", text)
         self.assertNotIn("symbolic link", text)
         self.assertNotIn("--overwrite-edits", text)
 
@@ -285,8 +291,11 @@ class LinkedRulesFileOnUpdate(Update):
         self.assertEqual(target.read_bytes(), held)
         self.assertIn("~/.codex/AGENTS.md", text)
         self.assertIn("symbolic link to ~/policy.md", text)
-        self.assertIn("regular file", text)
+        self.assertIn("To wire that agent, replace the link with a regular file and run again; "
+                      "the agent then reads its own copy, not ~/policy.md.", text)
+        self.assertNotIn("--harness", text)
         self.assertNotIn("--overwrite-edits", text)
+        self.assertNotIn("cp -L", text)
 
 
 if __name__ == "__main__":

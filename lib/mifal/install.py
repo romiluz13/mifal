@@ -232,7 +232,7 @@ def make_plan(h: Home, source: Path, version: str, overwrite_edits: bool = False
             else:
                 why = "is not a regular file"
             plan.conflicts.append(where + why)
-            plan.unwritable.append((where + why, kind[0], show(w.rules), w.name))
+            plan.unwritable.append((where + why, kind[0], w.name, dest if kind[0] == "link" else None))
             continue
         text = mf.read_rules(w.rules) if os.path.lexists(w.rules) else None
         found = harness.BLOCK.findall(text or "")
@@ -347,7 +347,7 @@ def make_plan(h: Home, source: Path, version: str, overwrite_edits: bool = False
         "harnesses": records,
         "folders": now_folders,
     }
-    blocked = {name for *_, name in plan.unwritable}
+    blocked = {u[2] for u in plan.unwritable}
     if not blocked & set(was_wired):
         plan.leave_out = [w.name for w in wirings if w.name not in blocked and not w.skip]
     return plan
@@ -356,12 +356,14 @@ def make_plan(h: Home, source: Path, version: str, overwrite_edits: bool = False
 def unwritable_advice(plan, can_leave_out: bool) -> list:
     """The ways out of a rules file Mifal will not write; saving a copy first does not apply to a link or a folder."""
     many = len(plan.unwritable) > 1
-    lines = ["Mifal never writes through a link or into a folder. To wire "
-             f"{'these agents' if many else 'that agent'}, replace {'each' if many else 'it'} with a regular file and run again."]
-    link = next((shown for _, kind, shown, _ in plan.unwritable if kind == "link"), None)
-    if link:
-        lines.append(f"A replaced link is no longer followed by the agent. For example: cp -L {link} {link}.tmp && mv {link}.tmp {link}")
+    links = [dest for _, kind, _, dest in plan.unwritable if kind == "link"]
+    what = "each" if many else "the link" if links else "it"
+    lines = [f"To wire {'these agents' if many else 'that agent'}, replace {what} with a regular file and run again"]
+    if links:
+        lines[0] += ("; each agent then reads its own copy, not the file its link pointed to." if many else
+                     f"; the agent then reads its own copy, not {links[0]}.")
+    else:
+        lines[0] += "."
     if can_leave_out and plan.leave_out:
-        flags = " ".join(f"--harness {n}" for n in plan.leave_out)
-        lines.append(f"Or leave {'them' if many else 'it'} out: ./install.sh {flags}")
+        lines.append("Or wire only the other agents: ./install.sh " + " ".join(f"--harness {n}" for n in plan.leave_out))
     return lines
