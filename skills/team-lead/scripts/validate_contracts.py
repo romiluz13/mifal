@@ -998,11 +998,12 @@ def workflow_map_phases(map_text):
 
 # The step a body's map row governs when the row's own phase word is not it (correction 28.2): the grilling bodies
 # govern grilling, the producers their own step, tdd implement, code-review review, writing-for-agents (loaded with
-# retro) retro.
+# retro) retro; ddd-scope and ddd-ground serve the research and plan phases, which have no start step and precede implement.
 GOVERNED_STEP = {
     **dict.fromkeys(("grilling", "grill-with-docs", "domain-modeling"), {"grilling"}),
     "to-spec": {"to-spec"}, "to-tickets": {"to-tickets"}, "implement": {"implement"}, "tdd": {"implement"},
     "code-review": {"review"}, "retro": {"retro"}, "writing-for-agents": {"retro"},
+    "ddd-scope": {"implement"}, "ddd-ground": {"implement"},
 }
 
 

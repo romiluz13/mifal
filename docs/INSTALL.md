@@ -12,7 +12,7 @@ Mifal writes only into your home folder, and only where the dry run says. On a m
 | Where | What Mifal writes |
 |---|---|
 | `~/.agents/mifal/` | The engine: the `mifal` command and its library, the experimental Herdr adapter and tools, the Guide (`AGENTS.md`) and the Manifest; 44 files |
-| `~/.agents/skills/` | 39 skills, 241 files |
+| `~/.agents/skills/` | 39 skills, 242 files |
 | `~/.local/bin/mifal` | A link to the engine's `mifal` command |
 | `~/.claude/CLAUDE.md` | A Marked block that imports the Guide |
 | `~/.claude/skills/` | 39 links, one per skill, into `~/.agents/skills/` |
