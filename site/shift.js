@@ -60,15 +60,15 @@ function prepare() {
   if (!capable || reduced.matches) return;
   const tracks = [
     ['.floor-ticket', [
-      {transform:'translateX(0%)',offset:0}, {transform:'translateX(55%)',offset:1/6},
-      {transform:'translateX(95%)',offset:2/6}, {transform:'translateX(95%)',offset:3/6},
-      {transform:'translateX(115%)',offset:4/6}, {transform:'translateX(200%)',offset:5/6},
+      {transform:'translateX(0%)',offset:0}, {transform:'translateX(25%)',offset:1/6},
+      {transform:'translateX(50%)',offset:2/6}, {transform:'translateX(50%)',offset:3/6},
+      {transform:'translateX(50%)',offset:4/6}, {transform:'translateX(200%)',offset:5/6},
       {transform:'translateX(200%)',offset:1}
     ]],
     ['.floor-gate', [
-      {transform:'rotate(-35deg)',offset:0}, {transform:'rotate(-35deg)',offset:.29},
+      {transform:'rotate(-90deg)',offset:0}, {transform:'rotate(-90deg)',offset:.29},
       {transform:'rotate(0deg)',offset:2/6}, {transform:'rotate(0deg)',offset:.63},
-      {transform:'rotate(-35deg)',offset:4/6}, {transform:'rotate(-35deg)',offset:1}
+      {transform:'rotate(-90deg)',offset:4/6}, {transform:'rotate(-90deg)',offset:1}
     ]],
     ['.floor-part', [
       {opacity:0,transform:'translateY(-25px)',offset:0}, {opacity:0,transform:'translateY(-25px)',offset:.46},
