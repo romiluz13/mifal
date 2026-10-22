@@ -32,15 +32,21 @@
 <noscript><p class="no-js">The illustration needs JavaScript. The complete real shift and installation instructions are available below.</p></noscript>
 <a class="text-link" href="#shift">Explore the shift that built Mifal <span aria-hidden="true">↓</span></a>
 </div>
-<figure class="workshop">
+<figure class="workshop" id="hero-workshop"><div class="cast-stage">
 <img id="workshop-poster" src="media/workshop.jpg" width="1400" height="929" fetchpriority="high" alt="A blue and yellow team lead with a printed brief beside a coral reviewer, a workpiece and a hinged inspection gate on a conveyor.">
-<figcaption>One lead. A team. A line that can stop.</figcaption>
+<div class="hero-film" hidden><video id="inspection-film" controls muted playsinline preload="none" poster="media/workshop.jpg" width="1112" height="834" aria-label="Generated illustrative inspection: the reviewer approaches the workpiece with a caliper and lowers the gate."></video><button id="close-film" type="button">Back to the floor</button></div></div><div class="factory-floor" data-floor="hero" data-stage="0" aria-hidden="true">
+<div class="floor-line" aria-hidden="true"><span>Intake</span><span>Review</span><span>Ship</span></div>
+<div class="floor-track"><div class="floor-belt" aria-hidden="true"></div><div class="floor-ticket"><span class="ticket-label">Work order</span><span class="ticket-goal">Add passkey login to my app</span><span class="ticket-check" aria-hidden="true">✓</span></div><div class="floor-gate" aria-hidden="true"><span>HOLD</span></div><div class="floor-part" aria-hidden="true">+</div><span class="floor-lamp" aria-hidden="true"></span></div>
+<div class="floor-readout"><span class="floor-state">Goal</span><span class="floor-message">A goal goes in.</span></div></div><figcaption><span>One lead. A team. A line that can stop.</span><div class="shift-controls"><button id="pause-shift" type="button" disabled>Pause</button><button id="replay-shift" type="button" disabled>Replay</button><button id="watch-hold" type="button" disabled aria-expanded="false">Watch a HOLD <span>4s, silent</span></button></div><p id="film-status" role="status">Illustration. A generated inspection shot, played only when you choose.</p></figcaption>
 </figure>
 </section>
 <section class="illustration" aria-labelledby="illustration-h">
 <div class="illustration-heading"><div><p class="section-note">Illustration</p><h2 id="illustration-h">A shift for your goal.</h2></div><p>The sequence below explains a shift. It does not run agents or change your project.</p></div>
 <div class="shift-grid">
-<div class="work-order"><div class="ticket-head"><span>Work order</span><span id="shift-state">Ready</span></div><p id="order-goal">Add passkey login to my app</p><p id="shift-status" role="status">Choose a goal above or explore the six illustrated steps.</p><div class="shift-controls"><button id="pause-shift" type="button" disabled>Pause</button><button id="replay-shift" type="button" disabled>Replay</button></div><p id="mode-note">The steps describe the work; the historical record follows below.</p></div>
+<div class="work-order"><div class="ticket-head"><span>Work order</span><span id="shift-state">Ready</span></div><p id="order-goal">Add passkey login to my app</p><p id="shift-status" role="status">Choose a goal above or explore the six illustrated steps.</p><div class="factory-floor" data-floor="order" data-stage="0" aria-hidden="true">
+<div class="floor-line" aria-hidden="true"><span>Intake</span><span>Review</span><span>Ship</span></div>
+<div class="floor-track"><div class="floor-belt" aria-hidden="true"></div><div class="floor-ticket"><span class="ticket-label">Work order</span><span class="ticket-goal">Add passkey login to my app</span><span class="ticket-check" aria-hidden="true">✓</span></div><div class="floor-gate" aria-hidden="true"><span>HOLD</span></div><div class="floor-part" aria-hidden="true">+</div><span class="floor-lamp" aria-hidden="true"></span></div>
+<div class="floor-readout"><span class="floor-state">Goal</span><span class="floor-message">A goal goes in.</span></div></div><p id="mode-note">The steps describe the work; the historical record follows below.</p></div>
 <ol class="shift-steps" aria-label="Illustrated shift steps"><li><button type="button" data-step="0" disabled aria-pressed="true"><span>1</span>Goal</button><p>The lead takes the goal and asks what only you can settle.</p></li>
 <li><button type="button" data-step="1" disabled aria-pressed="false"><span>2</span>Brief</button><p>The lead staffs the floor and gives each agent a brief.</p></li>
 <li><button type="button" data-step="2" disabled aria-pressed="false"><span>3</span>Hold</button><p>The reviewer finds a problem and stops the line.</p></li>
@@ -48,11 +54,14 @@
 <li><button type="button" data-step="4" disabled aria-pressed="false"><span>5</span>Recheck</button><p>The reviewer checks the correction before clearing the line.</p></li>
 <li><button type="button" data-step="5" disabled aria-pressed="false"><span>6</span>Ship</button><p>Reviewed work comes out the other end. Approvals and publishing stay yours.</p></li></ol>
 </div>
-<details class="inspection"><summary>Watch the inspection shot <span>4 seconds, silent</span></summary><div class="inspection-grid"><video id="inspection-film" controls muted playsinline preload="none" poster="media/workshop.jpg" width="1112" height="834" aria-label="Illustrative inspection: the reviewer approaches the workpiece with a caliper and lowers the gate."><source src="media/workshop.mp4" type="video/mp4"></video><div><h3>The moment the line stops.</h3><p>This generated shot illustrates an inspection. Its action ends with the gate down; it does not show a complete shift.</p><p id="film-status" role="status">Play the shot when you want to watch. All steps remain readable without it.</p></div></div></details>
+
 </section>
 <section id="shift" class="record" aria-labelledby="record-h">
 <div class="record-heading"><p class="section-note">19–20 October 2026</p><h2 id="record-h">The shift that<br>built the factory.</h2><p>One real shift, replayed from its build record.</p></div>
-<div class="record-layout"><aside class="record-rail" aria-label="The real shift"><p>From a goal<br>to reviewed work.</p><ol><li><a href="#beat-goal">The goal</a></li><li><a href="#beat-staff">The team</a></li><li><a href="#beat-brief">The brief</a></li><li><a href="#beat-doorbell">The return</a></li><li><a href="#beat-hold">The hold</a></li><li><a href="#beat-fix">The fix</a></li><li><a href="#beat-miss">The miss</a></li><li><a href="#beat-ship">The ship</a></li><li><a href="#beat-retro">The scar</a></li></ol></aside><div class="record-beats">
+<div class="record-layout"><aside class="record-rail" aria-label="The real shift"><div class="record-theatre"><img src="media/workshop.jpg" width="1400" height="929" loading="lazy" alt="The illustrated team beside its factory line."><div class="factory-floor" data-floor="record" data-stage="0" aria-hidden="true">
+<div class="floor-line" aria-hidden="true"><span>Intake</span><span>Review</span><span>Ship</span></div>
+<div class="floor-track"><div class="floor-belt" aria-hidden="true"></div><div class="floor-ticket"><span class="ticket-label">Work order</span><span class="ticket-goal">Ship Mifal as a product.</span><span class="ticket-check" aria-hidden="true">✓</span></div><div class="floor-gate" aria-hidden="true"><span>HOLD</span></div><div class="floor-part" aria-hidden="true">+</div><span class="floor-lamp" aria-hidden="true"></span></div>
+<div class="floor-readout"><span class="floor-state">Goal</span><span class="floor-message">A goal goes in.</span></div></div><p id="record-state">The goal</p></div><ol><li><a href="#beat-goal">The goal</a></li><li><a href="#beat-staff">The team</a></li><li><a href="#beat-brief">The brief</a></li><li><a href="#beat-doorbell">The return</a></li><li><a href="#beat-hold">The hold</a></li><li><a href="#beat-fix">The fix</a></li><li><a href="#beat-miss">The miss</a></li><li><a href="#beat-ship">The ship</a></li><li><a href="#beat-retro">The scar</a></li></ol></aside><div class="record-beats">
     <article class="beat" data-beat="goal" id="beat-goal">
       <p class="when">19 Oct 2026</p>
       <h2 class="display">A goal goes in.</h2>
@@ -161,7 +170,7 @@ F5  Herdr's script writes outside the Manifest,
   <div class="in two">
     <div>
       <h2 id="install-h" class="display">Open the factory.</h2>
-      <p>macOS, git and Python 3.9 or later. The dry run lists every write and changes nothing; the installer asks before it installs Herdr.</p>
+      <p>macOS, git and Python 3.9 or later. The dry run lists every write and changes nothing. If Herdr is missing, the installer runs <code>brew install herdr</code>, which the dry run shows first; without Homebrew, it asks before downloading Herdr.</p>
       <p>Then start your agents inside Herdr, and tell one of them to lead the team toward your goal.</p>
       <ul class="facts">
         <li><b>Alpha.</b> The installer, update, uninstall, doctor and validator are covered by tests on Python 3.9 and 3.13. Live checks with each agent are not yet recorded.</li>
