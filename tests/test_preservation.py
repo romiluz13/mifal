@@ -192,5 +192,102 @@ class Approval(Update):
         self.assertEqual(self.head(), self.old)
 
 
+class LinkedRulesFile(Sandbox):
+    """An agent's rules file that is a symbolic link: refuse, write nothing, and say honestly how to go on."""
+
+    def linked(self, outside, name="codex"):
+        rules = self.home / (".codex/AGENTS.md" if name == "codex" else ".claude/CLAUDE.md")
+        rules.parent.mkdir(parents=True, exist_ok=True)
+        target = (self.root / "dotfiles" if outside else self.home) / "policy.md"
+        target.parent.mkdir(exist_ok=True)
+        target.write_text("my rules\n")
+        rules.symlink_to(target)
+        return rules, target
+
+    def refused(self, outside, *args):
+        self.harness_fakes("codex", "claude")
+        rules, target = self.linked(outside)
+        before = snapshot(self.home)
+        held = target.read_bytes()
+        result = self.install(*args, check=False)
+        text = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, text)
+        self.assertEqual(snapshot(self.home), before)
+        self.assertEqual(target.read_bytes(), held)
+        self.assertTrue(rules.is_symlink())
+        self.assertIn("~/.codex/AGENTS.md", text)
+        self.assertIn("symbolic link", text)
+        self.assertIn(str(target) if outside else "~/policy.md", text)
+        self.assertIn("regular file", text)
+        self.assertIn("--harness claude", text)
+        self.assertNotIn("--overwrite-edits", text)
+        return text
+
+    def test_install_refuses_and_names_the_link_and_the_two_ways_out(self):
+        for outside in (False, True):
+            for args in ((), ("--dry-run",), ("--overwrite-edits",)):
+                with self.subTest(outside=outside, args=args):
+                    self.setUp()
+                    self.refused(outside, *args)
+
+    def test_with_no_other_agent_to_wire_only_replacing_the_link_is_offered(self):
+        self.harness_fakes("codex")
+        rules, target = self.linked(False)
+        result = self.install(check=False)
+        text = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("symbolic link", text)
+        self.assertIn("regular file", text)
+        self.assertNotIn("--harness", text)
+        self.assertNotIn("--overwrite-edits", text)
+
+    def test_a_folder_in_place_of_a_rules_file_is_called_a_folder(self):
+        self.harness_fakes("codex", "claude")
+        (self.home / ".codex/AGENTS.md").mkdir(parents=True)
+        result = self.install(check=False)
+        text = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("~/.codex/AGENTS.md", text)
+        self.assertIn("folder", text)
+        self.assertNotIn("symbolic link", text)
+        self.assertNotIn("--overwrite-edits", text)
+
+    def test_a_link_beside_an_edited_block_keeps_the_overwrite_advice_for_the_block(self):
+        self.harness_fakes("claude")
+        self.install()
+        claude = self.home / ".claude/CLAUDE.md"
+        claude.write_text(claude.read_text().replace("@~/.agents/mifal/AGENTS.md", "@~/elsewhere.md"))
+        self.harness_fakes("codex")
+        self.linked(False)
+        result = self.install(check=False)
+        text = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("symbolic link", text)
+        self.assertIn("its Mifal block changed since install", text)
+        self.assertIn("--overwrite-edits", text)
+
+
+class LinkedRulesFileOnUpdate(Update):
+    def test_update_names_a_rules_file_the_user_turned_into_a_link(self):
+        (self.home / ".codex").mkdir()
+        self.fake("codex", "")
+        self.install("--harness", "codex")
+        rules = self.home / ".codex/AGENTS.md"
+        target = self.home / "policy.md"
+        rules.rename(target)
+        rules.symlink_to(target)
+        self.publish("a new release", VERSION="9.9.9\n")
+        before, held = snapshot(self.home), target.read_bytes()
+        result = self.update("--yes")
+        text = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, text)
+        self.assertEqual(snapshot(self.home), before)
+        self.assertEqual(target.read_bytes(), held)
+        self.assertIn("~/.codex/AGENTS.md", text)
+        self.assertIn("symbolic link to ~/policy.md", text)
+        self.assertIn("regular file", text)
+        self.assertNotIn("--overwrite-edits", text)
+
+
 if __name__ == "__main__":
     unittest.main()
