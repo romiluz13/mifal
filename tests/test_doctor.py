@@ -215,6 +215,29 @@ class Completeness(test_update.Update):
     def engine_lines(self, result):
         return [line for line in result.stdout.splitlines() if line.startswith(("WARN engine", "FAIL engine", "PASS engine"))]
 
+    def test_the_only_command_it_adds_is_one_local_git_ls_tree_of_the_recorded_revision_and_it_writes_nothing(self):
+        self.fake("git", 'exec /usr/bin/git "$@"')
+        rev = self.manifest()["source"]["revision"]
+        calls, before = len(self.called()), snapshot(self.home)
+        self.assertEqual(self.doctor().returncode, 0)
+        self.assertEqual([c for c in self.called()[calls:] if c.startswith("git ")],
+                         [f"git -C {self.clone} ls-tree -r -z --name-only {rev}"])
+        self.assertEqual(snapshot(self.home), before)
+
+    def test_under_the_audit_hook_it_runs_that_one_git_command_and_opens_no_private_file_or_socket(self):
+        for rel in PRIVATE:
+            (self.home / rel).parent.mkdir(parents=True, exist_ok=True)
+            (self.home / rel).write_text("secret\n")
+        log = self.root / "audit.log"
+        result = self.run_cmd(PYTHON, "-B", "-I", self.clone / "tests/helpers/audited_doctor.py", log,
+                              self.home / ".agents/mifal/lib", check=False)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        events = log.read_text().splitlines()
+        self.assertEqual([e for e in events if e.startswith("open ") and any(e.endswith(rel) for rel in PRIVATE)], [])
+        self.assertEqual([e for e in events if e.startswith("connect ")], [])
+        self.assertEqual([e for e in events if e.startswith("exec ") and "git" in e and "ls-tree" not in e], [])
+        self.assertEqual(len([e for e in events if e.startswith("exec ") and "ls-tree" in e]), 1)
+
     def test_a_healthy_install_shows_no_completeness_line(self):
         result = self.doctor()
         self.assertEqual(result.returncode, 0, result.stdout)

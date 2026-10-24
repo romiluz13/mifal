@@ -65,6 +65,36 @@ def source_files(h: Home, source: Path):
         yield from _walk(skill, h.pool / skill.name)
 
 
+class Unreadable(Exception):
+    """The recorded revision's file list cannot be read."""
+
+
+def engine_missing(h: Home, data: dict) -> list:
+    """Install targets of the engine source files of the recorded revision that the Manifest does not own, read
+    with one local `git ls-tree` of that revision: no fetch, no network, nothing written."""
+    source = data.get("source") or {}
+    clone, rev = source.get("path"), source.get("revision")
+    if not clone or not rev:
+        raise Unreadable("the Manifest records no clone or revision")
+    if not (Path(clone) / ".git").exists():
+        raise Unreadable(f"the clone {clone} is gone")
+    try:
+        run = subprocess.run(["git", "-C", clone, "ls-tree", "-r", "-z", "--name-only", rev], capture_output=True,
+                             text=True, stdin=subprocess.DEVNULL, timeout=30)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        raise Unreadable(f"git could not list {rev[:12]} ({e})")
+    names = [n for n in run.stdout.split("\0") if n]
+    if run.returncode != 0 or not names:
+        raise Unreadable(f"git could not list the files of revision {rev[:12]} in {clone}")
+    # Entries are matched by their place under the engine folder as recorded, so a differently spelled HOME on a
+    # case-insensitive volume does not make every file look missing.
+    base = ((data.get("folders") or {}).get("engine") or {}).get("real") or str(h.engine)
+    prefix = base.rstrip(os.sep) + os.sep
+    owned = {e["path"][len(prefix):] for e in data["entries"] if e["kind"] in OWNED and e["path"].startswith(prefix)}
+    wanted = [n for n in names if n.split("/", 1)[0] in ENGINE_SOURCES and not IGNORED.intersection(n.split("/"))]
+    return [str(h.engine / n) for n in wanted if n not in owned]
+
+
 def _walk(src: Path, target: Path):
     if src.is_file():
         yield target, src

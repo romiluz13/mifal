@@ -138,9 +138,15 @@ def update(h, data, args, out) -> int:
         out(f"mifal: {e}")
         return 1
     installed = source.get("revision")
+    missing = []
     if sha == installed:
-        out(f"Mifal is up to date at {sha[:12]} ({upstream}).")
-        return 0
+        try:
+            missing = inst.engine_missing(h, data)
+        except inst.Unreadable:
+            pass
+        if not missing:
+            out(f"Mifal is up to date at {sha[:12]} ({upstream}).")
+            return 0
     with tempfile.TemporaryDirectory(prefix="mifal-update-") as temp:
         export(clone, sha, Path(temp))
         tree = Path(temp) / "tree"
@@ -148,10 +154,13 @@ def update(h, data, args, out) -> int:
         src = dict(source, revision=sha)
         plan, notes = _plan(h, tree, version, args, data, src)
         known = installed and _git(clone, "cat-file", "-e", installed + "^{commit}", check=False).returncode == 0
-        log = _git(clone, "log", "--oneline", f"{installed}..{sha}" if known else sha, "-n", "50").stdout
-        out(f"Update {installed[:12] if installed else 'unknown'} -> {sha[:12]} ({upstream}), Mifal {version}:")
-        for line in log.splitlines():
-            out(f"  {line}")
+        if missing:
+            out(f"Mifal {version} at {sha[:12]}: this install is missing {len(missing)} file(s) this version installs:")
+        else:
+            log = _git(clone, "log", "--oneline", f"{installed}..{sha}" if known else sha, "-n", "50").stdout
+            out(f"Update {installed[:12] if installed else 'unknown'} -> {sha[:12]} ({upstream}), Mifal {version}:")
+            for line in log.splitlines():
+                out(f"  {line}")
         for line in notes:
             out(line)
         if plan.conflicts or plan.stops:

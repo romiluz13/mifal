@@ -15,7 +15,7 @@ from pathlib import Path
 from . import harness
 from . import herdr
 from . import manifest as mf
-from .install import moved_folders
+from .install import Unreadable, engine_missing, moved_folders
 from .manifest import expected, state
 
 REINSTALL = "run ./install.sh in your Mifal clone; a file you edited stops it until you pass --overwrite-edits, " \
@@ -78,6 +78,16 @@ def doctor(h: mf.Home, env, out) -> int:
                + ", ".join(changed[:5]) + more, REINSTALL)
     else:
         r.line("PASS", "manifest", f"{sum(e['kind'] in ('file', 'symlink') for e in data['entries'])} paths as installed")
+
+    try:
+        absent = engine_missing(h, data)
+    except Unreadable as e:
+        r.line("WARN", "engine", f"completeness could not be checked: {e}",
+               "restore the clone recorded in the Manifest at its installed revision, or clone Mifal again and run ./install.sh")
+    else:
+        if absent:
+            r.line("WARN", "engine", f"{len(absent)} file(s) the installed revision installs are missing from "
+                   f"{show(h.engine)}, e.g. {show(absent[0])}", "run mifal update")
 
     guide = h.engine / "AGENTS.md"
     guide_sha = hashlib.sha256(guide.read_bytes()).hexdigest() if guide.is_file() else None
