@@ -41,5 +41,28 @@ class InstalledValidator(Sandbox):
         self.assertNotIn("Traceback", refused.stderr)
 
 
+class InstalledLicences(Sandbox):
+    """The licences and provenance travel with the install: the clone can go and they stay, byte for byte."""
+
+    LICENCES = "frontend-design/references/interface/licenses"
+
+    def tree(self, base):
+        return {str(p.relative_to(base)): p.read_bytes() for p in sorted(base.rglob("*")) if p.is_file()}
+
+    def test_the_install_carries_notice_and_third_party_and_uninstall_removes_them(self):
+        self.install()
+        engine = self.home / ".agents/mifal"
+        source = self.clone / "third_party"
+        self.assertEqual(len(self.tree(source)), 8)
+        self.assertEqual(self.tree(engine / "third_party"), self.tree(source))
+        self.assertEqual((engine / "NOTICE").read_bytes(), (self.clone / "NOTICE").read_bytes())
+        for name in ("IMPECCABLE-LICENSE", "LOTTIEFILES-LICENSE"):
+            self.assertEqual((self.home / ".agents/skills" / self.LICENCES / name).read_bytes(),
+                             (self.clone / "skills" / self.LICENCES / name).read_bytes())
+        self.mifal("uninstall")
+        self.assertFalse((engine / "NOTICE").exists())
+        self.assertFalse((engine / "third_party").exists())
+
+
 if __name__ == "__main__":
     unittest.main()
