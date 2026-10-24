@@ -374,6 +374,8 @@ def validate_workflow(text: str, path: Path, gate="entry", require_loads=True, r
         required.extend(("implement", "tdd"))
     if route == "debug" and phase in {"reproduce", "hypothesis", "diagnose", "fix"}:
         required.append("diagnosing-bugs")
+    if route == "debug" and phase == "fix" and not exemption and "implement" not in cut:
+        required.append("tdd")
     if route == "review" or (route in {"build", "debug"} and (phase == "review" or gate in {"review", "accept"})
                              and "review" not in cut):
         required.append("code-review")

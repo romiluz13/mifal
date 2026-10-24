@@ -52,6 +52,62 @@ def steps(*done, pending=()):
     return [("x", f"{name}: done") for name in done] + [(" ", f"{name}: next") for name in pending]
 
 
+class DebugFixTests(StepFixture):
+    """A debug record at phase fix selects tdd: the fix is behavioural even when it reuses an existing failing test."""
+    CHECKLIST = steps("Scope", "Grilling", "Reproduce", "Hypothesis", "Diagnose", pending=("Implement", "Review"))
+
+    def fix(self, *names, phase="fix", extra="", checklist=None):
+        pool = Path.home() / ".agents" / "skills"
+        text = self.record(checklist or self.CHECKLIST, phase=phase, extra=extra).replace("Route: build", "Route: debug")
+        text = "\n".join(l for l in text.splitlines() if not any(str(p) in l for p in self.f.phase_skills)) + "\n"
+        lines = ""
+        for name in names:
+            path = (pool / name / "SKILL.md").resolve()
+            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+            lines += f"Procedure: {path}\nLoaded: {path} | worker: sha256:{digest} read event fixture-phase before work\n"
+        return text.replace("\n## Phase checklist", "\n" + lines + "\n## Phase checklist", 1)
+
+    def test_a_debug_fix_without_tdd_is_refused_with_the_existing_message(self):
+        self.refused(self.fix("diagnosing-bugs"), "Phase 'fix' needs tdd SKILL.md in Procedure/Loaded")
+
+    def test_a_debug_fix_with_tdd_passes(self):
+        self.passes(self.fix("diagnosing-bugs", "tdd"))
+
+    def test_reusing_an_existing_failing_test_still_selects_tdd(self):
+        def reuse(*names):
+            return self.fix(*names).replace("Next gate: test the changed behavior",
+                                            "Next gate: the existing failing test goes green")
+        self.refused(reuse("diagnosing-bugs"), "needs tdd SKILL.md")
+        self.passes(reuse("diagnosing-bugs", "tdd"))
+
+    def test_the_docs_only_and_coordination_exemptions_still_apply(self):
+        self.passes(self.fix("diagnosing-bugs", extra="Implement: n/a: docs-only: the bug is a wrong sentence in the README\n"))
+        coordination = "Implement: n/a: coordination: workers own the behavioural fix\n"
+        self.refused(self.fix("diagnosing-bugs", extra=coordination), "team-lead")
+        self.passes(self.fix("diagnosing-bugs", "team-lead", extra=coordination))
+
+    def test_a_cut_of_implement_is_not_a_debug_step_so_it_cannot_lift_the_tdd_minimum(self):
+        own = f"Cut: implement | {HUMAN} | {SOURCE}\n"
+        for names in (("diagnosing-bugs",), ("diagnosing-bugs", "tdd")):
+            with self.subTest(names=names):
+                self.refused(self.fix(*names, extra=own), "'implement'", "not a step the workflow map requires")
+        parent = self.f.root / "debug-state.md"
+        parent.write_text(f"## Workflow\nExecutor: lead\n{own}## Phase checklist\n- [x] Scope: asked\n- [ ] Report\n")
+        inherited = self.fix("diagnosing-bugs").replace("\n## Phase checklist", f"\nState: {parent}\n\n## Phase checklist", 1)
+        self.refused(inherited, "'implement'", "not a step the workflow map requires")
+        self.refused(self.fix("diagnosing-bugs", extra=f"Cut: review | {HUMAN} | {SOURCE}\n"), "needs tdd SKILL.md")
+
+    def test_the_other_debug_phases_and_the_diagnosis_minimum_are_unchanged(self):
+        for phase in ("reproduce", "hypothesis", "diagnose"):
+            with self.subTest(phase=phase):
+                self.passes(self.fix("diagnosing-bugs", phase=phase))
+        self.refused(self.fix(), "Phase 'fix' needs diagnosing-bugs SKILL.md")
+
+    def test_a_build_implement_phase_keeps_its_own_minimum(self):
+        self.refused(self.record(steps("Scope", "Grilling", pending=("Implement",)), phase="implement").replace(
+            str(self.f.phase_skills[1]), "/nonexistent"), "needs tdd SKILL.md")
+
+
 class RequiredStepTests(StepFixture):
     def test_a_completed_sequence_missing_a_required_step_is_refused_naming_it(self):
         skipped = steps("Scope", "Grilling", "Implement", pending=("Review",))

@@ -213,6 +213,7 @@ contract's mandatory minima, not a second copy of Matt's route graph:
   both canonical `implement` and `tdd` bodies.
 - Code review or final build/debug acceptance: select `code-review`.
 - Debug reproduction, hypothesis, diagnosis or fix: select `diagnosing-bugs`.
+- Debug fix: also select `tdd`; the `Implement: n/a:` exemptions lift it as they do on build.
 - Build/fix retrospective phase and whole-mission acceptance: select `retro`
   and `writing-for-agents`, and record their actual complete reads.
 - DDD applies: select `ddd` and the current DDD phase body: `ddd-scope` for
