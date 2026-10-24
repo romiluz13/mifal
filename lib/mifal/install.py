@@ -13,7 +13,7 @@ from . import manifest as mf
 from .journal import TXN
 from .manifest import MISSING, Home, expected, sha256_file, state
 
-ENGINE_SOURCES = ("bin", "lib", "tools", "LICENSE", "VERSION")
+ENGINE_SOURCES = ("bin", "lib", "tools", "LICENSE", "NOTICE", "VERSION", "third_party")
 IGNORED = {"__pycache__", ".DS_Store"}
 OWNED = ("file", "dir", "symlink")
 CARRIED = ("backup", "saved")

@@ -2,7 +2,7 @@
 
 The [README](../README.md) has the quickstart. This page says exactly what the install writes, and how update and uninstall treat your files.
 
-`./install.sh --dry-run` lists every file, link and Marked block the install would write, and changes nothing. `mifal doctor` is read-only: it writes nothing, uses no network, runs none of your agents and opens no settings or credential file itself. It does run `herdr status --json`, and Herdr reads its own configuration to answer. Each failure it reports comes with its fix.
+`./install.sh --dry-run` lists every file, link and Marked block the install would write, and changes nothing. `mifal doctor` is read-only: it writes nothing, uses no network, runs none of your agents and opens no settings or credential file itself. It does run `herdr status --json`, `herdr --version` and `herdr api schema --json` (Herdr reads its own configuration to answer), plus the installed validator's selfcheck. Each failure it reports comes with its fix.
 
 ## What gets written
 
@@ -11,7 +11,7 @@ Mifal writes only into your home folder, and only where the dry run says. On a m
 <!-- writes:begin -->
 | Where | What Mifal writes |
 |---|---|
-| `~/.agents/mifal/` | The engine: the `mifal` command and its library, the experimental Herdr adapter and tools, the Guide (`AGENTS.md`) and the Manifest; 44 files |
+| `~/.agents/mifal/` | The engine: the `mifal` command and its library, the experimental Herdr adapter and tools, the Guide (`AGENTS.md`) and the Manifest; 53 files |
 | `~/.agents/skills/` | 39 skills, 242 files |
 | `~/.local/bin/mifal` | A link to the engine's `mifal` command |
 | `~/.claude/CLAUDE.md` | A Marked block that imports the Guide |
@@ -21,6 +21,8 @@ Mifal writes only into your home folder, and only where the dry run says. On a m
 | `~/.pi/agent/AGENTS.md` | A Marked block holding the Guide |
 | `~/.config/opencode/AGENTS.md` | A Marked block holding the Guide |
 <!-- writes:end -->
+
+The licences and provenance of everything Mifal installs are in `~/.agents/mifal/NOTICE` and `~/.agents/mifal/third_party/`.
 
 An agent is wired when its program is on your PATH or its home folder exists; `./install.sh --harness codex --harness pi` wires exactly the ones you name. Folders Mifal creates are recorded and removed on uninstall once they are empty.
 

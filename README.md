@@ -10,7 +10,7 @@
 
 <sub>A real run of Mifal 0.1.1 in a disposable home folder on macOS. The last command compares that folder with a snapshot taken before the install; the snapshot leaves out the working folder holding the clone and the <code>.cache</code> and <code>.npm</code> caches, and Herdr was already installed.</sub>
 
-Claude Code, Codex, Droid, Pi and OpenCode each read their own rules file, and each will tell you "done" whether or not it has proof. Mifal installs one Guide into all five, the same 39 skills (Matt Pocock's engineering skills run as ordered phases, plus DDD, review and team leading), and a contract validator that refuses a brief, receipt or phase record that lacks its evidence. Every write is previewed first, and uninstall removes what Mifal wrote while keeping any file you edited.
+Claude Code, Codex, Droid, Pi and OpenCode each read their own rules file, and each will tell you "done" whether or not it has proof. Mifal installs one Guide into every agent it finds (all five when all five are on the machine), the same 39 skills (Matt Pocock's engineering skills run as ordered phases, plus DDD, review and team leading), and a contract validator that refuses a brief, receipt or phase record that lacks its evidence. `--dry-run` previews every write; a plain install prints a short summary and writes. Uninstall removes what Mifal wrote while keeping any file you edited.
 
 ## What you get
 
@@ -73,7 +73,7 @@ Everything lives in your home folder: the engine in `~/.agents/mifal/`, the skil
 
 ## Status
 
-**Alpha.** The installer, update, uninstall, doctor and validator are covered by tests on Python 3.9 and 3.13. What a program checks, and what still relies on the agent following the Guide, is spelled out in [docs/TRUST.md](docs/TRUST.md).
+**Alpha.** The installer, update, uninstall, doctor and validator are covered by tests, run in CI on macOS under the system Python and the current python3. What a program checks, and what still relies on the agent following the Guide, is spelled out in [docs/TRUST.md](docs/TRUST.md).
 
 ## Support
 
@@ -93,4 +93,4 @@ Linux and Windows are not supported in this release. Droid's rules file location
 
 ## Credits
 
-Mifal ships the work of others under their licences, recorded per file in [`third_party/provenance.json`](third_party/provenance.json) with the licence texts in [`third_party/licenses/`](third_party/licenses) and summarised in [`NOTICE`](NOTICE): Matt Pocock's skills, DDD, Superpowers, agent-browser, Anthropic's frontend-design, Herdr's skill, Impeccable and LottieFiles motion-design. Mifal itself is MIT ([`LICENSE`](LICENSE)).
+Mifal ships the work of others under their licences, recorded per component and skill in [`third_party/provenance.json`](third_party/provenance.json), each licence text beside its component (most in [`third_party/licenses/`](third_party/licenses), Impeccable's and LottieFiles' in `skills/frontend-design/references/interface/licenses/`) and summarised in [`NOTICE`](NOTICE): Matt Pocock's skills, DDD, Superpowers, agent-browser, Anthropic's frontend-design, Herdr's skill, Impeccable and LottieFiles motion-design. Mifal itself is MIT ([`LICENSE`](LICENSE)).

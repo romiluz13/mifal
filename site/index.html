@@ -173,7 +173,8 @@ F5  Herdr's script writes outside the Manifest,
       <p>macOS, git and Python 3.9 or later. The dry run lists every write and changes nothing. If Herdr is missing, the installer runs <code>brew install herdr</code>, which the dry run shows first; without Homebrew, the installer downloads Herdr's script, shows its sha256 and asks before running it.</p>
       <p>Then start your agents inside Herdr, and tell one of them to lead the team toward your goal.</p>
       <ul class="facts">
-        <li><b>Alpha.</b> The installer, update, uninstall, doctor and validator are covered by tests on Python 3.9 and 3.13. Live checks with each agent are not yet recorded.</li>
+        <li><b>Alpha.</b> The installer, update, uninstall, doctor and validator are covered by tests, run in CI on macOS under the system Python and the current python3. Live checks with each agent are not yet recorded.</li>
+        <li><b>Boundaries.</b> macOS only this release. There is no sandbox or isolation between your agents, and recovery from a wedged worker is one budgeted resume action: the lead, not a watchdog, notices a worker gone quiet.</li>
         <li><b>Reversible.</b> <code>mifal uninstall</code> removes what Mifal wrote and keeps any file you edited.</li>
       </ul>
       <div class="links">

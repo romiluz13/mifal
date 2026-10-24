@@ -11,7 +11,7 @@ Shared rules for every coding-agent session on this machine, installed by Mifal.
 
 ## Skills pool
 
-- `~/.agents/skills/` holds the skills Mifal installed; harnesses that need their own skills folder reach it through links.
+- `~/.agents/skills/` holds the skills Mifal installed. Claude Code reaches it through one link per skill; the other agents are expected to read it directly (not yet live-checked).
 - Update Mifal and its skills with `mifal update`. Check an install with `mifal doctor`. A skill you edit is kept: Mifal stops before overwriting it and tells you how to keep or replace it.
 
 ## Working style
