@@ -324,8 +324,8 @@ way at every check; cite the part the human wrote in a smaller file. The check
 proves the line has a quote and
 a source, not that the human said it: the lead's reviewer reads the source. A
 branch is not a cut: Ask Matt's branches shorten the path by its own rules, and
-the opening "full workflow or cut?" question shows the human what a branch
-drops.
+the opening "full workflow or cut?" question, asked with the recommended
+answer (full workflow), shows the human what a branch drops.
 
 Reads carry their time. Write a `Loaded:` line's read pointer with
 `at:<UTC time>` (`at:2026-10-17T10:00:00Z`; seconds optional), and log the gate

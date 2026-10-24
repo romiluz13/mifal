@@ -163,6 +163,80 @@ class Loading(unittest.TestCase):
                     self.assertFalse(dropped in text, f"{rel} still drops the ring: {dropped}")
 
 
+class SoloEntry(unittest.TestCase):
+    """String contracts: they show the instruction text is present, not that any agent follows it."""
+    QUESTION = "Full workflow or cut? Recommended: full workflow."
+    CHOICE_B = "Full workflow; no steps cut."
+
+    def guide(self):
+        return (REPO / "guide/AGENTS.md").read_text(encoding="utf-8")
+
+    def workflow(self):
+        return (REPO / "skills/engineering-workflow/SKILL.md").read_text(encoding="utf-8")
+
+    def test_the_guide_asks_for_the_entry_line_the_checklist_and_the_question_before_the_first_edit(self):
+        text = " ".join(self.guide().split())
+        self.assertIn("before the first edit or dispatch", text)
+        self.assertIn("Owner: Matt | Route: ROUTE | Phase: PHASE | Next gate: EVIDENCE", text)
+        self.assertIn("phase checklist", text)
+        self.assertIn(self.QUESTION, text)
+        self.assertRegex(text, r"plain-text message that ends (the|your) turn, never through a user-input tool")
+
+    def test_the_guide_names_the_skill_that_requires_the_question_and_who_asks_it(self):
+        text = " ".join(self.guide().split())
+        self.assertRegex(text, r"requirement of the `engineering-workflow` skill")
+        self.assertIn("name that skill and quote its rule", text)
+        self.assertIn("a briefed worker follows its brief", text)
+        self.assertIn("no one to answer", text)
+        self.assertIn("is not a cut", text)
+        self.assertIn("`Cut: <steps> | <quote> | <source>`", text)
+        self.assertNotIn("Cut: none", text)
+
+    def test_the_guide_says_loading_is_not_doing_and_loads_one_skill_per_call(self):
+        text = " ".join(self.guide().split())
+        self.assertIn("loading a skill is not doing its step", text.lower())
+        self.assertIn("red run before the fix", text)
+        self.assertIn("one per call", text)
+        self.assertIn("truncated skill read", text)
+
+    def test_the_guide_stays_under_codexs_32_kib_cap(self):
+        self.assertLess(len(self.guide().encode("utf-8")), 32 * 1024)
+
+    def test_the_guide_does_not_claim_to_make_an_agent_perform_the_steps(self):
+        text = self.guide().lower()
+        for claim in ("guarantee", "enforce", "makes sure"):
+            self.assertNotIn(claim, text)
+
+    def test_the_debug_row_loads_tdd_for_every_behavioural_fix(self):
+        row = next(l for l in self.workflow().splitlines() if l.startswith("| Debug |"))
+        self.assertIn("tdd", row)
+        self.assertIn("code-review", row)
+        self.assertIn("existing failing test", row)
+        self.assertIn("diagnosis-only", row)
+
+    def test_the_solo_form_carries_the_entry_the_self_review_and_the_retro(self):
+        text = " ".join(self.workflow().split())
+        self.assertIn("**Solo form.**", text)
+        form = text.split("**Solo form.**", 1)[1].split("- Complete a phase only when", 1)[0]
+        for needle in (self.QUESTION, "no further stops", "review-snapshot.py", "self-review", "independent review",
+                       "`retro`", "`writing-for-agents`", "before the final answer"):
+            with self.subTest(needle=needle):
+                self.assertIn(needle, form)
+
+    def test_the_ordered_phases_paragraph_keeps_the_question_and_adds_the_recommended_answer(self):
+        text = " ".join(self.workflow().split())
+        self.assertIn('ask "full workflow or cut?"', text)
+        self.assertIn("recommended answer", text.split("silence is not a cut", 1)[0].split("Only the human cuts", 1)[1])
+        self.assertIn("silence is not a cut", text)
+
+    def test_every_text_that_teaches_the_question_keeps_it_and_none_carries_the_unchosen_line(self):
+        for rel in ("README.md", "guide/AGENTS.md", "skills/engineering-workflow/SKILL.md", "skills/team-lead/SKILL.md"):
+            text = " ".join((REPO / rel).read_text(encoding="utf-8").split())
+            with self.subTest(file=rel):
+                self.assertRegex(text, r"(?i)full workflow or (a )?cut")
+                self.assertNotIn(self.CHOICE_B, text)
+
+
 class Closure(unittest.TestCase):
     def test_no_shipped_body_names_an_unshipped_skill(self):
         found = []

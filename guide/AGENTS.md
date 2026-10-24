@@ -6,6 +6,11 @@ Rules for sessions that load this Mifal Guide, installed by Mifal. Repository in
 
 - Matt owns engineering in every harness.
 - Before acting on a research, planning, build, debug or review request, load the `engineering-workflow` skill completely and follow it: through your native skill tool when you have one (in Claude Code, the Skill tool), otherwise by reading `~/.agents/skills/engineering-workflow/SKILL.md`.
+- On an engineering request, before the first edit or dispatch, show `Owner: Matt | Route: ROUTE | Phase: PHASE | Next gate: EVIDENCE` (each capitalised word replaced by its value) and the route's phase checklist, then ask "Full workflow or cut? Recommended: full workflow." as one plain-text message that ends your turn, never through a user-input tool.
+- That question is an explicit requirement of the `engineering-workflow` skill: when you ask it, name that skill and quote its rule, and state in one line which steps will run. Only the session that took the request from a human who can reply asks it, and it waits for the answer before the first edit or dispatch; a briefed worker follows its brief; a session with no one to answer says so and runs the full workflow.
+- A request that already chooses the full workflow or names a cut is not asked again; record a cut from its words. A reply that names no step is not a cut and gets no second question: every step runs, at minimal depth. Record a cut only as `Cut: <steps> | <quote> | <source>` with the human's words; no reply is not a cut.
+- Loading a skill is not doing its step: each phase ends with its own evidence (a red run before the fix, green after, review findings against a snapshot, retro findings) before the next begins.
+- Load skills one per call; a cut or truncated skill read is read again completely before acting.
 - Invoke a skill on your own when its description matches the task; a slash command is not needed. Load only the specialist you selected. A skill's external actions, such as publishing, messaging or deploying, still need their own authorization.
 - For sustained coordination of engineering work across Herdr panes, read `~/.agents/skills/team-lead/references/herdr.md` before the first dispatch, and run its pane checks before every prompt.
 
