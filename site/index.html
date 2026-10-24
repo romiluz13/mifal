@@ -170,7 +170,7 @@ F5  Herdr's script writes outside the Manifest,
   <div class="in two">
     <div>
       <h2 id="install-h" class="display">Open the factory.</h2>
-      <p>macOS, git and Python 3.9 or later. The dry run lists every write and changes nothing. If Herdr is missing, the installer runs <code>brew install herdr</code>, which the dry run shows first; without Homebrew, it asks before downloading Herdr.</p>
+      <p>macOS, git and Python 3.9 or later. The dry run lists every write and changes nothing. If Herdr is missing, the installer runs <code>brew install herdr</code>, which the dry run shows first; without Homebrew, the installer downloads Herdr's script, shows its sha256 and asks before running it.</p>
       <p>Then start your agents inside Herdr, and tell one of them to lead the team toward your goal.</p>
       <ul class="facts">
         <li><b>Alpha.</b> The installer, update, uninstall, doctor and validator are covered by tests on Python 3.9 and 3.13. Live checks with each agent are not yet recorded.</li>
@@ -186,7 +186,7 @@ F5  Herdr's script writes outside the Manifest,
       <div class="cmd">
 <pre id="install-cmd"><span class="p">$ </span>git clone https://github.com/romiluz13/mifal.git
 <span class="p">$ </span>cd mifal &amp;&amp; ./install.sh --dry-run
-<span class="p">$ </span>./install.sh &amp;&amp; mifal doctor</pre>
+<span class="p">$ </span>./install.sh &amp;&amp; ~/.local/bin/mifal doctor</pre>
         <div class="bar"><span>Three commands, then <code>herdr</code>.</span><button type="button" id="copy" disabled>Copy</button></div>
       </div>
       <div class="term">

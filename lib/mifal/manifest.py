@@ -137,7 +137,41 @@ def load(h: Home):
     data = json.loads(raw)
     if data.get("format") != FORMAT:
         raise SystemExit(f"mifal: {h.show(h.manifest)} has format {data.get('format')!r}; this mifal reads format {FORMAT}")
+    recorded = data.get("home")
+    if not isinstance(recorded, str):
+        raise SystemExit(f'mifal: the Manifest at {h.show(h.manifest)} has no usable "home" field. Nothing was changed.')
+    if not same_home(recorded, h):
+        raise SystemExit(
+            f"mifal: {h.show(h.manifest)} belongs to the Mifal install for {recorded}, not this home ({h.real}). "
+            f"Nothing was changed.\n{_link_advice(h)}"
+        )
     return data, raw
+
+
+def same_home(recorded: str, h: Home) -> bool:
+    real = os.path.realpath(recorded)
+    if real == str(h.real):
+        return True
+    try:
+        return os.path.samefile(real, h.real)
+    except OSError:
+        return False
+
+
+def _link_advice(h: Home) -> str:
+    """Name the symlink that leads this home's engine folder elsewhere, deepest first."""
+    path = h.home / ENGINE
+    while True:
+        if os.path.islink(path):
+            shown = "~" if path == h.home else f"~/{path.relative_to(h.home)}"
+            return f"Remove the link {shown} if it should not lead there."
+        if path == h.home or h.home not in path.parents:
+            break
+        path = path.parent
+    return (
+        "If this home folder was renamed or moved, that install's recorded paths no longer match, "
+        "and Mifal will not act on them."
+    )
 
 
 def save(h: Home, data: dict) -> None:
