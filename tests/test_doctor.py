@@ -3,6 +3,7 @@ import re
 import shutil
 import unittest
 
+import test_update
 from support import PYTHON, REPO, Sandbox, snapshot
 
 HERDR_STATUS = json.dumps({"client": {"version": "0.9.5"}, "server": {"running": True, "version": "0.9.5"}})
@@ -203,6 +204,58 @@ class ReadOnly(Doctor):
         self.assertEqual(opened, [])
         self.assertEqual([e for e in events if e.startswith("connect ")], [])
         self.assertEqual([e for e in events if e.startswith("exec ") and not re.search(r"herdr|python", e)], [])
+
+
+class Completeness(test_update.Update):
+    """The doctor compares the engine files the recorded revision installs with what the Manifest owns."""
+
+    def doctor(self):
+        return self.mifal("doctor", check=False)
+
+    def engine_lines(self, result):
+        return [line for line in result.stdout.splitlines() if line.startswith(("WARN engine", "FAIL engine", "PASS engine"))]
+
+    def test_a_healthy_install_shows_no_completeness_line(self):
+        result = self.doctor()
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertEqual(self.engine_lines(result), [])
+
+    def test_missing_engine_files_warn_once_with_the_count_and_the_fix_and_write_nothing(self):
+        self.drop_licences()
+        before = snapshot(self.home)
+        result = self.doctor()
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertEqual(len(self.engine_lines(result)), 1, result.stdout)
+        lines = result.stdout.splitlines()
+        at = next(i for i, line in enumerate(lines) if line.startswith("WARN engine"))
+        self.assertIn("9 file(s)", lines[at])
+        self.assertEqual(lines[at + 1].strip(), "fix: run mifal update")
+        self.assertEqual(snapshot(self.home), before)
+
+    def test_a_missing_clone_says_completeness_could_not_be_checked(self):
+        shutil.rmtree(self.clone)
+        result = self.doctor()
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertEqual(len(self.engine_lines(result)), 1, result.stdout)
+        self.assertIn("completeness could not be checked", self.engine_lines(result)[0])
+        self.assertIn("fix: ", result.stdout.split("completeness could not be checked", 1)[1].splitlines()[1])
+
+    def test_an_unreadable_revision_says_completeness_could_not_be_checked(self):
+        path = self.home / ".agents/mifal/install-manifest.json"
+        data = json.loads(path.read_text())
+        data["source"]["revision"] = "0" * 40
+        path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n")
+        result = self.doctor()
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertEqual(len(self.engine_lines(result)), 1, result.stdout)
+        self.assertIn("completeness could not be checked", self.engine_lines(result)[0])
+
+    def test_a_failed_enumeration_says_completeness_could_not_be_checked(self):
+        self.fake("git", "exit 1")
+        result = self.doctor()
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertEqual(len(self.engine_lines(result)), 1, result.stdout)
+        self.assertIn("completeness could not be checked", self.engine_lines(result)[0])
 
 
 class Warnings(Doctor):

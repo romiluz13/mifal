@@ -1,3 +1,4 @@
+import json
 import os
 import shutil
 import subprocess
@@ -48,6 +49,17 @@ class Update(Sandbox):
         self.git(self.work, "commit", "-q", "-m", message)
         self.git(self.work, "push", "-q", "origin", "main")
         return self.head(self.work)
+
+    def drop_licences(self):
+        """The state a 0.2.3 update leaves: the engine without NOTICE and third_party/, and a Manifest that omits them."""
+        engine = (self.home / ".agents/mifal").resolve()
+        mine = lambda path: path == str(engine / "NOTICE") or path.startswith(str(engine / "third_party"))
+        data = self.manifest()
+        data["entries"] = [e for e in data["entries"] if not mine(e["path"])]
+        (self.home / ".agents/mifal/install-manifest.json").write_text(json.dumps(data, indent=2, sort_keys=True) + "\n")
+        (engine / "NOTICE").unlink()
+        shutil.rmtree(engine / "third_party")
+        self.installed = snapshot(self.home)
 
     def update(self, *args, **kw):
         return self.mifal("update", *args, check=False, **kw)
