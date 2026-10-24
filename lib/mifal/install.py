@@ -80,7 +80,8 @@ def engine_missing(h: Home, data: dict) -> list:
         raise Unreadable(f"the clone {clone} is gone")
     try:
         run = subprocess.run(["git", "-C", clone, "ls-tree", "-r", "-z", "--name-only", rev], capture_output=True,
-                             text=True, stdin=subprocess.DEVNULL, timeout=30)
+                             text=True, stdin=subprocess.DEVNULL, timeout=30,
+                             env={**os.environ, "GIT_NO_LAZY_FETCH": "1"})  # a partial clone must not fetch here
     except (OSError, subprocess.TimeoutExpired) as e:
         raise Unreadable(f"git could not list {rev[:12]} ({e})")
     names = [n for n in run.stdout.split("\0") if n]
