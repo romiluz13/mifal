@@ -68,11 +68,13 @@ class Readme(Sandbox):
         self.assertIn("(docs/TRUST.md)", text())
         self.assertIn("(docs/INSTALL.md)", text())
 
-    def test_the_support_matrix_is_provisional_and_every_cell_untested(self):
+    def test_the_support_matrix_is_provisional_and_every_cell_says_what_was_recorded(self):
         matrix = re.search(r"(?ms)^## Support\n(.*?)^## ", text()).group(1)
         rows = [line for line in matrix.splitlines() if line.startswith("| macOS")]
         self.assertEqual(len(rows), 1)
-        self.assertEqual(rows[0].count("untested"), len(HARNESSES))
+        cells = [c.strip() for c in rows[0].strip("|").split("|")][1:]
+        self.assertEqual(len(cells), len(HARNESSES))
+        self.assertLessEqual(set(cells), {"observed on one Mac", "product wiring open", "unverified", "untested"})
         self.assertIn("provisional", matrix)
 
     def test_the_readme_says_herdr_stays_and_how_to_remove_it(self):

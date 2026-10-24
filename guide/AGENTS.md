@@ -1,6 +1,6 @@
 # Mifal Guide
 
-Shared rules for every coding-agent session on this machine, installed by Mifal. Repository instructions add to them; the user's request and the harness's safety rules come first.
+Rules for sessions that load this Mifal Guide, installed by Mifal. Repository instructions add to them; the user's request and the harness's safety rules come first.
 
 ## Engineering workflow
 

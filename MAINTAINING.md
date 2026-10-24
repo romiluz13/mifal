@@ -29,11 +29,11 @@ The weekly `upstream` workflow runs `status` on GitHub and keeps one issue open 
 
 ## Offering a change upstream
 
-`python3 maint/upstream.py diff NAME` prints Mifal's changes as a patch against the upstream folder's own paths. In a clone of the upstream at the recorded commit, `git apply` takes it; keep the part that is general, drop what is Mifal-specific, and open the PR there. Once upstream merges it, the next `pull` finds nothing to merge in that file and records it as unmodified.
+`python3 maint/upstream.py diff NAME` prints Mifal's changes as a patch against the upstream folder's own paths. In a clone of the upstream at the recorded commit, `git apply` takes it; keep the part that is general, drop what is Mifal-specific, and open the PR there. Once upstream merges it, the accepted change disappears from Mifal's delta as soon as the files match; any Mifal-specific edit that remains stays recorded as modified.
 
 ## Herdr
 
-The team lead's adapter (`tools/herdr_adapter/`) speaks Herdr's socket protocol 22 and keeps the exact schema it was built for in `tools/herdr_adapter/api-schema.json`. `mifal doctor` compares it with `herdr api schema --json` from the user's Herdr: identical passes; a changed schema within the protocol warns; another protocol warns too, because only the adapter refuses it and the team lead's raw `herdr` commands keep working. The adapter is experimental: the team lead works without it.
+The team lead's adapter (`tools/herdr_adapter/`) speaks Herdr's socket protocol 22 and keeps the exact schema it was built for in `tools/herdr_adapter/api-schema.json`. `mifal doctor` compares it with `herdr api schema --json` from the user's Herdr: identical passes; a changed schema within the protocol warns; another protocol warns too, because the experimental socket adapter may refuse it; the lead can use the raw `herdr` CLI route while that Herdr version stays compatible, which is not a guarantee about future CLI releases. The adapter is experimental: the team lead works without it.
 
 When Herdr ships a new protocol:
 
@@ -50,7 +50,7 @@ The vendored `herdr` skill updates through `maint/upstream.py` like any other.
 
 1. Read the agent's docs or source at the new version, and keep the link in the commit message.
 2. Change the test first, then `harness.py`.
-3. The doctor re-reads precedence on every run, so users with a now-wrong wiring see a FAIL with the fix after they update Mifal.
+3. The doctor re-checks the precedence rules Mifal knows on every run and reports the mismatches it recognises, with the fix; it does not start the agent or discover every change in its behaviour.
 
 | Agent | Rules file Mifal writes | Read first instead, when present | Skills |
 |---|---|---|---|
@@ -67,11 +67,11 @@ One maintainer, several agents. Production is `main`; everything else is short-l
 1. **Dogfood first.** Try a change in your own setup. A change that proves itself there becomes a pull request here; nothing flows back automatically.
 2. **One branch, one worktree, one writer per task.** `git worktree add ../.worktrees/mifal/<task> -b agent/<who>-<topic> origin/main` (run `git fetch` first). Check `git worktree list` before starting, so two agents never share a branch or a folder. Never work in the folder you installed from.
 3. **Pull request, then merge.** `main` takes only pull requests whose `mifal` check passed; merged branches delete themselves.
-4. **Release on purpose.** Follow Releasing below. Only a pushed `vX.Y.Z` tag reaches users, and a tag cannot be moved or deleted, so a bad release is fixed by the next one.
+4. **Release on purpose.** Follow Releasing below. For tag-following installs, only a pushed `vX.Y.Z` tag publishes a release; older or branch-following installs and fresh `main` clones receive `main` directly. Production release tags are treated as immutable, so a bad release is fixed by the next one.
 5. **Weekly cleanup.** `git fetch --prune`, `git worktree prune`, and `git branch --merged main`; delete a branch only after checking that it holds no commit `main` lacks (`git log main..<branch>`). Remove the worktrees of merged branches.
 6. **Never:** force-push, push to `main`, delete a tag, or edit a shipped file inside an installed copy.
 
-What publishes what: merging a pull request that changes `site/` publishes the website within about a minute. Only a pushed `vX.Y.Z` tag gives users a new version, if they updated to 0.2.0 or later. Installs on 0.1.x, and anyone who cloned `main` from the README or the site, still follow the tip of `main`, so keep `main` releasable.
+What publishes what: merging a pull request that changes `site/` triggers the Pages deployment; confirm the deployment succeeded before saying the site is live. Only a pushed `vX.Y.Z` tag gives users a new version, if they updated to 0.2.0 or later. Installs on 0.1.x, and anyone who cloned `main` from the README or the site, still follow the tip of `main`, so keep `main` releasable.
 
 Words to give a coding agent:
 
@@ -81,12 +81,12 @@ Words to give a coding agent:
 
 ## Releasing
 
-`main` is protected: every change goes in by pull request, and the `mifal` check must pass. Release tags `v*` cannot be moved or deleted. `mifal update` follows the newest `vX.Y.Z` tag, so merging to `main` does not reach users; tagging does.
+`main` is protected: every change goes in by pull request, and the `mifal` check must pass. Release tags `v*` cannot be moved or deleted. Merging to `main` reaches branch-following installs and new `main` clones; an eligible pushed tag advances tag-following installs.
 
 1. `VERSION` holds the release; raise it, in a pull request, for any change users get.
 2. In that pull request, run the full suite, `/bin/bash tests/run.sh`, under both Pythons on macOS, and `/bin/bash maint/rehearse-upgrade.sh <repo> <previous tag>`; the `release` workflow runs both when `VERSION` changes.
 3. Merge it, then tag that merge commit `vX.Y.Z` (the `release` workflow checks that the tag equals `VERSION` and sits on `main`) and push the tag. Tags are permanent, so a release found broken is fixed by the next version.
-4. Users run `mifal update`: it fetches their clone, previews the incoming commits and every write, asks, and installs exactly the revision it showed.
+4. Users run `mifal update`: it fetches their clone, previews the managed changes before applying them unless `--yes` is set, and installs the revision it showed. An update from 0.2.3 runs 0.2.3's code, which leaves NOTICE and `third_party/` out; a second `mifal update` completes the payload.
 
 Installs from 0.1.2 or earlier follow the branch, not tags: an update at any later time runs the old code and lands on the tip of `main`, and from then on the install runs the tag-following code. Keep `main` releasable, and keep it at the release commit until you have tagged it, so that landing is a release.
 

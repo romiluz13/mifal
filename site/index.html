@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Mifal: your agents, run like a factory</title>
-<meta name="description" content="Mifal gives your coding agents a team lead. Set a goal; the lead briefs the Claude Code, Codex, Droid, Pi and OpenCode agents you open in Herdr panes, checks every return and runs the line until the work is reviewed. Alpha, macOS, MIT.">
+<meta name="description" content="Mifal gives the coding agents it can wire a team-lead workflow in Herdr: set a goal, and the lead briefs agents, checks returns and sends work to review. Record checks do not prove execution; agent behaviour still needs your review. Alpha, macOS, MIT.">
 <meta property="og:title" content="Mifal: your agents, run like a factory">
-<meta property="og:description" content="A team lead for your coding agents. Set a goal; the lead briefs, checks every return and runs the line until the work is reviewed.">
+<meta property="og:description" content="A shared team-lead workflow: brief agents, check returns and send work to review. Record validation does not prove execution.">
 <meta property="og:image" content="https://romiluz13.github.io/mifal/media/og.jpg">
 <meta property="og:url" content="https://romiluz13.github.io/mifal/">
 <meta property="og:type" content="website">
@@ -23,7 +23,7 @@
 <section class="hero" aria-labelledby="h1">
 <div class="hero-copy">
 <h1 id="h1">Your agents,<br>run like a factory.</h1>
-<p class="lede">Mifal gives your coding agents a team lead. You set the goal and answer the questions only you can settle. The lead briefs the Claude Code, Codex, Droid, Pi and OpenCode agents you open in Herdr panes, checks every return, and runs the line until the work is reviewed.</p>
+<p class="lede">Mifal gives your coding agents a team lead. You set the goal and answer the questions only you can settle. Mifal gives the eligible, wired agents you open in Herdr panes a shared lead workflow for briefing, reviewing returns and asking for your decisions; see the support limits below.</p>
 <form class="goal" id="goal-form">
 <label for="goal">A goal for the team</label>
 <div class="goal-entry"><input id="goal" name="goal" maxlength="64" autocomplete="off" placeholder="Add passkey login to my app" disabled><button id="start-shift" type="submit" disabled>Start a shift</button></div>
@@ -76,7 +76,7 @@
         <tr><td>haiku-researcher</td><td>Claude Code. Research, and grilling the plan.</td></tr>
         <tr><td>sol-reviewer</td><td>Codex. Every review.</td></tr>
         <tr><td>mifal-reviewer</td><td>Claude Code. An outside critic, later in the shift.</td></tr>
-        <tr><td class="dim">open booths</td><td class="dim">Droid, Pi and OpenCode get the same Guide and skills, ready to staff.</td></tr>
+        <tr><td class="dim">open booths</td><td class="dim">Droid, Pi and OpenCode are installer targets: successfully wired homes get the Guide and skills. Droid and Pi were observed in a recorded workflow; OpenCode is unverified.</td></tr>
       </table>
     </article>
     <article class="beat" data-beat="brief" id="beat-brief">
@@ -150,7 +150,7 @@ F5  Herdr's script writes outside the Manifest,
 <section class="wide" aria-labelledby="agents-h">
   <div class="in">
     <h2 id="agents-h" class="display">Five agents. One floor.</h2>
-    <p class="intro">Each agent's rules file gets the same Guide, and every agent gets the same 39 skills: Matt Pocock's engineering workflow run as ordered phases, plus DDD, review and the team lead. Herdr gives each agent its own pane, so the lead can see, brief and hear from any mix of them.</p>
+    <p class="intro">Mifal ships 39 skills and offers Guide wiring for five agent families; only selected, eligible homes are wired, and live compatibility is limited to the recorded cases. The skills are Matt Pocock's engineering workflow run as ordered phases, plus DDD, review and the team lead. Herdr gives each agent its own pane, so the lead can see, brief and hear from any mix of them.</p>
     <div class="agents">
       <div class="agent"><b>Claude Code</b><code>~/.claude/CLAUDE.md</code></div>
       <div class="agent"><b>Codex</b><code>~/.codex/AGENTS.md</code></div>
@@ -160,7 +160,7 @@ F5  Herdr's script writes outside the Manifest,
     </div>
     <ul class="facts">
       <li><b>You keep the keys.</b> Approvals, product choices and publishing stay yours. The lead brings them to you with a recommendation and keeps the rest of the team working.</li>
-      <li><b>Gates between phases.</b> The lead runs the contract validator before every dispatch, review and acceptance. A brief, receipt or phase record without its evidence is refused, and the fix is printed.</li>
+      <li><b>Gates between phases.</b> The Guide asks the lead to run record checks before every dispatch, review and acceptance. The validator checks the record (missing fields are refused and the fix is printed); a reviewer must still check that the claimed work and evidence are real.</li>
       <li><b>One writer per file.</b> Parallel work goes to isolated worktrees, and nothing is reviewed until every writer has returned.</li>
     </ul>
   </div>
@@ -173,9 +173,9 @@ F5  Herdr's script writes outside the Manifest,
       <p>macOS, git and Python 3.9 or later. The dry run lists every write and changes nothing. If Herdr is missing, the installer runs <code>brew install herdr</code>, which the dry run shows first; without Homebrew, the installer downloads Herdr's script, shows its sha256 and asks before running it.</p>
       <p>Then start your agents inside Herdr, and tell one of them to lead the team toward your goal.</p>
       <ul class="facts">
-        <li><b>Alpha.</b> The installer, update, uninstall, doctor and validator are covered by tests, run in CI on macOS under the system Python and the current python3. Live checks with each agent are not yet recorded.</li>
+        <li><b>Alpha.</b> The installer, update, uninstall, doctor and validator are covered by tests, run in CI on macOS under the system Python and the current python3. Recorded one-Mac workflows cover Claude Code (personal), Droid and Pi; Codex's product wiring remains open and OpenCode is unverified, as the support matrix in the README says.</li>
         <li><b>Boundaries.</b> macOS only this release. There is no sandbox or isolation between your agents, and recovery from a wedged worker is one budgeted resume action: the lead, not a watchdog, notices a worker gone quiet.</li>
-        <li><b>Reversible.</b> <code>mifal uninstall</code> removes what Mifal wrote and keeps any file you edited.</li>
+        <li><b>Reversible.</b> <code>mifal uninstall</code> removes unchanged managed effects and keeps edits and additions; occupied backups and Herdr may remain. It does not restore a home byte for byte.</li>
       </ul>
       <div class="links">
         <a href="https://github.com/romiluz13/mifal/blob/main/docs/INSTALL.md">What the install writes</a>
@@ -204,7 +204,7 @@ F5  Herdr's script writes outside the Manifest,
   <div class="in">
     <div>
       <p><span class="he" lang="he">מפעל</span> (mifal) is Hebrew for factory.</p>
-      <p>The shift on this page is replayed from Mifal's own build record of 19 and 20 October 2026, and the messages are quoted from it. The floor's run for your own goal is an illustration.</p>
+      <p>The shift on this page is adapted from Mifal's own build record of 19 and 20 October 2026. The floor's run for your own goal is an illustration.</p>
       <p>Mifal ships the work of others under their licences: Matt Pocock's skills, DDD, Superpowers, agent-browser, Anthropic's frontend-design, Herdr's skill, Impeccable and LottieFiles motion-design. The <a href="https://github.com/romiluz13/mifal/blob/main/NOTICE">NOTICE</a> lists them. Mifal itself is MIT.</p>
     </div>
     <div>
