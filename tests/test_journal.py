@@ -103,7 +103,7 @@ class AbruptExit(Sandbox):
 
     def test_a_crash_after_publication_keeps_the_new_version_and_tidies_up(self):
         self.install()
-        self.release("0.2.0", **{"SKILL.md": "grilling 0.2.0\n"})
+        self.release("0.3.0", **{"SKILL.md": "grilling 0.2.0\n"})
         result = self.install(check=False, MIFAL_TEST_FAIL_AT="after-publication:exit")
         self.assertEqual(result.returncode, 70)
         self.assertEqual(self.manifest()["state"], "complete")

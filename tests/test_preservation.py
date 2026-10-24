@@ -123,7 +123,7 @@ class RulesFiles(Sandbox):
         rules.write_bytes(b"before\r\n")
         self.install("--harness", "codex")
         rules.write_bytes(rules.read_bytes() + b"after\r\n")
-        self.release("0.1.1")
+        self.release("0.3.0")
         self.install("--harness", "codex")
         self.assertTrue(rules.read_bytes().startswith(b"before\r\n"))
         self.assertTrue(rules.read_bytes().endswith(b"after\r\n"))
