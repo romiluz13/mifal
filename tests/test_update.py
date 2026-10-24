@@ -159,14 +159,14 @@ class Releases(Update):
         self.assertEqual(self.head(), self.old)
 
     def test_a_release_the_install_is_already_past_is_current(self):
-        self.cut("0.2.0")
+        self.cut("0.2.5")
         self.publish("after the release", **{"skills/grilling/NOTE.md": "unreleased\n"})
         self.git(self.clone, "pull", "-q", "--ff-only")
         self.install()
         installed = snapshot(self.home)
         result = self.update("--yes")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("already includes release v0.2.0", result.stdout)
+        self.assertIn("already includes release v0.2.5", result.stdout)
         self.assertEqual(snapshot(self.home), installed)
 
     def test_a_clone_pulled_past_the_release_still_installs_it_when_the_install_is_older(self):

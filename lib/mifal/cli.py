@@ -173,6 +173,10 @@ def main(argv) -> int:
             return 1
         if input("Rolled back. Continue with the install? [y/N] ").strip().lower() not in ("y", "yes"):
             return 1
+    refusal = inst.refuse_older_clone(h, ROOT)
+    if refusal:
+        print(refusal)
+        return 1
     plan = _plan(h, args)
     if plan is None or _refused(plan):
         return 1

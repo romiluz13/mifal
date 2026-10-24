@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import itertools
 import os
+import re
 import subprocess
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -63,6 +64,30 @@ def source_files(h: Home, source: Path):
     yield h.engine / "AGENTS.md", source / "guide" / "AGENTS.md"
     for skill in sorted(p for p in (source / "skills").iterdir() if p.is_dir() and p.name not in IGNORED):
         yield from _walk(skill, h.pool / skill.name)
+
+
+SEMVER = re.compile(r"^([0-9]+)\.([0-9]+)\.([0-9]+)$", re.ASCII)
+
+
+def refuse_older_clone(h: Home, source: Path):
+    """The message that stops an install from a clone older than the installed version, or None. Read-only."""
+    loaded = mf.load(h)
+    if loaded is None:
+        return None
+    try:
+        text = (source / "VERSION").read_text(encoding="utf-8").strip()
+    except OSError:
+        return f"mifal: {source} has no readable VERSION file, so Mifal cannot tell whether installing it would downgrade. Nothing was changed."
+    clone = SEMVER.match(text)
+    if not clone:
+        return f"mifal: the VERSION of {source} ({text!r}) is not X.Y.Z, so Mifal cannot tell whether installing it would downgrade. Nothing was changed."
+    installed = loaded[0].get("version")
+    have = SEMVER.match(installed) if isinstance(installed, str) else None
+    if have and tuple(map(int, clone.groups())) < tuple(map(int, have.groups())):
+        return (f"mifal: this clone is Mifal {text}, older than the Mifal {installed} installed here. Nothing was changed.\n"
+                f"To move to the newest release, run `mifal update`, or install from a clone of {installed} or newer. "
+                "To install the older version on purpose, run `mifal uninstall` first.")
+    return None
 
 
 class Unreadable(Exception):
