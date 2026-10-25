@@ -21,9 +21,12 @@ ENTRY = SKILLS / "engineering-workflow" / "SKILL.md"
 TEAM_LEAD = SKILLS / "team-lead" / "SKILL.md"
 COMMUNICATION = SKILLS / "team-lead" / "references" / "communication.md"
 TEAM_MEMORY = SKILLS / "team-lead" / "references" / "team-memory.md"
+HERDR = SKILLS / "team-lead" / "references" / "herdr.md"
 PHASE_RECORD = SKILLS / "engineering-workflow" / "references" / "phase-record.md"
 WORKFLOW_MAP = SKILLS / "engineering-workflow" / "references" / "workflow-map.md"
 OWNER_SENTENCE = "Matt owns engineering in every harness."
+# sha256 prefix of a retired methodology's name, hashed so this file names none (as tests/test_content.py does)
+RETIRED_OWNER = "87ac976952264a7b"
 
 CHECK_FORM = "Check: start <step> | passed | <evidence> at:<UTC>"
 STEP_DEFINED = "`<step>` is a name from the workflow map's Required steps"
@@ -52,7 +55,8 @@ class DefaultOwnerTests(unittest.TestCase):
     def test_the_entry_makes_matt_the_owner_in_every_harness_without_a_launcher(self):
         text = prose(ENTRY)
         self.assertIn(OWNER_SENTENCE, text)
-        self.assertNotIn("CC10X", text)
+        words = {hashlib.sha256(w.encode()).hexdigest()[:16] for w in re.findall(r"[a-z0-9]+", text.lower())}
+        self.assertNotIn(RETIRED_OWNER, words)
 
 
 class TheGateIsLoggedTests(StepFixture):
@@ -327,6 +331,79 @@ class TheFirstRefusalTeachesTests(unittest.TestCase):
     def test_two_workflow_sections_are_refused_as_two(self):
         self.assertIn("2 '## Workflow' sections; keep one",
                       self.refusal("\n## Workflow\nMethodology: matt\n\n## Workflow\nMethodology: matt\n"))
+
+
+class BriefPinTeachingTests(StepFixture):
+    """The pin is taught where a lead reads it, and the taught Check line is one the validator reads."""
+
+    def test_the_phase_record_and_herdr_teach_the_pin_commands_and_the_stamp(self):
+        for body in (PHASE_RECORD, HERDR):
+            with self.subTest(body=body.name):
+                text = prose(body)
+                for needle in ("brief-digest", "brief=sha256:", "--brief-digest sha256:"):
+                    self.assertIn(needle, text)
+
+    def test_the_phase_record_says_what_the_pin_ignores_and_when_to_re_stamp(self):
+        text = prose(PHASE_RECORD)
+        self.assertIn("above its first `## Return` line", text)
+        self.assertIn("`- [x]` or `- [X]` read as `- [ ]`", text)
+        self.assertRegex(text, r"(?i)amend the brief yourself, run `brief-digest` again and stamp the new digest")
+        self.assertRegex(text, r"(?i)without it `receipt` behaves as before")
+
+    def test_the_taught_dispatch_check_line_with_a_pin_is_read_by_the_gate(self):
+        line = taught(PHASE_RECORD, "Check: start implement").replace("<digest>", "a" * 64).replace(
+            "<UTC>", "2026-10-17T10:00:00Z")
+        self.assertIn("brief=sha256:" + "a" * 64, line)
+        text = self.record(steps("Scope", "Grilling", pending=("Implement",)),
+                           NO_BRANCH + " at:2026-10-17T09:00:00Z", phase="implement", extra=line + "\n")
+        self.passes(text)
+
+
+class ResearchChecklistTeachingTests(unittest.TestCase):
+    """A lead that copies the taught research checklist gets one that stays valid as its phases are ticked."""
+
+    def map_steps(self):
+        found = re.search(r"(?m)^- research: (.+)$", WORKFLOW_MAP.read_text())
+        self.assertTrue(found, "the workflow map lists no research steps")
+        return [name.strip() for name in found.group(1).split(",")]
+
+    def test_the_communication_guide_sends_a_brief_with_its_own_checklist_to_the_maps_steps(self):
+        text = prose(COMMUNICATION)
+        self.assertIn("A brief that keeps its own Phase checklist uses its route's step names in order from "
+                      "[workflow-map.md](../../engineering-workflow/references/workflow-map.md) Required steps; "
+                      "otherwise it points to the parent checklist with `State:`.", text)
+
+    def test_the_phase_record_example_is_the_maps_research_steps_in_order(self):
+        example = re.search(r"```text\n## Phase checklist\n(.*?)```", PHASE_RECORD.read_text(), re.S)
+        self.assertTrue(example, "the phase record shows no example Phase checklist")
+        labels = re.findall(r"(?m)^- \[[ x]\] ([A-Za-z-]+):", example.group(1))
+        self.assertEqual([label.lower() for label in labels], self.map_steps())
+
+
+class DoorbellTeachingTests(unittest.TestCase):
+    """The four doorbell rules and the neutral launch sentence, as herdr.md teaches them."""
+
+    def test_the_return_file_is_authoritative_and_the_lead_checks_for_it_whenever_it_wakes(self):
+        text = prose(HERDR)
+        self.assertIn("The file is authoritative; the ring is only a hint, so whenever you wake, and between your "
+                      "own steps, check the expected return files whether or not a ring came.", text)
+        self.assertIn("**Look:** the filtered `agent list`, `state.md` and the expected return files.", text)
+
+    def test_the_worker_runs_its_bounded_retry_in_the_foreground_and_never_sends_to_a_busy_lead(self):
+        text = prose(HERDR)
+        self.assertRegex(text, r"The worker runs the wait and every retry in the foreground, never as a background task")
+        self.assertIn("It never sends to a busy lead, for any kind of lead.", text)
+
+    def test_the_composer_rule_is_one_a_worker_can_meet(self):
+        text = prose(HERDR)
+        self.assertIn("read the composer; if it holds a draft or is unreadable, do not send", text)
+        self.assertNotIn("verified layout", text)
+
+    def test_the_launch_sentence_names_no_launcher_and_no_second_methodology(self):
+        text = prose(HERDR)
+        self.assertIn("Launch a fresh worker plainly: Mifal's Guide makes Matt the owner in every harness.", text)
+        for gone in ("launcher", "another methodology", "fresh Claude worker", "owner contract", "advisory review"):
+            self.assertNotIn(gone, text)
 
 
 if __name__ == "__main__":
