@@ -179,7 +179,7 @@ def doctor(h: mf.Home, env, out) -> int:
 
 def _elsewhere(r, h, data, shell):
     """Agents found on this machine that the install does not serve, and a second Claude home that shares the
-    wired one's skills without the Guide."""
+    wired one's skills and is not served either."""
     show = h.show
     try:
         for line in harness.unserved(h.home, data, shell, show, unrecorded_only=True):
@@ -194,8 +194,8 @@ def _elsewhere(r, h, data, shell):
     skills = os.path.realpath(Path(rec["root"]) / "skills")
     for other in sorted(homes):
         if os.path.realpath(other) != os.path.realpath(rec["root"]) and os.path.realpath(other / "skills") == skills:
-            r.out(f"note also seen by {show(other)}: it shares {show(skills)}, but Mifal serves {show(rec['root'])}, "
-                  "so Claude Code started there gets the skills without the Guide")
+            r.out(f"note also seen by {show(other)}: it shares {show(skills)}, but Mifal does not serve "
+                  f"{show(other)}, so the Guide reaches it only if its own rules file brings it in")
 
 
 def _guide(r, name, rules: Path, root: Path, entry, guide_sha, h, env):
