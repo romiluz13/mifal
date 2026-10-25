@@ -141,7 +141,7 @@ def main(argv) -> int:
         return 0
     if args.command == "doctor":
         return doctor.doctor(h, os.environ, _out)
-    if not getattr(args, "dry_run", False):
+    if args.command != "install" and not getattr(args, "dry_run", False):
         journal.tidy(h)
     if args.command == "update":
         loaded = mf.load(h)
@@ -162,6 +162,12 @@ def main(argv) -> int:
     if not ((ROOT / "skills").is_dir() and (ROOT / "install.sh").is_file()):
         print("mifal: install runs from a Mifal clone; run ./install.sh there.")
         return 1
+    refusal = inst.refuse_older_clone(h, ROOT)
+    if refusal:
+        print(refusal)
+        return 1
+    if not args.dry_run:
+        journal.tidy(h)
     loaded = mf.load(h)
     if loaded and loaded[0]["state"] == "installing":
         _interrupted(h, args.dry_run)
@@ -173,10 +179,6 @@ def main(argv) -> int:
             return 1
         if input("Rolled back. Continue with the install? [y/N] ").strip().lower() not in ("y", "yes"):
             return 1
-    refusal = inst.refuse_older_clone(h, ROOT)
-    if refusal:
-        print(refusal)
-        return 1
     plan = _plan(h, args)
     if plan is None or _refused(plan):
         return 1

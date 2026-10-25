@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import itertools
 import os
+import json
 import re
 import subprocess
 from dataclasses import dataclass, field
@@ -69,24 +70,41 @@ def source_files(h: Home, source: Path):
 SEMVER = re.compile(r"^([0-9]+)\.([0-9]+)\.([0-9]+)$", re.ASCII)
 
 
+def last_committed_version(data: dict):
+    """The version of the last completed install: the Manifest's own, or, while an install or update is pending, the
+    one inside its previous record. None when there is none to compare with."""
+    if data.get("state") != "installing":
+        return data.get("version")
+    try:
+        previous = json.loads(data["previous"]) if data.get("previous") is not None else None
+    except (ValueError, TypeError):
+        return None
+    return previous.get("version") if isinstance(previous, dict) else None
+
+
 def refuse_older_clone(h: Home, source: Path):
-    """The message that stops an install from a clone older than the installed version, or None. Read-only."""
+    """The message that stops an install from a clone older than the last completed install, or None. Read-only, so
+    it runs before tidy or any rollback."""
     loaded = mf.load(h)
     if loaded is None:
         return None
+    installed = last_committed_version(loaded[0])
+    have = SEMVER.match(installed) if isinstance(installed, str) else None
+    if not have:
+        return None
     try:
         text = (source / "VERSION").read_text(encoding="utf-8").strip()
-    except OSError:
+    except (OSError, UnicodeDecodeError):
         return f"mifal: {source} has no readable VERSION file, so Mifal cannot tell whether installing it would downgrade. Nothing was changed."
     clone = SEMVER.match(text)
     if not clone:
         return f"mifal: the VERSION of {source} ({text!r}) is not X.Y.Z, so Mifal cannot tell whether installing it would downgrade. Nothing was changed."
-    installed = loaded[0].get("version")
-    have = SEMVER.match(installed) if isinstance(installed, str) else None
-    if have and tuple(map(int, clone.groups())) < tuple(map(int, have.groups())):
+    if tuple(map(int, clone.groups())) < tuple(map(int, have.groups())):
+        pending = (f"\nAn interrupted install or update is pending; `mifal update`, or an install from a clone of {installed} or newer, rolls it back."
+                   if loaded[0].get("state") == "installing" else "")
         return (f"mifal: this clone is Mifal {text}, older than the Mifal {installed} installed here. Nothing was changed.\n"
                 f"To move to the newest release, run `mifal update`, or install from a clone of {installed} or newer. "
-                "To install the older version on purpose, run `mifal uninstall` first.")
+                "To install the older version on purpose, run `mifal uninstall` first." + pending)
     return None
 
 
