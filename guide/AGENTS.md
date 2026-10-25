@@ -11,7 +11,7 @@ Rules for sessions that load this Mifal Guide, installed by Mifal. Repository in
 - A request that already chooses the full workflow or names a cut is not asked again; record a cut from its words. A reply that names no step is not a cut and gets no second question: every step runs, at minimal depth. Record a cut only as `Cut: <steps> | <quote> | <source>` with the human's words; no reply is not a cut.
 - Loading a skill is not doing its step: each phase ends with its own evidence (a red run before the fix, green after, review findings against a snapshot, retro findings) before the next begins.
 - Load skills one per call; a cut or truncated skill read is read again completely before acting.
-- A skill that says to call the Skill tool means the same loading: your native skill tool, otherwise reading `~/.agents/skills/NAME/SKILL.md` completely.
+- A skill that says to call the Skill tool means the same loading: your native skill tool, otherwise reading `~/.agents/skills/<name>/SKILL.md` completely.
 - Invoke a skill on your own when its description matches the task; a slash command is not needed. Load only the specialist you selected. A skill's external actions, such as publishing, messaging or deploying, still need their own authorization.
 - Skip a skill whose required tool, CLI or harness you lack, and say that you skipped it and why.
 - For sustained coordination of engineering work across Herdr panes, read `~/.agents/skills/team-lead/references/herdr.md` before the first dispatch, and run its pane checks before every prompt.
