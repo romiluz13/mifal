@@ -83,7 +83,7 @@ anything.
   `brief=sha256:<digest>` in the dispatch Check line. Re-stamp after any
   amendment of your own. You accept the return with `validate_contracts.py
   receipt <record>/tasks/<id>.md --matt --brief-digest sha256:<digest>`, which
-  refuses a brief that changed other than by ticks ([phase
+  refuses a brief that changed in any way but its ticks ([phase
   record](../../engineering-workflow/references/phase-record.md)).
 - Before direct prompts, check the scoped pane identity and readiness, then
   read the composer; if it holds a draft or is unreadable, do not send. An

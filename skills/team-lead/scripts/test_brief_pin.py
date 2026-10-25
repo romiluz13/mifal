@@ -88,6 +88,7 @@ class BriefPinTests(StepFixture):
         result = subprocess.run([sys.executable, "-B", str(contracts.SCRIPT), "brief-digest", str(absent)],
                                 capture_output=True, text=True)
         self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn("absent.md", result.stderr)
 
     def test_a_cut_done_means_claim_passes_without_the_pin_and_is_refused_with_it(self):
         brief = self.dispatched()
@@ -139,7 +140,7 @@ class BriefPinTests(StepFixture):
             with self.subTest(pin=bad):
                 result = self.receipt(text, bad)
                 self.assertEqual(result.returncode, 2, result.stderr)
-                self.assertIn("sha256", result.stderr)
+                self.assertIn("is not a pin", result.stderr)
         result = self.f.run_check("brief", text, "--brief-digest", "sha256:" + "a" * 64)
         self.assertEqual(result.returncode, 2, result.stderr)
 
