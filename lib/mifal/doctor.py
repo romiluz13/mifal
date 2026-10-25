@@ -7,6 +7,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -109,9 +110,7 @@ def doctor(h: mf.Home, env, out) -> int:
                 why, _, fix = w.skip.partition(". ")
                 r.line("FAIL", f"guide {name}", "not wired: " + why.split(": ", 1)[-1], fix)
             else:
-                # The fix runs in the user's shell, where the agent's variable may be unset, so a recorded root
-                # the shell does not point at is named and shell-quoted in the command itself.
-                import shlex
+                # The fix runs in a shell where the variable may be unset, so the command names the recorded root itself.
                 variable = harness.VARIABLES.get(name)
                 if variable and Path(rec["root"]) != harness.roots(
                         h.home, {k: v for k, v in env.items() if k != variable})[name]:
