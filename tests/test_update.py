@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import shutil
 import subprocess
 import unittest
@@ -508,6 +509,75 @@ class Reserved(Update):
         result = self.update("--yes")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(extra.read_text(), "my notes\n")
+
+
+class Ignored(Update):
+    """The clone holds a file git ignores, at a path a release then adds as a tracked file."""
+
+    MINE = b"my local notes\x00\n"
+
+    def ignored(self, rel):
+        path = self.clone / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(self.MINE)
+        with open(self.clone / ".git/info/exclude", "a") as f:
+            f.write(rel + "\n")
+        return path
+
+    def test_a_release_that_adds_a_tracked_file_over_an_ignored_one_stops_the_update(self):
+        mine = self.ignored("notes/local.md")
+        self.publish("add a note", **{"notes/local.md": "release\n"})
+        result = self.update("--yes")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn(f"{mine}: your file is ignored by git in the clone, but this release adds a tracked file at "
+                      "that path, which would overwrite it", result.stdout)
+        self.assertIn("Nothing was changed.", result.stdout)
+        self.assertIn("mifal update --overwrite-edits", result.stdout)
+        self.assertEqual(mine.read_bytes(), self.MINE)
+        self.assertEqual(self.head(), self.old)
+        self.assertEqual(snapshot(self.home), self.installed)
+        self.assertEqual(self.update().stdout, result.stdout)
+
+    def test_overwrite_edits_backs_the_ignored_file_up_then_updates(self):
+        mine = self.ignored("notes/local.md")
+        new = self.publish("add a note", **{"notes/local.md": "release\n"})
+        stamp = lambda text: re.sub(r"\d{8}T\d{6}Z", "STAMP", text)
+        preview = self.update("--overwrite-edits")
+        self.assertIn("Not applied.", preview.stdout)
+        self.assertEqual(mine.read_bytes(), self.MINE)
+        result = self.update("--overwrite-edits", "--yes")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertRegex(result.stdout, rf"backup {re.escape(str(mine))} -> "
+                                        r"~/.agents/mifal/backup/\d{8}T\d{6}Z/.*/notes/local.md")
+        self.assertEqual(stamp(preview.stdout).split("Not applied.")[0],
+                         stamp(result.stdout).split("Updated Mifal")[0])
+        self.assertEqual(mine.read_text(), "release\n")
+        saved = list((self.home / ".agents/mifal/backup").glob("*/**/notes/local.md"))
+        self.assertEqual([p.read_bytes() for p in saved], [self.MINE])
+        self.assertEqual(self.head(), new)
+        self.assertEqual(self.manifest()["source"]["revision"], new)
+
+    def test_a_failed_fast_forward_puts_the_backed_up_file_back(self):
+        mine = self.ignored("notes/local.md")
+        self.publish("add a note", **{"notes/local.md": "release\n"})
+        result = self.update("--overwrite-edits", "--yes", MIFAL_TEST_FAIL_AT="fast-forward")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(f"restore {mine}", result.stdout)
+        self.assertEqual(mine.read_bytes(), self.MINE)
+        self.assertEqual(snapshot(self.home), self.installed)
+        self.assertEqual(self.head(), self.old)
+
+    def test_an_untracked_file_and_an_ignored_one_the_release_does_not_add_do_not_stop_it(self):
+        mine = self.ignored("notes/other.md")
+        loose = self.clone / "LOOSE.md"
+        loose.write_bytes(self.MINE)
+        new = self.publish("add a note", **{"notes/local.md": "release\n"})
+        result = self.update("--yes")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("ignored by git", result.stdout)
+        self.assertNotIn("backup", result.stdout)
+        self.assertEqual((mine.read_bytes(), loose.read_bytes()), (self.MINE, self.MINE))
+        self.assertEqual(self.head(), new)
 
 
 if __name__ == "__main__":

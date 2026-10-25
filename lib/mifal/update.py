@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
 
 from . import harness
@@ -109,10 +110,43 @@ def export(clone: Path, sha: str, into: Path) -> None:
     archive.unlink()
 
 
-def _plan(h, tree, version, args, data, src):
+def ignored_collisions(clone, head, sha) -> list:
+    """The clone's git-ignored paths where the fast-forward from head to sha adds a tracked file. Git refuses to
+    overwrite an untracked file there, but overwrites an ignored one without a word."""
+    if head == sha or _git(clone, "merge-base", "--is-ancestor", head, sha, check=False).returncode != 0:
+        return []
+    names = _git(clone, "diff", "--name-only", "-z", "--diff-filter=ART", head, sha).stdout.split("\0")
+    return [clone / name for name in names if name and os.path.lexists(clone / name)
+            and _git(clone, "check-ignore", "-q", "--", name, check=False).returncode == 0]
+
+
+def _back_up(plan, path, stamp):
+    """Move path into Mifal's backup folder before the fast-forward, the way an install backs up a skill of yours
+    whose name a release takes."""
+    h = plan.home
+    dest = h.under(h.engine / "backup" / stamp, path)
+    planned = {Path(s.op["path"]) for s in plan.steps if s.op["op"] == "mkdir"}
+    folders, folder = [], dest.parent
+    while folder != h.engine and not os.path.lexists(folder) and folder not in planned:
+        folders.insert(0, folder)
+        folder = folder.parent
+    at = plan.pre
+    while at < len(plan.steps) and plan.steps[at].op["op"] == "mkdir":
+        at += 1
+    steps = [inst.Step({"op": "mkdir", "path": str(f)}, f"create {h.show(f)}") for f in folders]
+    steps.append(inst.Step({"op": "move", "from": str(path), "to": str(dest), "why": "backup"},
+                           f"backup {h.show(path)} -> {h.show(dest)}"))
+    plan.steps[at:at] = steps
+    plan.data["entries"] = sorted(plan.data["entries"] + [{"kind": "dir", "path": str(f)} for f in folders]
+                                  + [{"kind": "backup", "path": str(path), "backup": str(dest)}],
+                                  key=lambda e: (e["kind"], e["path"]))
+
+
+def _plan(h, tree, version, args, data, src, clone, head, sha, stamp):
     """The plan for installing tree into the recorded homes. Every agent the Manifest records, wired or skipped, is
     planned again at its recorded root, so a skip that no longer holds is wired (or stops on its conflict) and one
-    that still holds stays skipped with its note."""
+    that still holds stays skipped with its note. A git-ignored file in the clone where the release adds a tracked
+    file stops the update, or with --overwrite-edits is backed up first."""
     records = data.get("harnesses") or {}
     env, notes = harness.recorded_env(data, os.environ, h.show)
     for name, rec in records.items():
@@ -123,6 +157,12 @@ def _plan(h, tree, version, args, data, src):
                           source_record=src)
     for name, rec in records.items():
         plan.data["harnesses"].setdefault(name, rec)
+    for path in ignored_collisions(clone, head, sha):
+        if args.overwrite_edits:
+            _back_up(plan, path, stamp)
+        else:
+            plan.conflicts.append(f"{h.show(path)}: your file is ignored by git in the clone, but this release adds "
+                                  "a tracked file at that path, which would overwrite it")
     return plan, notes
 
 
@@ -157,7 +197,8 @@ def update(h, data, args, out) -> int:
         tree = Path(temp) / "tree"
         version = (tree / "VERSION").read_text(encoding="utf-8").strip()
         src = dict(source, revision=sha)
-        plan, notes = _plan(h, tree, version, args, data, src)
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        plan, notes = _plan(h, tree, version, args, data, src, clone, head, sha, stamp)
         known = installed and _git(clone, "cat-file", "-e", installed + "^{commit}", check=False).returncode == 0
         if missing:
             out(f"Mifal {version} at {sha[:12]}: this install is missing {len(missing)} file(s) this version installs:")
@@ -192,7 +233,7 @@ def update(h, data, args, out) -> int:
             if input(f"Apply {len(lines)} change(s)? [y/N] ").strip().lower() not in ("y", "yes"):
                 out("Not applied.")
                 return 1
-            plan, _ = _plan(h, tree, version, args, data, src)
+            plan, _ = _plan(h, tree, version, args, data, src, clone, head, sha, stamp)
             if plan.conflicts or plan.stops or list(plan.lines()) != lines:
                 for line in plan.stops + plan.conflicts:
                     out(line)
