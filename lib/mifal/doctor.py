@@ -90,11 +90,18 @@ def doctor(h: mf.Home, env, out) -> int:
             r.line("WARN", "engine", f"{len(absent)} file(s) the installed revision installs are missing from "
                    f"{show(h.engine)}, e.g. {show(absent[0])}", "run mifal update")
 
-    saved = sum(os.path.lexists(e["backup"]) for e in data["entries"] if e["kind"] == "backup")
-    if saved:
-        out(f"note {saved} skill folder(s) or link(s) of yours are saved in {show(h.engine / 'backup')}, where Mifal "
-            "moved them to take their names. To keep one under another name, copy it from there; mifal uninstall "
-            "puts each back where it was when that place is free")
+    clone = (data.get("source") or {}).get("path")
+    saved = [Path(e["path"]) for e in data["entries"] if e["kind"] == "backup" and os.path.lexists(e["backup"])]
+    from_clone = sum(bool(clone) and p.is_relative_to(clone) for p in saved)
+    if len(saved) > from_clone:
+        out(f"note {len(saved) - from_clone} skill folder(s) or link(s) of yours are saved in "
+            f"{show(h.engine / 'backup')}: a release took their names. To keep one under another name, copy it from "
+            "there; mifal uninstall puts each back where it was when that place is free")
+    if from_clone:
+        out(f"note {from_clone} item(s) of yours from your Mifal clone are saved in {show(h.engine / 'backup')}: git "
+            "ignored them and a release added tracked files where they were. They stay there after mifal uninstall "
+            "while the clone has the release's files in their place; to keep one, copy it from there, but copying "
+            "it back into the clone makes the clone's tracked file differ")
 
     guide = h.engine / "AGENTS.md"
     guide_sha = hashlib.sha256(guide.read_bytes()).hexdigest() if guide.is_file() else None
