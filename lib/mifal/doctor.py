@@ -174,7 +174,7 @@ def _guide(r, name, rules: Path, root: Path, entry, guide_sha, h, env):
     if now is not None and now != rules:
         w = harness.plan(name, h.home, env, root, show)
         r.line("FAIL", check, f"{harness.TITLES[name]} reads {show(now)}, not {show(rules)}",
-               (w.skip or "").split(". ", 1)[-1])
+               (w.skip or "").split(". ", 1)[-1] or REINSTALL)
         return
     text = rules.read_text(encoding="utf-8") if rules.is_file() else ""
     found = harness.BLOCK.findall(text)

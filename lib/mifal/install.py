@@ -350,6 +350,11 @@ def make_plan(h: Home, source: Path, version: str, overwrite_edits: bool = False
             plan.conflicts.append(where + why)
             plan.unwritable.append((where + why, kind[0], w.name, dest if kind[0] == "link" else None))
             continue
+        if w.warn:
+            if old is None or overwrite_edits:
+                plan.notes.append("note " + w.warn)
+            else:
+                plan.conflicts.append(w.warn)
         text = mf.read_rules(w.rules) if os.path.lexists(w.rules) else None
         found = harness.BLOCK.findall(text or "")
         sep, created, copy = (rec["sep"], rec["created"], None) if rec else (None, text is None, None)

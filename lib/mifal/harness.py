@@ -138,6 +138,13 @@ def _open_fence(text: str) -> bool:
     return fenced
 
 
+def _holds_more_than_block(path: Path) -> bool:
+    try:
+        return bool(BLOCK.sub("", path.read_text(encoding="utf-8", errors="replace")).strip())
+    except OSError:
+        return True
+
+
 def plan(name, home: Path, env, root: Path, show) -> Wiring:
     """Where the Guide goes for this harness, or why Mifal leaves it alone."""
     rules = root / ("CLAUDE.md" if name == "claude" else "AGENTS.md")
@@ -149,10 +156,13 @@ def plan(name, home: Path, env, root: Path, show) -> Wiring:
         w.skip = (f"skip {name}: it reads {show(now)}, which overrides {show(rules)}. Mifal does not hide your "
                   f"override. To wire {TITLES[name]}, move what you want to keep into {show(rules)}, remove the "
                   f"override and run the installer again.")
-    elif now is not None:
+    elif now is not None and name != "opencode":
         w.skip = (f"skip {name}: it reads {show(now)} now. Mifal's block belongs in {show(rules)}, and once that "
                   f"file exists {TITLES[name]} stops reading {show(now)}. To wire it, copy what you want to keep "
                   f"from {show(now)} into {show(rules)} and run the installer again.")
+    elif now is not None and _holds_more_than_block(now):
+        w.warn = (f"{show(now)}: OpenCode reads it now, and stops once Mifal writes {show(rules)}; copy what you "
+                  f"want to keep from it into {show(rules)}")
     elif rules.is_file() and _open_fence(rules.read_text(encoding="utf-8")):
         w.skip = f"skip {name}: {show(rules)} ends inside an open code fence; close it and run the installer again."
     return w

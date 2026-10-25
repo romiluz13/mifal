@@ -329,5 +329,31 @@ class Recovery(Update):
         self.assertTrue((self.home / ".agents/skills/grilling/NOTE.md").exists())
 
 
+class OpenCode(Update):
+    """An install that served no agent when it was made: update wires an agent found since, as an install does."""
+
+    def test_an_update_that_newly_wires_opencode_stops_on_the_claude_fallback_until_overwrite_edits(self):
+        self.harness_fakes("opencode")
+        moved = self.home / "elsewhere"
+        fallback = moved / ".claude/CLAUDE.md"
+        fallback.parent.mkdir(parents=True)
+        fallback.write_text("my claude rules\n")
+        self.publish(**{"skills/grilling/NOTE.md": "note\n"})
+        before = snapshot(self.home)
+        result = self.update("--yes", OPENCODE_TEST_HOME=str(moved))
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("~/elsewhere/.claude/CLAUDE.md: OpenCode reads it now, and stops once Mifal writes "
+                      "~/.config/opencode/AGENTS.md", result.stdout)
+        self.assertIn("Nothing was changed.", result.stdout)
+        self.assertIn("mifal update --overwrite-edits", result.stdout)
+        self.assertEqual(snapshot(self.home), before)
+        self.assertEqual(self.head(), self.old)
+        result = self.update("--overwrite-edits", "--yes", OPENCODE_TEST_HOME=str(moved))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("block ~/.config/opencode/AGENTS.md", result.stdout)
+        self.assertEqual(self.manifest()["harnesses"]["opencode"]["status"], "wired")
+        self.assertEqual(fallback.read_text(), "my claude rules\n")
+
+
 if __name__ == "__main__":
     unittest.main()

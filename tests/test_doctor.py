@@ -9,6 +9,8 @@ from support import PYTHON, REPO, Sandbox, snapshot
 HERDR_STATUS = json.dumps({"client": {"version": "0.9.5"}, "server": {"running": True, "version": "0.9.5"}})
 SCHEMA = REPO / "tools/herdr_adapter/api-schema.json"
 HARNESSES = ("claude", "codex", "droid", "pi", "opencode")
+RULES = {"claude": ".claude/CLAUDE.md", "codex": ".codex/AGENTS.md", "droid": ".factory/AGENTS.md",
+         "pi": ".pi/agent/AGENTS.md", "opencode": ".config/opencode/AGENTS.md"}
 NETWORK = ("curl", "wget", "git", "nc", "ssh")
 # Files a harness keeps settings, tokens or credentials in. The doctor never opens any of them.
 PRIVATE = (".claude/settings.json", ".claude/.credentials.json", ".codex/auth.json", ".codex/config.toml",
@@ -64,6 +66,10 @@ class Healthy(Doctor):
 
 
 class Broken(Doctor):
+    def test_a_deleted_opencode_rules_file_fails_with_its_fix(self):
+        (self.home / RULES["opencode"]).unlink()
+        self.assert_fails_with_fix(self.doctor(), "guide opencode")
+
     def test_a_deleted_skill_fails_with_its_fix(self):
         shutil.rmtree(self.home / ".agents/skills/tdd")
         self.assert_fails_with_fix(self.doctor(), "manifest")
