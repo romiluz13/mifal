@@ -38,6 +38,7 @@ class Plan:
     conflicts: list = field(default_factory=list)
     stops: list = field(default_factory=list)
     unwritable: list = field(default_factory=list)
+    fallbacks: list = field(default_factory=list)
     leave_out: list = field(default_factory=list)
     data: dict = field(default_factory=dict)
     previous: str | None = None
@@ -363,6 +364,7 @@ def make_plan(h: Home, source: Path, version: str, overwrite_edits: bool = False
                 plan.notes.append("note " + w.warn)
             else:
                 plan.conflicts.append(w.warn)
+                plan.fallbacks.append((w.warn, w.name, harness.reads_now(w.name, h.home, env, w.root), w.rules))
         text = mf.read_rules(w.rules) if os.path.lexists(w.rules) else None
         found = harness.BLOCK.findall(text or "")
         sep, created, copy = (rec["sep"], rec["created"], None) if rec else (None, text is None, None)
@@ -481,6 +483,13 @@ def make_plan(h: Home, source: Path, version: str, overwrite_edits: bool = False
     if not blocked & set(was_wired):
         plan.leave_out = [w.name for w in wirings if w.name not in blocked and not w.skip]
     return plan
+
+
+def fallback_advice(plan, command: str) -> list:
+    """The way out of a rules file an agent stops reading once Mifal writes its own: Mifal neither moves nor saves it."""
+    show = plan.home.show
+    return [f"For {show(now)}: Mifal leaves it as it is. {command} to accept that {harness.TITLES[name]} then reads "
+            f"{show(rules)} instead." for _, name, now, rules in plan.fallbacks]
 
 
 def unwritable_advice(plan, can_leave_out: bool) -> list:

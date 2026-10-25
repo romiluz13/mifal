@@ -207,6 +207,18 @@ class Precedence(Wiring):
         self.assertEqual(self.wired(), {"codex", "opencode"})
         self.assertEqual(fallback.read_text(), "my claude rules\n")
 
+    def test_the_fallback_stop_says_what_overwrite_edits_accepts_and_neither_moves_nor_saves_the_file(self):
+        self.harness_fakes("codex", "opencode")
+        self.fallback("my claude rules\n")
+        self.install("--harness", "codex")
+        result = self.install("--harness", "opencode", check=False)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("For ~/.claude/CLAUDE.md: Mifal leaves it as it is. Run again with --overwrite-edits to "
+                      "accept that OpenCode then reads ~/.config/opencode/AGENTS.md instead.", result.stdout)
+        self.assertIn("Nothing was written.", result.stdout)
+        for wrong in ("Move them aside", "save a copy", "saved", "changed since Mifal wrote them"):
+            self.assertNotIn(wrong, result.stdout)
+
     def test_pi_with_only_claude_md_is_skipped(self):
         self.harness_fakes("pi")
         (self.home / ".pi/agent").mkdir(parents=True)

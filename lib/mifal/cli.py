@@ -85,16 +85,20 @@ def _refused(plan) -> bool:
         print(line)
     if plan.conflicts:
         hard = {line for line, *_ in plan.unwritable}
-        soft = [line for line in plan.conflicts if line not in hard]
-        print("These paths changed since Mifal wrote them, or are not Mifal's:" if soft else
-              "Mifal cannot write these rules files:")
+        held = {line for line, *_ in plan.fallbacks}
+        soft = [line for line in plan.conflicts if line not in hard and line not in held]
+        if soft or hard:
+            print("These paths changed since Mifal wrote them, or are not Mifal's:" if soft else
+                  "Mifal cannot write these rules files:")
         for line in plan.conflicts:
-            print(f"  {line}")
+            print(f"  {line}" if line not in held else line)
         if plan.unwritable:
             for line in inst.unwritable_advice(plan, True):
                 print(line)
         if soft:
             print("Move them aside, or run again with --overwrite-edits to save a copy of each first.")
+        for line in inst.fallback_advice(plan, "Run again with --overwrite-edits"):
+            print(line)
     print("Nothing was written.")
     return True
 
