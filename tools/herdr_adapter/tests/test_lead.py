@@ -788,7 +788,7 @@ class LeadTest(unittest.TestCase):
     def test_non_matt_workflow_does_not_take_the_route_decision_or_the_cut(self):
         for field, value in (("route_decision", "multi-session: no; reason: small"), ("cut", 'retro | "skip" | log')):
             with self.subTest(field):
-                workflow = {"methodology": "cc10x", "phase": "implementation", field: value}
+                workflow = {"methodology": "other", "phase": "implementation", field: value}
                 error = self.refuse_init([self.task(kind="implementation", workflow=workflow)])
                 self.assertEqual(error["code"], "schema_invalid")
                 self.assertIn("unknown fields", error["message"])
@@ -1135,7 +1135,7 @@ class LeadTest(unittest.TestCase):
         self.assertFalse((self.root / "tasks/7.md").exists())
 
     def test_non_matt_workflow_skills_are_not_delivered(self):
-        workflow = {"methodology": "cc10x", "phase": "implementation",
+        workflow = {"methodology": "other", "phase": "implementation",
                     "skills": ["~/.agents/skills/tdd/SKILL.md"]}
         self.init([self.task(kind="implementation", workflow=workflow)])
         self.assertEqual(self.turn()["action"], "dispatch")
@@ -1227,7 +1227,7 @@ class LeadTest(unittest.TestCase):
     def test_brief_carries_kind_and_workflow_selection(self):
         # Ticket 14: the methodology selection travels with the brief so a member's
         # harness default cannot silently replace the parent's workflow.
-        workflow = {"methodology": "cc10x", "phase": "implementation",
+        workflow = {"methodology": "other", "phase": "implementation",
                     "skills": ["~/.agents/skills/tdd/SKILL.md"],
                     "scheduler": "lead", "integration_owner": "alpha"}
         self.init([self.task(kind="implementation", workflow=workflow)])
@@ -1235,7 +1235,7 @@ class LeadTest(unittest.TestCase):
         text = (self.root / "tasks/7.md").read_text()
         self.assertIn("kind: implementation", text)
         self.assertIn("## Workflow", text)
-        self.assertIn("Methodology: cc10x", text)
+        self.assertIn("Methodology: other", text)
         self.assertIn("Phase: implementation", text)
         self.assertIn("tdd/SKILL.md", text)
         self.assertIn("Scheduler: lead", text)
@@ -2693,7 +2693,7 @@ class LeadTest(unittest.TestCase):
         self.assertIn(first.strip(), (self.root / "state.md").read_text().replace(
             self.current_state().split("- As of: ")[1].split("\n")[0], now.isoformat()))
 
-    # ---- Attempt 1.2: the independent review's findings (A1-A8, O2); Astra's probes, as tests ----
+    # ---- Attempt 1.2: the independent review's findings (A1-A8, O2); its probes, as tests ----
 
     def refresh(self):
         """Re-render the projection from the saved state without a lead turn."""

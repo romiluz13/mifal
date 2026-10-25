@@ -109,7 +109,7 @@ class ResumeTest(unittest.TestCase):
         self.assertEqual(len(self.sent_states), 1)
 
     def test_receipt_only_completion_with_an_unchanged_pane_reconciles_on_restart_without_redispatch(self):
-        """Astra AMEND 1: a lost doorbell and no pane transition still wakes the lead, and restart accepts once."""
+        """A lost doorbell and no pane transition still wakes the lead, and restart accepts once."""
         self.init(wake={"mechanism": "wake.py in the lead pane", "deadline_seconds": 60})
         self.turn()
         pane = [(a["agent_status"], a["state_change_seq"]) for a in self.snapshot["agents"]]

@@ -314,7 +314,9 @@ JSON
   input frame. The frame begins at a line that is exactly its start token;
   prose that mentions the token does not hide the lines below it. Resume uses
   the same parse. Read durable returns too, so a wrapped/missed DONE cannot erase
-  a receipt. A socket acknowledgment or idle status never closes a task.
+  a receipt. The return file is authoritative, not the doorbell: a lead checks
+  expected return files whenever it wakes or between its own steps. A socket
+  acknowledgment or idle status never closes a task.
   Return reads are bounded, nonblocking regular-file reads (2 MiB per file). A
   FIFO, directory, non-UTF-8 or oversize return refuses only its own task
   (`receipt-refused`); other tasks proceed in later turns and the lock is freed.
@@ -816,7 +818,7 @@ For a claimed completion it runs the preflight and maps the verdict, never forwa
 The hook never exits 1 (a non-blocking error), never runs a plan verifier, and writes only `stop-hook.log`. Use an
 absolute interpreter in `TEAM_STOP_PYTHON`, not a version-manager shim; without it the hook uses `/usr/bin/python3`.
 
-**What a Stop hook cannot do, observed on Claude Code 2.1.301** (`tasks/4/probe-results.md`): a project Stop hook
+**What a Stop hook cannot do, observed on Claude Code 2.1.301:** a project Stop hook
 loads under a custom `CLAUDE_CONFIG_DIR`; exit 2 blocks the stop once and the model is shown stderr;
 `stop_hook_active` is true on the next Stop; a missing hook script fails with exit 127 and the session still
 finishes. Not verified natively: `/clear`, Esc and interrupt, interactive sessions, hook timeouts, and

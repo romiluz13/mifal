@@ -69,7 +69,7 @@ class StopHookTest(unittest.TestCase):
         if receipt:
             self.receipt(**receipt_args)
 
-    # ---- Astra's cases: valid passes; missing, wrong attempt, changed source do not -------------------------
+    # ---- cases: valid passes; missing, wrong attempt, changed source do not -------------------------------
 
     def test_a_valid_final_task_may_stop(self):
         self.admitted_with()
