@@ -59,9 +59,13 @@ id, owner, latitude, return path) and the required sections — is fixed by the
   in the existing state. Put the selected phase and procedures in the brief,
   point to the parent checklist rather than copying it, and request
   `validate_contracts.py brief <brief> --matt` before work and
-  `receipt <brief> --matt` on return. The lead runs the entry/review/accept
-  checks at their boundaries. Native interpreter records retain authority;
-  file checks are not universal tool interception.
+  `receipt <brief> --matt` on return. A brief that keeps its own Phase
+  checklist uses its route's step names in order from
+  [workflow-map.md](../../engineering-workflow/references/workflow-map.md)
+  Required steps; otherwise it points to the parent checklist with `State:`.
+  The lead runs the entry/review/accept checks at their boundaries. Native
+  interpreter records retain authority; file checks are not universal tool
+  interception.
 - **Least sure of:** the assumption most likely wrong, and a request for the
   one observation that would settle it. This replaces "any concerns?", which
   gets silence or invented objections. It is the lead's own premortem; the

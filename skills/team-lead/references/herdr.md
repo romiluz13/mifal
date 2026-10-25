@@ -66,31 +66,31 @@ anything.
 
 ## Dispatch
 
-- Before assigning engineering implementation to a fresh Claude worker,
-  start it under the parent methodology. Mifal's Guide makes Matt the owner
-  in every harness, so a plain launch is enough. Use documented
-  `pane run <pane-id> <shell command>` in an available shell, then
+- Launch a fresh worker plainly: Mifal's Guide makes Matt the owner in every
+  harness. Preserve the requested account, provider, model and effort. Use
+  documented `pane run <pane-id> <shell command>` in an available shell, then
   check `agent get <pane-id>` for detection/readiness; use
   `agent explain <pane-id>` if detection is unclear, then
   `agent rename <pane-id> <name>` for its live name before prompting.
-  Preserve the requested account, provider, model and effort.
-  Reuse an existing session only with checked effective ownership. A
-  session another methodology owns can give a bounded advisory review without inheriting
-  Matt's lifecycle; implementation under another owner needs a fresh launch.
-  See the engineering-workflow owner contract; a successful preview is
-  configuration evidence, not observed runtime ownership or compliance.
 - Put the brief in `<record>/tasks/<id>.md`, where `<record>` is the
   record root's absolute path
   ([communication](communication.md#parallel-agents-in-one-repository)), and
   send a short prompt that points to it: `herdr agent prompt <name> "Task
   <id>: read <record>/tasks/<id>.md and start. Ring me when done."` Tiny
   tasks can go inline. A correction uses its attempt id (`Task 7.2`).
-- Before direct prompts, check the scoped pane identity, readiness and an
-  actually empty composer using the receiving harness's verified layout. An
-  idle state alone does not prove the input is empty. If a draft exists or the
-  composer is unreadable, preserve it, skip the send and leave the durable
-  return plus a visible summary. Never clear a user's draft. This manual
-  check/send sequence has a race with human typing; it is not atomic.
+- Pin the brief before you send it: `validate_contracts.py brief-digest
+  <record>/tasks/<id>.md` prints `sha256:<digest>`, and you stamp
+  `brief=sha256:<digest>` in the dispatch Check line. Re-stamp after any
+  amendment of your own. You accept the return with `validate_contracts.py
+  receipt <record>/tasks/<id>.md --matt --brief-digest sha256:<digest>`, which
+  refuses a brief that changed other than by ticks ([phase
+  record](../../engineering-workflow/references/phase-record.md)).
+- Before direct prompts, check the scoped pane identity and readiness, then
+  read the composer; if it holds a draft or is unreadable, do not send. An
+  idle state alone does not prove the input is empty. Preserve the draft, skip
+  the send and leave the durable return plus a visible summary. Never clear a
+  user's draft. This manual check/send sequence has a race with human typing;
+  it is not atomic.
 - Prompt only a teammate that is `idle` or `done`. Text sent to a `working`
   agent may interleave, queue, or behave differently depending on the
   receiving harness; verify per harness. If you need to stop work, use the
@@ -120,18 +120,23 @@ The return happens in three parts:
    prompt is refused with `agent_blocked` (you are at a question or approval
    dialog), or your composer holds a draft or can't be read, the worker leaves
    your input alone and tries the whole step again every 2 minutes for up to
-   30 minutes. It never sends to a busy lead. After 30 minutes it stops trying;
-   the file is enough.
+   30 minutes. The worker runs the wait and every retry in the foreground,
+   never as a background task: a background task that finishes may start no
+   new turn, and the ring then comes late or not at all. It never sends to a
+   busy lead, for any kind of lead. After 30 minutes it stops trying; the file
+   is enough.
 
 Put these steps and your pane's name in every brief that expects a return.
 Tell workers to deliver one ring: a refused or skipped attempt is retried,
 and a ring that was sent is never sent again. The file is authoritative; the
-ring is only a hint. The durable detail survives compaction, while the summary stays
-visible in chat. This is the Team Lead task-return protocol; Herdr's
-chat-first guidance for ad hoc command/output exchange still applies there.
+ring is only a hint, so whenever you wake, and between your own steps, check
+the expected return files whether or not a ring came. The durable detail
+survives compaction, while the summary stays visible in chat. This is the
+Team Lead task-return protocol; Herdr's chat-first guidance for ad hoc
+command/output exchange still applies there.
 A foreground `agent wait` on a worker shows you as `working`, so its ring
 has to wait: run your wait in the background where the harness allows,
-otherwise keep it short and check the expected return files on each wake.
+otherwise keep it short.
 
 ## Reading a pane
 
