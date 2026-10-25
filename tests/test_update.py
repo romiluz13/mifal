@@ -538,6 +538,26 @@ class Ignored(Update):
         self.assertEqual(snapshot(self.home), self.installed)
         self.assertEqual(self.update().stdout, result.stdout)
 
+    def test_an_ignored_file_where_the_release_needs_a_folder_stops_the_update(self):
+        mine = self.ignored("notes")
+        self.publish("add a note", **{"notes/local.md": "release\n"})
+        result = self.update("--yes")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn(f"{mine}: your file is ignored by git in the clone, but this release adds a tracked file at "
+                      "that path, which would overwrite it", result.stdout)
+        self.assertEqual(mine.read_bytes(), self.MINE)
+        self.assertEqual(self.head(), self.old)
+
+    def test_a_copy_is_caught_even_when_the_clone_detects_copies(self):
+        self.git(self.clone, "config", "diff.renames", "copies")
+        mine = self.ignored("notes/README.md")
+        readme = (self.work / "README.md").read_text()
+        self.publish("copy the readme", **{"notes/README.md": readme, "README.md": readme + "more\n"})
+        result = self.update("--yes")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn(f"{mine}: your file is ignored by git in the clone", result.stdout)
+        self.assertEqual(mine.read_bytes(), self.MINE)
+
     def test_overwrite_edits_backs_the_ignored_file_up_then_updates(self):
         mine = self.ignored("notes/local.md")
         new = self.publish("add a note", **{"notes/local.md": "release\n"})

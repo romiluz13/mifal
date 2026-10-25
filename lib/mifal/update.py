@@ -111,13 +111,24 @@ def export(clone: Path, sha: str, into: Path) -> None:
 
 
 def ignored_collisions(clone, head, sha) -> list:
-    """The clone's git-ignored paths where the fast-forward from head to sha adds a tracked file. Git refuses to
-    overwrite an untracked file there, but overwrites an ignored one without a word."""
+    """The clone's git-ignored paths where the fast-forward from head to sha adds a tracked file, or needs a folder
+    where a file of yours is. Git refuses to overwrite an untracked file there, but replaces an ignored one without
+    a word."""
     if head == sha or _git(clone, "merge-base", "--is-ancestor", head, sha, check=False).returncode != 0:
         return []
-    names = _git(clone, "diff", "--name-only", "-z", "--diff-filter=ART", head, sha).stdout.split("\0")
-    return [clone / name for name in names if name and os.path.lexists(clone / name)
-            and _git(clone, "check-ignore", "-q", "--", name, check=False).returncode == 0]
+    names = _git(clone, "diff", "--name-only", "-z", "--no-renames", "--diff-filter=ART", head, sha).stdout.split("\0")
+    found = []
+    for name in filter(None, names):
+        parts = Path(name).parts
+        for depth in range(1, len(parts) + 1):
+            path = clone.joinpath(*parts[:depth])
+            if depth < len(parts) and path.is_dir() and not path.is_symlink():
+                continue
+            if os.path.lexists(path) and path not in found and _git(
+                    clone, "check-ignore", "-q", "--", str(path.relative_to(clone)), check=False).returncode == 0:
+                found.append(path)
+            break
+    return found
 
 
 def _back_up(plan, path, stamp):
