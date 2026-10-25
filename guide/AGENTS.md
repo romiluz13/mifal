@@ -11,12 +11,14 @@ Rules for sessions that load this Mifal Guide, installed by Mifal. Repository in
 - A request that already chooses the full workflow or names a cut is not asked again; record a cut from its words. A reply that names no step is not a cut and gets no second question: every step runs, at minimal depth. Record a cut only as `Cut: <steps> | <quote> | <source>` with the human's words; no reply is not a cut.
 - Loading a skill is not doing its step: each phase ends with its own evidence (a red run before the fix, green after, review findings against a snapshot, retro findings) before the next begins.
 - Load skills one per call; a cut or truncated skill read is read again completely before acting.
+- A skill that says to call the Skill tool means the same loading: your native skill tool, otherwise reading `~/.agents/skills/<name>/SKILL.md` completely.
 - Invoke a skill on your own when its description matches the task; a slash command is not needed. Load only the specialist you selected. A skill's external actions, such as publishing, messaging or deploying, still need their own authorization.
+- Skip a skill whose required tool, CLI or harness you lack, and say that you skipped it and why.
 - For sustained coordination of engineering work across Herdr panes, read `~/.agents/skills/team-lead/references/herdr.md` before the first dispatch, and run its pane checks before every prompt.
 
 ## Skills pool
 
-- `~/.agents/skills/` holds the skills Mifal installed. Claude Code reaches it through one link per skill; the other agents are expected to read it directly (not yet live-checked).
+- `~/.agents/skills/` holds the skills Mifal installed. Claude Code reaches it through one link per skill; Codex and OpenCode read it directly (live-checked), and Droid and Pi document it as a skills folder. The Guide reaches an agent only through its rules file.
 - Update Mifal and its skills with `mifal update`. Check an install with `mifal doctor`. A skill you edit is kept: Mifal stops before overwriting it and tells you how to keep or replace it.
 
 ## Working style
@@ -41,6 +43,7 @@ Rules for sessions that load this Mifal Guide, installed by Mifal. Repository in
 ## Delegation
 
 - Delegate bounded, independent research or review when the result justifies the overhead; keep small tasks inline and use only agents that exist.
+- With no sub-agents, run a sub-agent step yourself, sequentially, in a new session or Herdr pane when you have one, and label the result (for example self-review, not independent review).
 - Brief each worker with one self-contained goal, its constraints, the relevant paths, a stop condition and the evidence to return. Summarize their findings in your own thread and verify the important claims yourself.
 - Keep one writer per file. Run builds, tests and commits one at a time; make parallel file changes only in isolated worktrees, and check for conflicts before merging.
 - After a worker writes, run `git status`. Wait for every running worker to finish before starting a reviewer.

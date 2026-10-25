@@ -3,7 +3,7 @@
 Read when you assign review for a change, or when a change touches a skill, a test, a hook, CI, a permission or this
 file. The router picks a review depth. It does not review, and it never approves.
 
-<!-- scar: 2026-10-16 — Astra item 5: calling instruction or test changes docs-only or tests-only excludes their effect on the gate -->
+<!-- scar: 2026-10-16 — calling instruction or test changes docs-only or tests-only excludes their effect on the gate -->
 
 ## Routes
 
@@ -50,7 +50,7 @@ guard has no added lines. Any other field is refused (exit 2), so a misspelled k
 change that removed nothing; the caller owns that. When you cannot give both sides of a hunk (a binary file, a
 truncated diff, only a file list), do not take `bounded-review`: route the change at least `deep-review` and say why in
 the task record.
-<!-- scar: 2026-10-16 — Astra task 12 F2 and Opus T3-O1: the removed guard was the only auth signal and the router could not be given it -->
+<!-- scar: 2026-10-16 — the removed guard was the only auth signal and the router could not be given it -->
 
 ## Use
 

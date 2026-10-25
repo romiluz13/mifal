@@ -37,9 +37,6 @@ names the content-only adaptations. Team Lead chooses and verifies this branch;
 a single agent selects it in the existing plan. Optional art/3D/video engines
 remain task-scoped, not additional default design or development owners.
 
-In a session another methodology owns, that methodology remains the workflow
-owner; use this reference as compatibility guidance rather than installing a second frontend
-procedure. Matt-owned Claude workers follow the fresh-launch owner contract.
 Verify available skills/tools in the actual worker. A skill file can exist
 without its CLI or credentials being usable. Load selected bodies before
 their work; for a discovery stub such as `agent-browser`, also load the
