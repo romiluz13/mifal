@@ -343,8 +343,9 @@ than the earliest start Check of the step its row governs. A later reload never
 makes an earlier on-time read late; a late read is refused only when no read of
 that body is on time, and it stays refused after the record's `Phase` moves on.
 The steps: grilling, grill-with-docs and domain-modeling govern `grilling`;
-to-spec governs `to-spec`; to-tickets governs `to-tickets`; implement and tdd
-govern `implement`; code-review governs `review`; retro governs `retro`.
+to-spec governs `to-spec`; to-tickets governs `to-tickets`; implement governs
+`implement`; tdd governs `implement`, and `fix` on the debug route (a debug record
+with no `fix` start Check leaves the read unverified); code-review governs `review`; retro governs `retro`.
 `ask-matt`, `engineering-workflow` and `team-lead` are held to the earliest start
 Check of any step. Any other body is held to the phase word its row in
 `workflow-map.md` names, and a body whose row names none to the record's `Phase`.

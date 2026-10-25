@@ -103,6 +103,27 @@ class DebugFixTests(StepFixture):
                 self.passes(self.fix("diagnosing-bugs", phase=phase))
         self.refused(self.fix(), "Phase 'fix' needs diagnosing-bugs SKILL.md")
 
+    START_FIX = "Check: start fix | passed | brief --matt exit 0 at:2026-10-17T10:00:00Z\n"
+
+    def timed_fix(self, tdd_at, start=START_FIX, route="debug"):
+        """The debug fix record with the tdd body's read stamped `tdd_at`, and `start` as its start Check."""
+        text = self.fix("diagnosing-bugs", "tdd", extra=start).replace("Route: debug", f"Route: {route}").replace(
+            f"Route decision: {NO_BRANCH}\n", f"Route decision: {NO_BRANCH} at:2026-10-17T09:59:00Z\n")
+        return "\n".join(f"{l} at:{tdd_at}" if l.startswith("Loaded:") and "/tdd/" in l.split("|")[0] else l
+                         for l in text.splitlines()) + "\n"
+
+    def test_on_the_debug_route_a_tdd_read_after_the_fix_start_is_refused_and_one_before_is_accepted(self):
+        self.refused(self.timed_fix("2026-10-17T10:30:00Z"), "tdd", "after", "start Check of step 'fix'")
+        self.passes(self.timed_fix("2026-10-17T09:30:00Z"))
+
+    def test_a_debug_record_with_no_fix_start_check_leaves_the_tdd_read_unverified(self):
+        diagnose = "Check: start diagnose | passed | brief --matt exit 0 at:2026-10-17T10:00:00Z\n"
+        self.passes(self.timed_fix("2026-10-17T10:30:00Z", start=diagnose))
+
+    def test_other_routes_keep_tdd_on_implement_a_review_record_with_a_fix_phase_word_is_not_held_to_it(self):
+        result = self.gate(self.timed_fix("2026-10-17T10:30:00Z", route="review"))
+        self.assertNotIn("is stamped", result.stderr)
+
     def test_a_build_implement_phase_keeps_its_own_minimum(self):
         self.refused(self.record(steps("Scope", "Grilling", pending=("Implement",)), phase="implement").replace(
             str(self.f.phase_skills[1]), "/nonexistent"), "needs tdd SKILL.md")

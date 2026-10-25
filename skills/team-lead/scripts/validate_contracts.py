@@ -444,7 +444,8 @@ def validate_workflow(text: str, path: Path, gate="entry", require_loads=True, r
         for procedure in procedures:
             if procedure not in loads:
                 errors.append(f"missing Loaded read record for {procedure}")
-        errors.extend(late_read_errors(load_values, checks, phase, map_phases, valid_start_steps(map_steps), record=path, pool=pool))
+        errors.extend(late_read_errors(load_values, checks, phase, map_phases, valid_start_steps(map_steps), record=path, pool=pool,
+                                     route=route))
     if fields.get("ux", "").lower().startswith("applies:") and (
             pool / "team-lead" / "references" / "ux-acceptance.md").resolve() not in procedures:
         errors.append("UX applies: include the planning/acceptance reference in Procedure/Loaded")
@@ -999,8 +1000,8 @@ def workflow_map_phases(map_text):
     return found
 
 # The step a body's map row governs when the row's own phase word is not it (correction 28.2): the grilling bodies
-# govern grilling, the producers their own step, tdd implement, code-review review, writing-for-agents (loaded with
-# retro) retro; ddd-scope and ddd-ground serve the research and plan phases, which have no start step and precede implement.
+# govern grilling, the producers their own step, tdd implement (fix on the debug route, see late_read_errors),
+# code-review review, writing-for-agents (loaded with retro) retro; ddd-scope and ddd-ground serve the research and plan phases, which have no start step and precede implement.
 GOVERNED_STEP = {
     **dict.fromkeys(("grilling", "grill-with-docs", "domain-modeling"), {"grilling"}),
     "to-spec": {"to-spec"}, "to-tickets": {"to-tickets"}, "implement": {"implement"}, "tdd": {"implement"},
@@ -1105,7 +1106,7 @@ def read_skill_names(body, roles):
     return roles.get(body) or ([body.parent.name] if body.name == "SKILL.md" else [""])
 
 
-def late_read_errors(load_values, checks, phase, map_phases, valid=None, *, record, pool=None):
+def late_read_errors(load_values, checks, phase, map_phases, valid=None, *, record, pool=None, route=None):
     """A body is on time when at least one `Loaded:` read of it is stamped no later than the earliest passed start
     Check (`Check: start <step> | passed | ... at:<UTC time>`) of the step its map row governs: any step for the
     router and entry bodies, the row's own step otherwise, and the record's `Phase` for a body whose row names none.
@@ -1113,7 +1114,8 @@ def late_read_errors(load_values, checks, phase, map_phases, valid=None, *, reco
     the record writes about itself; an unstamped line stays unverified. The body a path resolves to (from the
     record's folder) is its identity: it groups the reads, whatever the path is called. The skill comes from the
     canonical pool entries that resolve to that body (`pool`, default ~/.agents/skills), not from its folder's
-    incidental name; pool names sharing one body hold the read to the earliest of their governed steps."""
+    incidental name; pool names sharing one body hold the read to the earliest of their governed steps. On the debug
+    route tdd governs `fix`, where the fix is made, and on every other route `implement`."""
     starts, errors = start_times(checks, valid)
     pool = pool or Path.home() / ".agents" / "skills"
     try:
@@ -1132,7 +1134,8 @@ def late_read_errors(load_values, checks, phase, map_phases, valid=None, *, reco
         if ROUTER_SKILLS.intersection(names):
             wanted = set(starts)
         else:
-            wanted = set().union(*(GOVERNED_STEP.get(n) or map_phases.get(n) or set() for n in names)) or {phase}
+            governed = lambda n: {"fix"} if n == "tdd" and route == "debug" else GOVERNED_STEP.get(n) or map_phases.get(n) or set()
+            wanted = set().union(*(governed(n) for n in names)) or {phase}
         held = {step: min(times) for step, times in starts.items() if step in wanted}
         for _, state, _ in reads:
             if state == "bad":
