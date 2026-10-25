@@ -137,13 +137,41 @@ class EventLoopTest(unittest.TestCase):
             "retry_seconds": 0.05, "request_timeout_seconds": 0.2,
             **params,
         }}
-        process = subprocess.run(
+        self.log_lines = []
+        self.log_arrived = threading.Condition()
+        with subprocess.Popen(
             [sys.executable, str(CLI), "--socket", self.peer.path],
-            input=json.dumps(command), capture_output=True, text=True, timeout=30,
-        )
-        result = json.loads(process.stdout)
-        logs = [json.loads(line) for line in process.stderr.splitlines()]
-        return process.returncode, result, logs
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        ) as process:
+            watchdog = threading.Timer(30, process.kill)
+            watchdog.start()
+            follower = threading.Thread(target=self.follow_logs, args=(process.stderr,), daemon=True)
+            follower.start()
+            try:
+                process.stdin.write(json.dumps(command))
+                process.stdin.close()
+                output = process.stdout.read()
+                process.wait()
+                follower.join()
+            finally:
+                watchdog.cancel()
+        self.assertTrue(output.strip(), f"watch printed nothing: exit {process.returncode}, "
+                                        f"stderr tail {''.join(self.log_lines)[-500:]!r}")
+        return process.returncode, json.loads(output), [json.loads(line) for line in self.log_lines]
+
+    def follow_logs(self, stream):
+        for line in stream:
+            with self.log_arrived:
+                self.log_lines.append(line)
+                self.log_arrived.notify_all()
+
+    def wait_for_log(self, kind):
+        """Block a peer thread until the watch process has logged a row of this kind."""
+        with self.log_arrived:
+            arrived = self.log_arrived.wait_for(
+                lambda: any(json.loads(line)["kind"] == kind for line in self.log_lines), 5)
+        if not arrived:
+            raise AssertionError("the watch never logged " + kind)
 
     def test_floor_catches_unannounced_transition_and_pings_leave_stream_alive(self):
         def subscribed(connection, request, number):
@@ -182,19 +210,19 @@ class EventLoopTest(unittest.TestCase):
         self.assertLess(changes[0]["elapsed_seconds"] - event["elapsed_seconds"], 0.5)
 
     def test_bootstrap_buffers_during_snapshot_then_invalidates_without_replay(self):
-        def subscribed(connection, request, number):
-            def change():
-                self.peer.status("blocked", 2)
-                self.peer.event(connection, "idle")
-            self.peer.later(0.07, change)
-        self.peer.on_subscribe = subscribed
+        streams = []
+        self.peer.on_subscribe = lambda connection, request, number: streams.append(connection)
         def snapshot(number):
-            if self.peer.subscriptions and number == 2:
+            if streams and number == 2:  # The bootstrap.
                 old = copy.deepcopy(self.peer.snapshot)
-                time.sleep(0.12)
+                self.peer.status("blocked", 2)
+                self.peer.event(streams[0], "idle")  # Deliberately stale payload.
+                # Hold the old reply until the loop has read the event, so the event always lands during the
+                # bootstrap whatever the thread scheduling; a timer or a sleep would only bet on the order.
+                self.wait_for_log("event")
                 return old
         self.peer.on_snapshot = snapshot
-        code, result, logs = self.watch(floor_seconds=5, request_timeout_seconds=0.5)
+        code, result, logs = self.watch(floor_seconds=5, request_timeout_seconds=2.0)
         self.assertEqual(code, 0, result)
         self.assertEqual(result["result"]["picture"]["members"][0]["agent_status"], "blocked")
         applied = [r for r in logs if r["kind"] == "bootstrap_applied"]
@@ -217,7 +245,10 @@ class EventLoopTest(unittest.TestCase):
             else:
                 self.peer.later(0.06, lambda: self.peer.event(connection, "blocked"))
         self.peer.on_subscribe = subscribed
-        code, result, logs = self.watch(duration_seconds=2.0, floor_seconds=5, silence_periods=3)
+        # Only the silence variant may let the watchdog fire. Elsewhere a late peer thread would turn the
+        # injected failure into a silence death (the 0.16 s timer has 0.14 s of slack against 3 periods).
+        silence_periods = 3 if failure == "silence" else 100
+        code, result, logs = self.watch(duration_seconds=2.0, floor_seconds=5, silence_periods=silence_periods)
         self.assertEqual(code, 0, result)
         self.assertGreaterEqual(result["result"]["stats"]["reconnects"], 1)
         self.assertEqual(result["result"]["picture"]["members"][0]["agent_status"], "blocked")
