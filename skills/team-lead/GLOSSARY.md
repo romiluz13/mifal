@@ -55,3 +55,7 @@ _Avoid_: Spawning (which is mechanical), hiring
 **Stewardship**:
 The lead's responsibility for tooling fit: curating skill candidates, keeping the inventory current, and holding members to the governing AGENTS.md.
 _Avoid_: Management, supervision
+
+**Brief pin**:
+The digest of a brief's lead-owned text, taken above its `## Return` line with checkbox state ignored. The lead stamps it at dispatch and the receipt check compares it at acceptance, so a worker cannot cut a Done-means claim or edit the Outcome unnoticed.
+_Avoid_: Brief hash, signature (it detects an edit; it does not authenticate who made it)

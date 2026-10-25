@@ -23,20 +23,31 @@ def text(path=README):
     return path.read_text(encoding="utf-8")
 
 
-# The reviewed value of each support-matrix cell. Pinning it makes an upgrade a deliberate, reviewed change to this
-# table and the README together; it is not evidence that anything was observed.
-PINNED_CELLS = {"Claude Code": "observed on one Mac", "Codex": "product wiring open", "Droid": "observed on one Mac",
-                "Pi": "observed on one Mac", "OpenCode": "unverified"}
+# The reviewed level of each support-matrix cell, from the recorded live check (L1, L2, L3, L4). Pinning it makes an
+# upgrade a deliberate, reviewed change to this table and the README together; it is not evidence that anything was
+# observed.
+LEVELS = {"pass", "partial", "fail", "not run"}
+PINNED_ROWS = {
+    "Claude Code 2.1.310, Sonnet 5.5": ("partial", "partial", "pass", "pass"),
+    "Claude Code 2.1.310, Opus 5.5": ("pass", "partial", "pass", "not run"),
+    "Codex 0.164.0, GPT-6.1-Sol (`codex-work` home)": ("partial", "partial", "pass", "pass"),
+    "Droid 0.249.0, GLM 5.3": ("partial", "partial", "pass", "pass"),
+    "Pi 1.4.0, Claude Sonnet 5 via GitHub Copilot (`pi -ne`)": ("partial", "fail", "pass", "pass"),
+    "OpenCode 1.19.4, GLM-5.3-Flash Free and DeepSeek V4.1 Flash Free": ("partial", "fail", "pass", "pass"),
+}
 
 
-def matrix_cells(readme):
-    """The macOS row of the README's support matrix as {header: cell}."""
-    matrix = re.search(r"(?ms)^## Support\n(.*?)^## ", readme).group(1)
+def support_section(readme):
+    return re.search(r"(?ms)^## Support\n(.*?)^## ", readme).group(1)
+
+
+def matrix_rows(readme):
+    """The support matrix as {agent version and model: (L1, L2, L3, L4)}."""
     split = lambda line: [c.strip() for c in line.strip().strip("|").split("|")]
-    header = next(split(l) for l in matrix.splitlines() if l.startswith("| Platform"))
-    rows = [split(l) for l in matrix.splitlines() if l.startswith("| macOS")]
-    assert len(rows) == 1, rows
-    return dict(zip(header[1:], rows[0][1:]))
+    lines = [l for l in support_section(readme).splitlines() if l.startswith("| ")]
+    header, rows = split(lines[0]), [split(l) for l in lines[1:]]
+    assert header[0].startswith("macOS agent") and len(header) == 5, header
+    return {row[0]: tuple(row[1:]) for row in rows}
 
 
 class Readme(Sandbox):
@@ -86,16 +97,27 @@ class Readme(Sandbox):
 
     def test_the_support_matrix_pins_the_recorded_cells(self):
         readme = text()
-        cells = matrix_cells(readme)
-        self.assertEqual(cells, PINNED_CELLS)
-        self.assertLessEqual(set(cells.values()), {"observed on one Mac", "product wiring open", "unverified", "untested"})
-        self.assertIn("provisional", re.search(r"(?ms)^## Support\n(.*?)^## ", readme).group(1))
+        rows = matrix_rows(readme)
+        self.assertEqual(rows, PINNED_ROWS)
+        for label, levels in rows.items():
+            self.assertRegex(label, r"\d+\.\d+", label)
+            self.assertLessEqual(set(levels), LEVELS, label)
+        self.assertIn("provisional", support_section(readme))
 
     def test_the_pin_refuses_a_cell_upgraded_in_the_readme_alone(self):
-        for header in ("Codex", "OpenCode"):
-            with self.subTest(header=header):
-                mutated = text().replace(f"| {PINNED_CELLS[header]} |", "| observed on one Mac |", 1)
-                self.assertNotEqual(matrix_cells(mutated), PINNED_CELLS)
+        readme = text()
+        for old in ("| fail |", "| partial |", "| not run |"):
+            with self.subTest(old=old):
+                self.assertIn(old, readme)
+                self.assertNotEqual(matrix_rows(readme.replace(old, "| pass |", 1)), PINNED_ROWS)
+
+    def test_the_support_section_states_its_limits(self):
+        section = support_section(text())
+        for phrase in ("L2 is a limitation", "entry gate", "one lead, one worker, one small task",
+                       "experimental", "fake agents", "invisible to `mifal doctor`", "`disabledSkills`",
+                       "`[[skills.config]]`", "`permission.skill`", "no sandbox or isolation"):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, section)
 
     def test_the_readme_says_herdr_stays_and_how_to_remove_it(self):
         self.assertRegex(text(INSTALL), r"Herdr stays installed")

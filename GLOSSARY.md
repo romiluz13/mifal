@@ -9,3 +9,5 @@
 **Manifest**: the record of every write an install made, and what each write displaced. Preview, doctor, update and uninstall all read it.
 
 **Pool**: the shared folder of Agent Skills that every Harness reads, directly or through links.
+
+**Personal layer**: a developer's own rules, kept outside Mifal's Marked block in each Harness's regular rules file. Mifal never writes through a linked rules file to reach it.
