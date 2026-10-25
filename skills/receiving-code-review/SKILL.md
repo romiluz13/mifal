@@ -127,7 +127,7 @@ Push back when:
 - Conflicts with your human partner's architectural decisions
 
 **Disputing a finding:** A dispute is valid ONLY if it carries evidence the reviewer can check: a `VERIFY_COMMAND` whose output PROVES the finding false (a passing test, a grep showing the alleged-missing guard already present, a type-check refuting the claim); a cited source contract (the file:line the finding overlooked, which you open and read); or a cited authoritative decision record (a `decisions.md` entry, an accepted ticket or spec, or an explicit user instruction, with its location). Open every citation: a line that does not say what the dispute claims is no ground. Prose disagreement ("looks fine to me", "the plan said so", "I think this is wrong") is NEVER grounds to dispute: apply the finding, or, when it is a genuine judgment that no check, source or decision settles, label it an unresolved judgment and escalate it to the lead. A reviewer's preference never becomes an automatic edit. "The fix agent decided the finding was wrong" is not a dispute.
-<!-- scar: 2026-10-16 — Astra R7: a command-only dispute rule could not carry a recorded decision or a source contract against a reviewer's preference -->
+<!-- scar: 2026-10-16 — a command-only dispute rule could not carry a recorded decision or a source contract against a reviewer's preference -->
 
 **How to push back:**
 

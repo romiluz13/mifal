@@ -174,8 +174,8 @@ agent or gate follows needs none; prose that agents follow as policy, and
 test oracles, are consequential ([review routing](review-routing.md)).
 The reviewer executes the expected-outcome check, or names why it cannot; a
 narrative of red and green is not the check.
-<!-- scar: 2026-10-16 — Astra R6: a worker-written test run by the lead still needs an independent expected outcome and a negative control -->
-<!-- scar: 2026-10-16 — Astra task 12 F3: two reviewers accepted a casefold fix that does not equate SPRİNG10 with SPRING10, from a narrative of red and green, without executing the comparator -->
+<!-- scar: 2026-10-16 — a worker-written test run by the lead still needs an independent expected outcome and a negative control -->
+<!-- scar: 2026-10-16 — two reviewers accepted a casefold fix that does not equate SPRİNG10 with SPRING10, from a narrative of red and green, without executing the comparator -->
 
 Check specialist use when it matters to the result. If a worker skipped a
 selected procedure, ask whether it was unavailable, inapplicable, or missed.
@@ -260,7 +260,7 @@ the reason in the task record. The table and the router are in [review
 routing](review-routing.md). **Routing is not approval:** it never approves
 or merges, and it never lowers the independent-review requirement of an
 authorized round.
-<!-- scar: 2026-10-16 — Astra item 5: calling instruction or test changes docs-only or tests-only excludes their effect on the gate -->
+<!-- scar: 2026-10-16 — calling instruction or test changes docs-only or tests-only excludes their effect on the gate -->
 
 ## Subagents and recursion
 
