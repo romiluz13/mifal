@@ -110,12 +110,17 @@ def export(clone: Path, sha: str, into: Path) -> None:
 
 
 def _plan(h, tree, version, args, data, src):
-    """The plan for installing tree into the recorded homes. Agents that were skipped stay recorded as skipped."""
+    """The plan for installing tree into the recorded homes. Every agent the Manifest records, wired or skipped, is
+    planned again at its recorded root, so a skip that no longer holds is wired (or stops on its conflict) and one
+    that still holds stays skipped with its note."""
     records = data.get("harnesses") or {}
     env, notes = harness.recorded_env(data, os.environ, h.show)
-    notes += harness.unserved(h.home, data, os.environ, h.show)
-    wired = [n for n, r in records.items() if r["status"] == "wired"]
-    plan = inst.make_plan(h, tree, version, args.overwrite_edits, wired if records else None, env, source_record=src)
+    for name, rec in records.items():
+        if rec["status"] != "wired" and name in harness.VARIABLES:
+            env[harness.VARIABLES[name]] = rec["root"]
+    notes += harness.unserved(h.home, data, os.environ, h.show, unrecorded_only=bool(records))
+    plan = inst.make_plan(h, tree, version, args.overwrite_edits, list(records) if records else None, env,
+                          source_record=src)
     for name, rec in records.items():
         plan.data["harnesses"].setdefault(name, rec)
     return plan, notes

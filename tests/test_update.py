@@ -355,6 +355,70 @@ class OpenCode(Update):
         self.assertEqual(fallback.read_text(), "my claude rules\n")
 
 
+class Skipped(Update):
+    """An agent the Manifest records as skipped is planned again, at its recorded home, as the install would plan it."""
+
+    def record_skipped(self, name, root, rules):
+        """Mark name as skipped in the Manifest, as Mifal 0.2.x recorded an OpenCode that read the Claude fallback."""
+        data = self.manifest()
+        data["harnesses"][name] = {"root": os.path.realpath(root), "rules": os.path.realpath(root) + "/" + rules,
+                                   "status": "skipped"}
+        (self.home / ".agents/mifal/install-manifest.json").write_text(json.dumps(data, indent=2, sort_keys=True) + "\n")
+
+    def test_an_update_plans_a_skipped_opencode_and_stops_on_the_claude_fallback_until_overwrite_edits(self):
+        self.harness_fakes("claude", "opencode")
+        fallback = self.home / ".claude/CLAUDE.md"
+        fallback.parent.mkdir(parents=True)
+        fallback.write_text("my claude rules\n")
+        self.install("--harness", "claude")
+        self.record_skipped("opencode", self.home / ".config/opencode", "AGENTS.md")
+        self.publish(**{"skills/grilling/NOTE.md": "note\n"})
+        before = snapshot(self.home)
+        result = self.update("--yes")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("~/.claude/CLAUDE.md: OpenCode reads it now, and stops once Mifal writes "
+                      "~/.config/opencode/AGENTS.md", result.stdout)
+        self.assertNotIn("found opencode", result.stdout)
+        self.assertIn("Nothing was changed.", result.stdout)
+        self.assertEqual(snapshot(self.home), before)
+        self.assertEqual(self.head(), self.old)
+        result = self.update("--overwrite-edits", "--yes")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("block ~/.config/opencode/AGENTS.md", result.stdout)
+        self.assertEqual(self.manifest()["harnesses"]["opencode"]["status"], "wired")
+        self.assertEqual((self.home / ".config/opencode/AGENTS.md").read_text().count("<!-- mifal:begin "), 1)
+        self.assertTrue(fallback.read_text().startswith("my claude rules\n"))
+
+    def test_an_agent_whose_skip_still_holds_stays_skipped_with_its_note(self):
+        self.harness_fakes("claude", "pi")
+        (self.home / ".pi/agent").mkdir(parents=True)
+        (self.home / ".pi/agent/CLAUDE.md").write_text("my pi rules\n")
+        self.install("--harness", "claude", "--harness", "pi")
+        self.assertEqual(self.manifest()["harnesses"]["pi"]["status"], "skipped")
+        self.publish(**{"skills/grilling/NOTE.md": "note\n"})
+        result = self.update("--yes")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("skip pi: it reads ~/.pi/agent/CLAUDE.md now", result.stdout)
+        self.assertNotIn("found pi", result.stdout)
+        self.assertEqual(self.manifest()["harnesses"]["pi"]["status"], "skipped")
+        self.assertFalse((self.home / ".pi/agent/AGENTS.md").exists())
+
+    def test_a_skipped_agent_is_planned_at_its_recorded_home_not_the_default_one(self):
+        self.harness_fakes("claude", "codex")
+        alt = self.home / "alt-codex"
+        alt.mkdir()
+        (alt / "AGENTS.override.md").write_text("my override\n")
+        (self.home / ".codex").mkdir()
+        self.install("--harness", "claude", "--harness", "codex", CODEX_HOME=str(alt))
+        self.assertEqual(self.manifest()["harnesses"]["codex"]["status"], "skipped")
+        self.publish(**{"skills/grilling/NOTE.md": "note\n"})
+        result = self.update("--yes")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("skip codex: it reads ~/alt-codex/AGENTS.override.md", result.stdout)
+        self.assertFalse((self.home / ".codex/AGENTS.md").exists())
+        self.assertFalse((alt / "AGENTS.md").exists())
+
+
 class Reserved(Update):
     """A release reserves a name that a skill of the person's already uses."""
 
