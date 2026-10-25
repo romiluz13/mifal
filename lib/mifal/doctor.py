@@ -109,9 +109,18 @@ def doctor(h: mf.Home, env, out) -> int:
                 why, _, fix = w.skip.partition(". ")
                 r.line("FAIL", f"guide {name}", "not wired: " + why.split(": ", 1)[-1], fix)
             else:
-                fix = "run ./install.sh in your Mifal clone"
+                # The fix runs in the user's shell, where the agent's variable may be unset, so a recorded root
+                # the shell does not point at is named and shell-quoted in the command itself.
+                import shlex
+                variable = harness.VARIABLES.get(name)
+                if variable and Path(rec["root"]) != harness.roots(
+                        h.home, {k: v for k, v in env.items() if k != variable})[name]:
+                    run = f"run {variable}={shlex.quote(str(rec['root']))} ./install.sh"
+                else:
+                    run = "run ./install.sh"
+                fix = f"{run} in your Mifal clone"
                 if w.warn:
-                    fix = (f"run ./install.sh --overwrite-edits in your Mifal clone; {harness.TITLES[name]} then reads "
+                    fix = (f"{run} --overwrite-edits in your Mifal clone; {harness.TITLES[name]} then reads "
                            f"{show(w.rules)}, not {show(harness.reads_now(name, h.home, env, Path(rec['root'])))}")
                 r.line("WARN", f"guide {name}", f"found at {show(Path(rec['root']))}, not served", fix)
             continue
