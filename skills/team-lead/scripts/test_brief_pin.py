@@ -81,7 +81,7 @@ class BriefPinTests(StepFixture):
     def test_an_unclosed_fence_that_hides_the_boundary_is_refused(self):
         result = self.f.run_check("brief-digest", "---\ntask: 1\n---\n## Why\n```\nopen\n## Return\nCloses: 1\n")
         self.assertEqual(result.returncode, 1, result.stderr)
-        self.assertIn("unclosed fence", result.stderr)
+        self.assertIn("unclosed comment or fence", result.stderr)
 
     def test_a_missing_file_is_a_usage_error(self):
         absent = self.f.root / "absent.md"

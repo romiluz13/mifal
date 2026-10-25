@@ -9,7 +9,9 @@ Usage:
   validate_contracts.py doorbell [--parse] "DONE 7 .team/tasks/7.md"
   validate_contracts.py brief path/to/task.md
   validate_contracts.py receipt path/to/return.md
+  validate_contracts.py receipt path/to/task.md --matt --brief-digest sha256:DIGEST
   validate_contracts.py brief path/to/task.md --matt
+  validate_contracts.py brief-digest path/to/task.md
   validate_contracts.py workflow path/to/state.md --gate entry
   validate_contracts.py read path/to/SKILL.md
   validate_contracts.py selfcheck
@@ -1491,6 +1493,39 @@ def workflow_digest(path):
             digest.update(chunk)
     return digest.hexdigest()
 
+TICK_RE = re.compile(r"^(\s*- \[)[xX](\])")
+
+
+def brief_parts(text):
+    """(digest, unclosed): the sha256 over the brief text above its first '## Return' line, which no code fence
+    hides, and whether an unclosed fence left no such line to find. Every `- [x]` or `- [X]` reads as `- [ ]`, so
+    a worker can tick its Phase checklist without changing the digest; line endings, trailing whitespace and
+    closing blank lines do not count, and every other character does."""
+    rows, unclosed, _ = scan_markdown(text)
+    lines = []
+    for row in rows:
+        if not row.fenced and RETURN_LABEL_RE.match(row.line):
+            break
+        lines.append(TICK_RE.sub(r"\1 \2", row.line.rstrip(" \t")))
+    else:
+        if unclosed == "fence":
+            return None, True
+    while lines and not lines[-1]:
+        lines.pop()
+    return hashlib.sha256("".join(line + "\n" for line in lines).encode("utf-8")).hexdigest(), False
+
+
+def brief_pin_errors(text, name, pinned):
+    digest, unclosed = brief_parts(text)
+    if unclosed:
+        return [f"{name}: " + UNCLOSED_MESSAGE.format("the brief")]
+    if digest != pinned.partition(":")[2]:
+        return [f"{name}: the brief changed since it was pinned (pinned {pinned}, now sha256:{digest}); only "
+                "checkbox ticks may differ. If the lead amended the brief, it stamps the new "
+                "'validate_contracts.py brief-digest <brief>' output; otherwise do not accept this return"]
+    return []
+
+
 def validate_brief(text: str, name: str):
     errors = []
     fields, body, fm_errors = parse_frontmatter(text)
@@ -1766,6 +1801,13 @@ def selfcheck(fixtures: Path) -> int:
 
 # ---------------------------------------------------------------- cli
 
+def pinned_digest(value):
+    if not re.fullmatch(r"sha256:[0-9a-fA-F]{64}", value):
+        raise argparse.ArgumentTypeError(f"'{value}' is not a pin; use the sha256:<64 hex digits> "
+                                         "that brief-digest prints")
+    return value.lower()
+
+
 def main(argv) -> int:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -1788,6 +1830,8 @@ def main(argv) -> int:
     )
     p_receipt.add_argument("path", type=Path)
     p_receipt.add_argument("--matt", action="store_true", help="also check Matt preparation and the executor's current return reads")
+    p_receipt.add_argument("--brief-digest", type=pinned_digest, metavar="sha256:DIGEST",
+                           help="refuse the file when its brief no longer hashes to this digest (see brief-digest)")
 
     p_work = sub.add_parser("workflow", help="check recorded Matt gate evidence in existing state")
     p_work.add_argument("path", type=Path)
@@ -1798,6 +1842,10 @@ def main(argv) -> int:
 
     p_digest = sub.add_parser("design-digest", help="print the digest of a plan's design decisions, minus its Griller: lines")
     p_digest.add_argument("path", type=Path)
+
+    p_pin = sub.add_parser("brief-digest", help="print the digest of a brief: the text above its first '## Return' "
+                                                "line, checkbox ticks ignored")
+    p_pin.add_argument("path", type=Path)
 
     sub.add_parser("selfcheck", help="run the validator against its fixtures")
 
@@ -1814,6 +1862,18 @@ def main(argv) -> int:
             return 1
         if digest is None:
             print(f"error: {args.path}: no '## Design decisions' section", file=sys.stderr)
+            return 1
+        print(f"sha256:{digest}")
+        return 0
+
+    if args.cmd == "brief-digest":
+        try:
+            digest, unclosed = brief_parts(regular_text(args.path.expanduser()))
+        except (OSError, UnicodeError) as e:
+            print(f"error: {e}", file=sys.stderr)
+            return 2
+        if unclosed:
+            print("error: " + UNCLOSED_MESSAGE.format(args.path), file=sys.stderr)
             return 1
         print(f"sha256:{digest}")
         return 0
@@ -1861,6 +1921,8 @@ def main(argv) -> int:
             errors = validate_receipt(text, str(path))
             if args.matt:
                 errors += validate_brief(text, str(path))
+            if args.brief_digest:
+                errors += brief_pin_errors(text, str(path), args.brief_digest)
         else:
             errors = []
         READ_NOTES.clear()
