@@ -272,7 +272,7 @@ def make_plan(h: Home, source: Path, version: str, overwrite_edits: bool = False
                         and os.path.realpath(other / "skills") == os.path.realpath(folder)):
                     plan.notes.append(f"note also seen by {show(other)}: it shares {show(target)}")
 
-    moves, gone = [], []
+    moves, gone, held = [], [], []
 
     def move(path, dest, line, why):
         moves.append(Step({"op": "move", "from": str(path), "to": str(dest), "why": why}, line))
@@ -285,6 +285,8 @@ def make_plan(h: Home, source: Path, version: str, overwrite_edits: bool = False
         move(path, h.engine / TXN / str(next(stash_names)), line, "stash")
 
     def conflict(path, reason):
+        if any(_inside(path, unit) for unit in held):
+            return
         if overwrite_edits:
             dest = h.under(h.saved / stamp, path)
             move(path, dest, f"save {show(path)} -> {show(dest)}", "save")
@@ -310,6 +312,11 @@ def make_plan(h: Home, source: Path, version: str, overwrite_edits: bool = False
 
     for unit in units:
         if os.path.lexists(unit) and not any(_inside(p, unit) for p in owned):
+            if old is not None and not overwrite_edits:
+                plan.conflicts.append(f"{show(unit)}: exists and was not installed by Mifal, but this release "
+                                      "installs its own at that path")
+                held.append(unit)
+                continue
             dest = h.under(h.engine / "backup" / stamp, unit)
             move(unit, dest, f"backup {show(unit)} -> {show(dest)}", "backup")
             entries.append({"kind": "backup", "path": str(unit), "backup": str(dest)})

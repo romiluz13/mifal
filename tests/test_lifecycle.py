@@ -124,6 +124,21 @@ class EditProtection(Sandbox):
         (self.home / ".agents/skills/grilling/SKILL.md").write_text("my notes\n")
         self.refused("~/.agents/skills/grilling/SKILL.md")
 
+    def test_a_reinstall_that_reserves_a_name_you_already_use_stops_until_overwrite_edits(self):
+        self.install()
+        theirs = self.home / ".agents/skills/commit/SKILL.md"
+        theirs.parent.mkdir(parents=True)
+        theirs.write_text("my commit skill\n")
+        (self.clone / "skills/commit").mkdir()
+        (self.clone / "skills/commit/SKILL.md").write_text("mifal commit\n")
+        self.refused("~/.agents/skills/commit")
+        self.assertEqual(theirs.read_text(), "my commit skill\n")
+        result = self.install("--overwrite-edits")
+        self.assertRegex(result.stdout, r"backup ~/.agents/skills/commit -> ~/.agents/mifal/backup/")
+        self.assertEqual(theirs.read_text(), "mifal commit\n")
+        self.mifal("uninstall")
+        self.assertEqual(theirs.read_text(), "my commit skill\n")
+
     def test_overwrite_edits_saves_a_copy_first(self):
         self.install()
         edited = self.home / ".agents/skills/grilling/SKILL.md"

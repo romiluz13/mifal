@@ -59,6 +59,8 @@ def uninstall(h: Home, data: dict, fs: Fs) -> int:
             elif fs.exists(original):
                 kept.append(f"kept backup {h.show(saved)}: {h.show(original)} exists again")
             else:
+                for parent in reversed([p for p in original.parents if not fs.exists(p)]):
+                    fs.mkdir(parent, f"create {h.show(parent)}")
                 fs.move(saved, original, f"restore {h.show(original)} <- {h.show(saved)}")
         elif e["kind"] == "saved" and fs.exists(Path(e["path"])):
             kept.append(f"kept {h.show(e['path'])}: your edited copy of {h.show(e['original'])}")
