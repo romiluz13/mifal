@@ -831,5 +831,29 @@ class RequiredStepsInTheMapTests(MapFixture):
         self.refused("tables")
 
 
+class ResearchBriefTests(StepFixture):
+    """A research brief that keeps its own checklist stays valid as its phases are ticked only when the checklist
+    carries the map's research steps; the validator is unchanged."""
+    MAP_STEPS = ("Scope", "Source", "Investigate", "Synthesize", "Review", "Verify")
+
+    def brief(self, checklist):
+        text = self.record(checklist, phase="investigate").replace("Route: build", "Route: research")
+        text = "\n".join(l for l in text.splitlines() if not l.startswith("Route decision:")) + "\n"
+        return self.f.run_check("brief", self.f.brief() + text, "--matt")
+
+    def test_a_brief_with_the_maps_research_steps_passes_at_every_tick(self):
+        for ticked in range(len(self.MAP_STEPS)):
+            with self.subTest(ticked=ticked):
+                result = self.brief(steps(*self.MAP_STEPS[:ticked], pending=self.MAP_STEPS[ticked:]))
+                self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_a_scope_investigate_report_list_is_refused_once_investigate_is_ticked(self):
+        before = self.brief(steps("Scope", pending=("Investigate", "Report")))
+        self.assertEqual(before.returncode, 0, before.stderr)
+        after = self.brief(steps("Scope", "Investigate", pending=("Report",)))
+        self.assertEqual(after.returncode, 1, after.stderr)
+        self.assertIn("missing the required step 'source' for route research", after.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

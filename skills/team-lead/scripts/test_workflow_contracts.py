@@ -1199,8 +1199,8 @@ class WorkflowTests(unittest.TestCase):
                     field + ": " + old, field + ": " + new), "--gate", "entry")
                 self.assertEqual(result.returncode, 1, result.stderr)
 
-    def test_matt_mode_cannot_take_over_cc10x(self):
-        text = self.workflow().replace("Methodology: matt", "Methodology: cc10x")
+    def test_matt_mode_cannot_take_over_another_methodology(self):
+        text = self.workflow().replace("Methodology: matt", "Methodology: other")
         general = self.run_check("brief", self.brief() + text)
         self.assertEqual(general.returncode, 0, general.stderr)
         matt = self.run_check("brief", self.brief() + text, "--matt")
