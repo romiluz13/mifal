@@ -23,6 +23,22 @@ def text(path=README):
     return path.read_text(encoding="utf-8")
 
 
+# The reviewed value of each support-matrix cell. Pinning it makes an upgrade a deliberate, reviewed change to this
+# table and the README together; it is not evidence that anything was observed.
+PINNED_CELLS = {"Claude Code": "observed on one Mac", "Codex": "product wiring open", "Droid": "observed on one Mac",
+                "Pi": "observed on one Mac", "OpenCode": "unverified"}
+
+
+def matrix_cells(readme):
+    """The macOS row of the README's support matrix as {header: cell}."""
+    matrix = re.search(r"(?ms)^## Support\n(.*?)^## ", readme).group(1)
+    split = lambda line: [c.strip() for c in line.strip().strip("|").split("|")]
+    header = next(split(l) for l in matrix.splitlines() if l.startswith("| Platform"))
+    rows = [split(l) for l in matrix.splitlines() if l.startswith("| macOS")]
+    assert len(rows) == 1, rows
+    return dict(zip(header[1:], rows[0][1:]))
+
+
 class Readme(Sandbox):
     def generated_table(self):
         self.harness_fakes(*HARNESSES)
@@ -68,14 +84,18 @@ class Readme(Sandbox):
         self.assertIn("(docs/TRUST.md)", text())
         self.assertIn("(docs/INSTALL.md)", text())
 
-    def test_the_support_matrix_is_provisional_and_every_cell_says_what_was_recorded(self):
-        matrix = re.search(r"(?ms)^## Support\n(.*?)^## ", text()).group(1)
-        rows = [line for line in matrix.splitlines() if line.startswith("| macOS")]
-        self.assertEqual(len(rows), 1)
-        cells = [c.strip() for c in rows[0].strip("|").split("|")][1:]
-        self.assertEqual(len(cells), len(HARNESSES))
-        self.assertLessEqual(set(cells), {"observed on one Mac", "product wiring open", "unverified", "untested"})
-        self.assertIn("provisional", matrix)
+    def test_the_support_matrix_pins_the_recorded_cells(self):
+        readme = text()
+        cells = matrix_cells(readme)
+        self.assertEqual(cells, PINNED_CELLS)
+        self.assertLessEqual(set(cells.values()), {"observed on one Mac", "product wiring open", "unverified", "untested"})
+        self.assertIn("provisional", re.search(r"(?ms)^## Support\n(.*?)^## ", readme).group(1))
+
+    def test_the_pin_refuses_a_cell_upgraded_in_the_readme_alone(self):
+        for header in ("Codex", "OpenCode"):
+            with self.subTest(header=header):
+                mutated = text().replace(f"| {PINNED_CELLS[header]} |", "| observed on one Mac |", 1)
+                self.assertNotEqual(matrix_cells(mutated), PINNED_CELLS)
 
     def test_the_readme_says_herdr_stays_and_how_to_remove_it(self):
         self.assertRegex(text(INSTALL), r"Herdr stays installed")

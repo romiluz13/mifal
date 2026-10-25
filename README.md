@@ -45,7 +45,7 @@ The install puts the `mifal` command in `~/.local/bin`; if that folder is not on
 mifal doctor
 ```
 
-Start a session in any agent Mifal wired, in a project folder, and ask for engineering work as you normally would. The agent scopes the request, asks whether you want the full workflow or a cut, and works phase by phase. For a team, start the session inside Herdr (`herdr`) and ask for one.
+Start a session in any agent Mifal wired, in a project folder, and ask for engineering work as you normally would. The Guide tells the agent to scope the request, ask whether you want the full workflow or a cut, and work phase by phase. For a team, start the session inside Herdr (`herdr`) and ask for one.
 
 ## Built by its own team
 

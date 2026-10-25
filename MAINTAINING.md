@@ -71,7 +71,7 @@ One maintainer, several agents. Production is `main`; everything else is short-l
 5. **Weekly cleanup.** `git fetch --prune`, `git worktree prune`, and `git branch --merged main`; delete a branch only after checking that it holds no commit `main` lacks (`git log main..<branch>`). Remove the worktrees of merged branches.
 6. **Never:** force-push, push to `main`, delete a tag, or edit a shipped file inside an installed copy.
 
-What publishes what: merging a pull request that changes `site/` triggers the Pages deployment; confirm the deployment succeeded before saying the site is live. Only a pushed `vX.Y.Z` tag gives users a new version, if they updated to 0.2.0 or later. Installs on 0.1.x, and anyone who cloned `main` from the README or the site, still follow the tip of `main`, so keep `main` releasable.
+What publishes what: merging a pull request that changes `site/` triggers the Pages deployment; confirm the deployment succeeded before saying the site is live. Only a pushed `vX.Y.Z` tag gives users a new version, if they updated to 0.2.0 or later. Installs on 0.1.x still follow the tip of `main`, and so does any update run with `--branch` or from a clone whose remote has no release tag; a fresh install follows release tags otherwise. Keep `main` releasable.
 
 Words to give a coding agent:
 
