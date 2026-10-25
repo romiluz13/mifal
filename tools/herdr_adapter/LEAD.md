@@ -314,7 +314,9 @@ JSON
   input frame. The frame begins at a line that is exactly its start token;
   prose that mentions the token does not hide the lines below it. Resume uses
   the same parse. Read durable returns too, so a wrapped/missed DONE cannot erase
-  a receipt. A socket acknowledgment or idle status never closes a task.
+  a receipt. The return file is authoritative, not the doorbell: a lead checks
+  expected return files whenever it wakes or between its own steps. A socket
+  acknowledgment or idle status never closes a task.
   Return reads are bounded, nonblocking regular-file reads (2 MiB per file). A
   FIFO, directory, non-UTF-8 or oversize return refuses only its own task
   (`receipt-refused`); other tasks proceed in later turns and the lock is freed.
@@ -555,11 +557,17 @@ stopping the durable index. It holds, in order:
      (workflow field, default 10) after its `returned_at`;
   3. an in-flight task whose last lead turn is older than the recorded wake
      `deadline_seconds`, or any in-flight task when no wake was recorded;
-  4. an owner idle or done while its task is in flight and no return closes
-     the attempt, more than `attention_minutes` after dispatch (dispatch time
-     `UNKNOWN` also raises it). This is also the only place a `/clear`, a
-     replaced session or a worker lost before it wrote anything becomes
-     visible: a Stop hook cannot see those (see Acceptance preflight);
+  4. an owner whose Herdr status is anything but `working` while its task is
+     in flight and no return closes the attempt, more than `attention_minutes`
+     after dispatch (dispatch time `UNKNOWN` also raises it). Each status the
+     schema lists has its own wording: `idle` and `done` name the blind spot
+     below; `blocked` says the pane waits on a dialog only a human answers
+     (look at it, never type into it); `unknown` says Herdr cannot tell what
+     the pane is doing; a status the schema does not list says so and asks for
+     a look. An owner with no observed status yet raises nothing here. This is
+     also the only place a `/clear`, a replaced session or a worker lost before
+     it wrote anything becomes visible: a Stop hook cannot see those (see
+     Acceptance preflight);
   5. the same for each assignment pin in `<record-root>/assignments/` (default
      10 minutes): an owner who is a member of the record and idle or done, or
      owner status `UNKNOWN` for a pane the record cannot observe; a pin that
@@ -810,7 +818,7 @@ For a claimed completion it runs the preflight and maps the verdict, never forwa
 The hook never exits 1 (a non-blocking error), never runs a plan verifier, and writes only `stop-hook.log`. Use an
 absolute interpreter in `TEAM_STOP_PYTHON`, not a version-manager shim; without it the hook uses `/usr/bin/python3`.
 
-**What a Stop hook cannot do, observed on Claude Code 2.1.301** (`tasks/4/probe-results.md`): a project Stop hook
+**What a Stop hook cannot do, observed on Claude Code 2.1.301:** a project Stop hook
 loads under a custom `CLAUDE_CONFIG_DIR`; exit 2 blocks the stop once and the model is shown stderr;
 `stop_hook_active` is true on the next Stop; a missing hook script fails with exit 127 and the session still
 finishes. Not verified natively: `/clear`, Esc and interrupt, interactive sessions, hook timeouts, and

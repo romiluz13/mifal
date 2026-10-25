@@ -788,7 +788,7 @@ class LeadTest(unittest.TestCase):
     def test_non_matt_workflow_does_not_take_the_route_decision_or_the_cut(self):
         for field, value in (("route_decision", "multi-session: no; reason: small"), ("cut", 'retro | "skip" | log')):
             with self.subTest(field):
-                workflow = {"methodology": "cc10x", "phase": "implementation", field: value}
+                workflow = {"methodology": "other", "phase": "implementation", field: value}
                 error = self.refuse_init([self.task(kind="implementation", workflow=workflow)])
                 self.assertEqual(error["code"], "schema_invalid")
                 self.assertIn("unknown fields", error["message"])
@@ -1135,7 +1135,7 @@ class LeadTest(unittest.TestCase):
         self.assertFalse((self.root / "tasks/7.md").exists())
 
     def test_non_matt_workflow_skills_are_not_delivered(self):
-        workflow = {"methodology": "cc10x", "phase": "implementation",
+        workflow = {"methodology": "other", "phase": "implementation",
                     "skills": ["~/.agents/skills/tdd/SKILL.md"]}
         self.init([self.task(kind="implementation", workflow=workflow)])
         self.assertEqual(self.turn()["action"], "dispatch")
@@ -1227,7 +1227,7 @@ class LeadTest(unittest.TestCase):
     def test_brief_carries_kind_and_workflow_selection(self):
         # Ticket 14: the methodology selection travels with the brief so a member's
         # harness default cannot silently replace the parent's workflow.
-        workflow = {"methodology": "cc10x", "phase": "implementation",
+        workflow = {"methodology": "other", "phase": "implementation",
                     "skills": ["~/.agents/skills/tdd/SKILL.md"],
                     "scheduler": "lead", "integration_owner": "alpha"}
         self.init([self.task(kind="implementation", workflow=workflow)])
@@ -1235,7 +1235,7 @@ class LeadTest(unittest.TestCase):
         text = (self.root / "tasks/7.md").read_text()
         self.assertIn("kind: implementation", text)
         self.assertIn("## Workflow", text)
-        self.assertIn("Methodology: cc10x", text)
+        self.assertIn("Methodology: other", text)
         self.assertIn("Phase: implementation", text)
         self.assertIn("tdd/SKILL.md", text)
         self.assertIn("Scheduler: lead", text)
@@ -2693,7 +2693,7 @@ class LeadTest(unittest.TestCase):
         self.assertIn(first.strip(), (self.root / "state.md").read_text().replace(
             self.current_state().split("- As of: ")[1].split("\n")[0], now.isoformat()))
 
-    # ---- Attempt 1.2: the independent review's findings (A1-A8, O2); Astra's probes, as tests ----
+    # ---- Attempt 1.2: the independent review's findings (A1-A8, O2); its probes, as tests ----
 
     def refresh(self):
         """Re-render the projection from the saved state without a lead turn."""
@@ -2941,6 +2941,54 @@ class LeadTest(unittest.TestCase):
         self.snapshot["agents"][0]["agent_status"] = "working"
         self.turn()
         self.assertEqual(self.owner_rows(), [], "a working owner is not silent")
+
+    def silent_owner_rows(self, status):
+        """Owner rows when the owner of a task dispatched 30 minutes ago reports this Herdr status."""
+        self.init()
+        self.turn()
+        self.dispatched_ago(30)
+        self.snapshot["agents"][0]["agent_status"] = status
+        self.turn()
+        return self.owner_rows()
+
+    def test_attention_names_a_blocked_owner_and_says_to_look_at_the_dialog_not_type_into_it(self):
+        self.init()
+        self.turn()
+        self.dispatched_ago(5)
+        self.snapshot["agents"][0]["agent_status"] = "blocked"
+        self.turn()
+        self.assertEqual(self.owner_rows(), [], "inside attention_minutes a dialog may just have opened")
+        self.dispatched_ago(30)
+        self.rerender()
+        rows = self.owner_rows()
+        self.assertEqual(len(rows), 1, self.attention())
+        self.assertRegex(rows[0], r"^owner alpha is blocked while task 7 has no return closing it "
+                                  r"\(dispatched 30m\d\ds ago, limit 10m\)")
+        self.assertIn("dialog only a human answers", rows[0])
+        self.assertIn("never type into it", rows[0])
+
+    def test_attention_names_an_owner_whose_herdr_status_is_unknown(self):
+        rows = self.silent_owner_rows("unknown")
+        self.assertEqual(len(rows), 1, self.attention())
+        self.assertRegex(rows[0], r"^owner alpha has Herdr status unknown while task 7 has no return closing it "
+                                  r"\(dispatched 30m\d\ds ago, limit 10m\)")
+        self.assertIn("Herdr cannot tell what the pane is doing", rows[0])
+
+    def test_attention_names_an_owner_whose_status_the_schema_does_not_list(self):
+        rows = self.silent_owner_rows("paused")
+        self.assertEqual(len(rows), 1, self.attention())
+        self.assertRegex(rows[0], r"^owner alpha reports the unrecognised Herdr status 'paused' while task 7 ")
+        self.assertIn("look at the pane", rows[0])
+
+    def test_attention_leaves_a_working_owner_alone(self):
+        self.assertEqual(self.silent_owner_rows("working"), [])
+
+    def test_every_agent_status_in_the_schema_has_an_attention_test(self):
+        schema = json.loads((CLI.parent / "api-schema.json").read_text())
+        statuses = schema["schemas"]["success_response"]["$defs"]["AgentStatus"]["enum"]
+        # idle and done: the idle-owner test above; blocked, unknown and working: their own tests; a new Herdr
+        # status fails here until it is decided in lead.py's OWNER_ROWS and tested.
+        self.assertEqual(sorted(statuses), ["blocked", "done", "idle", "unknown", "working"])
 
     def test_an_interrupted_or_cleared_worker_leaves_the_task_pending_and_is_flagged_not_accepted(self):
         # Esc and /clear never run a Stop hook, so no hook output exists at all. The attempt must stay unaccepted
