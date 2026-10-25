@@ -237,6 +237,75 @@ class SoloEntry(unittest.TestCase):
                 self.assertNotIn(self.CHOICE_B, text)
 
 
+# Release 0.3.0 E7: product text that names no launcher, no second methodology owner and no retired team member.
+# Only these files are held to it; the validator keeps refusing another methodology (phase-record.md), and other
+# files carry their own cleanups.
+NEUTRAL_FILES = (
+    "skills/engineering-workflow/SKILL.md", "skills/team-lead/references/ux-acceptance.md",
+    "skills/team-lead/references/review-routing.md", "skills/team-lead/references/communication.md",
+    "skills/frontend-design/SKILL.md", "skills/frontend-design/references/interface/interface.md",
+    "skills/receiving-code-review/SKILL.md", "MAINTAINING.md")
+DUAL_OWNER_WORDING = ("launcher owner", "another methodology", "fresh-launch", "another surface")
+# Sha256 prefixes of a retired team member's name and of a model name its scar notes cited.
+SCAR_NAMES = {"693b286515bd1dd0", "e12ce8285efc67c6"}
+SCAR = re.compile(r"^<!-- scar: \d{4}-\d{2}-\d{2} — .+ -->$")
+
+
+class AgentNeutralText(unittest.TestCase):
+    def guide(self):
+        return " ".join((REPO / "guide/AGENTS.md").read_text(encoding="utf-8").split())
+
+    def test_the_guide_says_what_the_live_check_found_about_the_skills_pool(self):
+        text = self.guide()
+        self.assertNotIn("not yet live-checked", text)
+        self.assertIn("Codex and OpenCode read it directly", text)
+        self.assertIn("The Guide reaches an agent only through its rules file", text)
+
+    def test_the_guide_translates_the_skill_tool_for_an_agent_without_one(self):
+        text = self.guide()
+        self.assertIn("A skill that says to call the Skill tool means the same loading", text)
+        self.assertIn("reading `~/.agents/skills/NAME/SKILL.md` completely", text)
+
+    def test_the_guide_skips_a_skill_whose_capability_is_missing_and_says_so(self):
+        self.assertIn("Skip a skill whose required tool, CLI or harness you lack, and say that you skipped it and why",
+                      self.guide())
+
+    def test_the_guide_runs_a_sub_agent_step_sequentially_when_there_are_no_sub_agents(self):
+        self.assertIn("With no sub-agents, run a sub-agent step yourself, sequentially, in a new session or Herdr pane "
+                      "when you have one, and label the result (for example self-review, not independent review)",
+                      self.guide())
+
+    def test_the_three_guide_lines_sit_in_their_existing_sections(self):
+        sections = {}
+        for part in (REPO / "guide/AGENTS.md").read_text(encoding="utf-8").split("\n## ")[1:]:
+            sections[part.split("\n", 1)[0]] = " ".join(part.split())
+        self.assertIn("call the Skill tool", sections["Engineering workflow"])
+        self.assertIn("Skip a skill whose required tool", sections["Engineering workflow"])
+        self.assertIn("With no sub-agents", sections["Delegation"])
+
+    def test_no_owned_file_names_a_launcher_or_a_second_methodology_owner(self):
+        found = [f"{rel}: {words}" for rel in NEUTRAL_FILES
+                 for words in DUAL_OWNER_WORDING
+                 if words in " ".join((REPO / rel).read_text(encoding="utf-8").split())]
+        self.assertEqual(found, [])
+
+    def test_scar_notes_keep_a_date_and_a_lesson_and_name_no_member_or_task(self):
+        found = []
+        for rel in NEUTRAL_FILES:
+            for n, line in enumerate((REPO / rel).read_text(encoding="utf-8").splitlines(), 1):
+                if "scar:" not in line:
+                    continue
+                names = {hashlib.sha256(t.encode()).hexdigest()[:16] for t in TOKEN.findall(line.lower())} & SCAR_NAMES
+                if names or re.search(r"\b(?:task|item) \d+\b", line) or not SCAR.match(line.strip()):
+                    found.append(f"{rel}:{n}")
+        self.assertEqual(found, [])
+
+    def test_the_maintainer_routine_does_not_prescribe_one_persons_worktree_folder(self):
+        text = (REPO / "MAINTAINING.md").read_text(encoding="utf-8")
+        self.assertNotIn(".worktrees/mifal", text)
+        self.assertIn("git worktree add", text)
+
+
 class Closure(unittest.TestCase):
     def test_no_shipped_body_names_an_unshipped_skill(self):
         found = []
