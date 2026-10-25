@@ -8,9 +8,13 @@ import unittest
 from support import Sandbox, changed, snapshot
 from test_lifecycle import normalized, planned_paths
 
-BACKUP_NOTE = ("note 1 item(s) of yours are saved in ~/.agents/mifal/backup: a skill folder or link whose name a "
-               "release took, or a file in your Mifal clone that a release replaced. To keep one, copy it from there; "
-               "mifal uninstall puts each back where it was when that place is free")
+SKILL_NOTE = ("note 1 skill folder(s) or link(s) of yours are saved in ~/.agents/mifal/backup: a release took their "
+              "names. To keep one under another name, copy it from there; mifal uninstall puts each back where it was "
+              "when that place is free")
+CLONE_NOTE = ("note 1 item(s) of yours from your Mifal clone are saved in ~/.agents/mifal/backup: git ignored them and "
+              "a release added tracked files where they were. They stay there after mifal uninstall while the clone "
+              "has the release's files in their place; to keep one, copy it from there, but copying it back into the "
+              "clone makes the clone's tracked file differ")
 
 
 class Update(Sandbox):
@@ -478,7 +482,7 @@ class Reserved(Update):
         saved = list((self.home / ".agents/mifal/backup").glob("*/.agents/skills/commit/SKILL.md"))
         self.assertEqual([p.read_text() for p in saved], ["my commit skill\n"])
         doctor = self.mifal("doctor", check=False)
-        self.assertIn(BACKUP_NOTE, doctor.stdout.splitlines())
+        self.assertIn(SKILL_NOTE, doctor.stdout.splitlines())
         self.assertNotRegex(doctor.stdout, r"(?m)^(WARN|FAIL) .*backup")
         self.mifal("uninstall")
         self.assertEqual(theirs.read_text(), "my commit skill\n")
@@ -578,7 +582,14 @@ class Ignored(Update):
         self.assertEqual([p.read_bytes() for p in saved], [self.MINE])
         self.assertEqual(self.head(), new)
         self.assertEqual(self.manifest()["source"]["revision"], new)
-        self.assertIn(BACKUP_NOTE, self.mifal("doctor", check=False).stdout.splitlines())
+        doctor = self.mifal("doctor", check=False)
+        self.assertIn(CLONE_NOTE, doctor.stdout.splitlines())
+        self.assertNotIn("puts each back", doctor.stdout)
+        uninstall = self.mifal("uninstall")
+        self.assertIn(f"kept backup ~/{saved[0].relative_to(self.home)}: {mine} exists again", uninstall.stdout)
+        self.assertEqual([p.read_bytes() for p in saved], [self.MINE])
+        self.assertEqual(mine.read_text(), "release\n")
+        self.assertEqual(self.git(self.clone, "status", "--porcelain", "notes"), "")
 
     def test_a_failed_fast_forward_puts_the_backed_up_file_back(self):
         mine = self.ignored("notes/local.md")
