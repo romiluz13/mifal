@@ -89,6 +89,12 @@ def doctor(h: mf.Home, env, out) -> int:
             r.line("WARN", "engine", f"{len(absent)} file(s) the installed revision installs are missing from "
                    f"{show(h.engine)}, e.g. {show(absent[0])}", "run mifal update")
 
+    saved = sum(os.path.lexists(e["backup"]) for e in data["entries"] if e["kind"] == "backup")
+    if saved:
+        out(f"note {saved} skill folder(s) or link(s) of yours are saved in {show(h.engine / 'backup')}, where Mifal "
+            "moved them to take their names. To keep one under another name, copy it from there; mifal uninstall "
+            "puts each back where it was when that place is free")
+
     guide = h.engine / "AGENTS.md"
     guide_sha = hashlib.sha256(guide.read_bytes()).hexdigest() if guide.is_file() else None
     blocks = {e["path"]: e for e in data["entries"] if e["kind"] == "block"}
@@ -127,8 +133,7 @@ def doctor(h: mf.Home, env, out) -> int:
                 r.line("WARN", "your skills claude", f"{len(yours)} skill(s) of your own in {show(h.pool)} are not "
                        f"linked into {show(root / 'skills')}, so Claude Code does not see them: " + ", ".join(yours[:5]),
                        f"ln -s {show(h.pool)}/{yours[0]} {show(root / 'skills')}/{yours[0]}")
-        else:
-            r.line("PASS", f"skills {name}", f"reads {show(h.pool)} natively, {len(skills)} skills")
+    _elsewhere(r, h, data, shell)
 
     try:
         path, validator = _validator(h)
@@ -168,13 +173,34 @@ def doctor(h: mf.Home, env, out) -> int:
     return 1 if r.counts["FAIL"] else 0
 
 
+def _elsewhere(r, h, data, shell):
+    """Agents found on this machine that the install does not serve, and a second Claude home that shares the
+    wired one's skills without the Guide."""
+    show = h.show
+    try:
+        for line in harness.unserved(h.home, data, shell, show, unrecorded_only=True):
+            r.out(line)
+        homes = {harness.roots(h.home, e)["claude"] for e in (shell, {})}
+    except harness.Refused as e:
+        r.line("WARN", "agents", f"cannot look for agents or Claude homes Mifal does not serve: {e}")
+        return
+    rec = (data.get("harnesses") or {}).get("claude")
+    if not rec or rec["status"] != "wired":
+        return
+    skills = os.path.realpath(Path(rec["root"]) / "skills")
+    for other in sorted(homes):
+        if os.path.realpath(other) != os.path.realpath(rec["root"]) and os.path.realpath(other / "skills") == skills:
+            r.out(f"note also seen by {show(other)}: it shares {show(skills)}, but Mifal serves {show(rec['root'])}, "
+                  "so Claude Code started there gets the skills without the Guide")
+
+
 def _guide(r, name, rules: Path, root: Path, entry, guide_sha, h, env):
     show, check = h.show, f"guide {name}"
     now = harness.reads_now(name, h.home, env, root)
     if now is not None and now != rules:
         w = harness.plan(name, h.home, env, root, show)
         r.line("FAIL", check, f"{harness.TITLES[name]} reads {show(now)}, not {show(rules)}",
-               (w.skip or "").split(". ", 1)[-1])
+               (w.skip or "").split(". ", 1)[-1] or REINSTALL)
         return
     text = rules.read_text(encoding="utf-8") if rules.is_file() else ""
     found = harness.BLOCK.findall(text)

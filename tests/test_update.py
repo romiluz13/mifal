@@ -329,5 +329,106 @@ class Recovery(Update):
         self.assertTrue((self.home / ".agents/skills/grilling/NOTE.md").exists())
 
 
+class OpenCode(Update):
+    """An install that served no agent when it was made: update wires an agent found since, as an install does."""
+
+    def test_an_update_that_newly_wires_opencode_stops_on_the_claude_fallback_until_overwrite_edits(self):
+        self.harness_fakes("opencode")
+        moved = self.home / "elsewhere"
+        fallback = moved / ".claude/CLAUDE.md"
+        fallback.parent.mkdir(parents=True)
+        fallback.write_text("my claude rules\n")
+        self.publish(**{"skills/grilling/NOTE.md": "note\n"})
+        before = snapshot(self.home)
+        result = self.update("--yes", OPENCODE_TEST_HOME=str(moved))
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("~/elsewhere/.claude/CLAUDE.md: OpenCode reads it now, and stops once Mifal writes "
+                      "~/.config/opencode/AGENTS.md", result.stdout)
+        self.assertIn("Nothing was changed.", result.stdout)
+        self.assertIn("mifal update --overwrite-edits", result.stdout)
+        self.assertEqual(snapshot(self.home), before)
+        self.assertEqual(self.head(), self.old)
+        result = self.update("--overwrite-edits", "--yes", OPENCODE_TEST_HOME=str(moved))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("block ~/.config/opencode/AGENTS.md", result.stdout)
+        self.assertEqual(self.manifest()["harnesses"]["opencode"]["status"], "wired")
+        self.assertEqual(fallback.read_text(), "my claude rules\n")
+
+
+class Reserved(Update):
+    """A release reserves a name that a skill of the person's already uses."""
+
+    def reserve(self):
+        self.publish("add a commit skill", **{"skills/commit/SKILL.md": "mifal commit\n"})
+
+    def theirs(self):
+        path = self.home / ".agents/skills/commit/SKILL.md"
+        path.parent.mkdir(parents=True)
+        path.write_text("my commit skill\n")
+        return path
+
+    def test_the_update_stops_and_changes_nothing_when_a_skill_of_yours_has_the_new_name(self):
+        theirs = self.theirs()
+        self.reserve()
+        before = snapshot(self.home)
+        result = self.update("--yes")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("~/.agents/skills/commit: exists and was not installed by Mifal, but this release installs "
+                      "its own at that path", result.stdout)
+        self.assertNotIn("~/.agents/skills/commit/SKILL.md", result.stdout)
+        self.assertIn("Nothing was changed.", result.stdout)
+        self.assertIn("mifal update --overwrite-edits", result.stdout)
+        self.assertEqual(snapshot(self.home), before)
+        self.assertEqual(self.head(), self.old)
+        self.assertEqual(theirs.read_text(), "my commit skill\n")
+
+    def test_overwrite_edits_backs_the_skill_up_then_installs_the_release_copy_and_doctor_notes_it(self):
+        theirs = self.theirs()
+        self.reserve()
+        result = self.update("--overwrite-edits", "--yes")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertRegex(result.stdout, r"backup ~/.agents/skills/commit -> "
+                                        r"~/.agents/mifal/backup/\d{8}T\d{6}Z/.agents/skills/commit")
+        self.assertEqual(theirs.read_text(), "mifal commit\n")
+        saved = list((self.home / ".agents/mifal/backup").glob("*/.agents/skills/commit/SKILL.md"))
+        self.assertEqual([p.read_text() for p in saved], ["my commit skill\n"])
+        doctor = self.mifal("doctor", check=False)
+        self.assertRegex(doctor.stdout, r"(?m)^note 1 skill folder\(s\) or link\(s\) of yours are saved in "
+                                        r"~/.agents/mifal/backup, where Mifal moved them to take their names\. ")
+        self.assertIn("mifal uninstall puts each back", doctor.stdout)
+        self.assertNotRegex(doctor.stdout, r"(?m)^(WARN|FAIL) .*backup")
+        self.mifal("uninstall")
+        self.assertEqual(theirs.read_text(), "my commit skill\n")
+
+    def test_a_claude_link_of_yours_with_the_new_name_stops_the_update_and_is_restored_by_uninstall(self):
+        self.harness_fakes("claude")
+        self.install("--harness", "claude")
+        mine = self.home / "mine/commit"
+        mine.mkdir(parents=True)
+        (mine / "SKILL.md").write_text("my commit skill\n")
+        link = self.home / ".claude/skills/commit"
+        link.symlink_to(mine)
+        self.reserve()
+        before = snapshot(self.home)
+        result = self.update("--yes")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("~/.claude/skills/commit: exists and was not installed by Mifal", result.stdout)
+        self.assertEqual(snapshot(self.home), before)
+        result = self.update("--overwrite-edits", "--yes")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(os.readlink(link), os.path.realpath(self.home / ".agents/skills/commit"))
+        self.assertEqual((mine / "SKILL.md").read_text(), "my commit skill\n")
+        self.mifal("uninstall")
+        self.assertEqual(os.readlink(link), str(mine))
+
+    def test_a_name_the_install_already_owns_does_not_stop_the_update(self):
+        self.publish(**{"skills/grilling/NOTE.md": "note\n"})
+        extra = self.home / ".agents/skills/grilling/mine.md"
+        extra.write_text("my notes\n")
+        result = self.update("--yes")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(extra.read_text(), "my notes\n")
+
+
 if __name__ == "__main__":
     unittest.main()

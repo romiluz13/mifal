@@ -151,16 +151,61 @@ class Precedence(Wiring):
         self.assertFalse((self.home / ".codex/AGENTS.md").exists())
         self.assertEqual(self.wired(), {"droid"})
 
-    def test_opencode_with_only_the_claude_fallback_is_skipped(self):
+    FALLBACK_NOTE = ("~/.claude/CLAUDE.md: OpenCode reads it now, and stops once Mifal writes "
+                     "~/.config/opencode/AGENTS.md; copy what you want to keep from it into "
+                     "~/.config/opencode/AGENTS.md")
+
+    def fallback(self, text):
+        path = self.home / ".claude/CLAUDE.md"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text)
+        return path
+
+    def test_opencode_with_only_the_claude_fallback_gets_its_own_file_and_a_note_naming_what_it_stops_reading(self):
         self.harness_fakes("opencode")
-        (self.home / ".claude").mkdir()
-        (self.home / ".claude/CLAUDE.md").write_text("my claude rules\n")
-        self.assertEqual(self.reads_now("opencode"), self.home / ".claude/CLAUDE.md")
+        fallback = self.fallback("my claude rules\n")
+        self.assertEqual(self.reads_now("opencode"), fallback)
         result = self.install("--harness", "opencode")
-        self.assertIn("skip opencode: it reads ~/.claude/CLAUDE.md now", result.stdout)
-        self.assertIn("copy what you want to keep from ~/.claude/CLAUDE.md into ~/.config/opencode/AGENTS.md",
-                      result.stdout)
-        self.assertEqual(self.wired(), set())
+        self.assertIn("note " + self.FALLBACK_NOTE, result.stdout)
+        self.assertNotIn("skip opencode", result.stdout)
+        self.assertEqual(self.wired(), {"opencode"})
+        self.assertEqual(fallback.read_text(), "my claude rules\n")
+        self.assertEqual(self.reads_now("opencode"), self.home / RULES["opencode"])
+        self.mifal("uninstall")
+        self.assertFalse((self.home / RULES["opencode"]).exists())
+        self.assertEqual(fallback.read_text(), "my claude rules\n")
+
+    def test_the_dry_run_names_the_file_opencode_stops_reading_and_writes_nothing(self):
+        self.harness_fakes("opencode")
+        self.fallback("my claude rules\n")
+        before = snapshot(self.home)
+        result = self.install("--harness", "opencode", "--dry-run")
+        self.assertIn("note " + self.FALLBACK_NOTE, result.stdout)
+        self.assertIn("block ~/.config/opencode/AGENTS.md", result.stdout)
+        self.assertEqual(snapshot(self.home), before)
+
+    def test_no_note_when_the_claude_fallback_holds_nothing_besides_mifals_block(self):
+        self.harness_fakes("opencode")
+        self.fallback(harness.block("claude", "0.0.0", "a guide\n"))
+        result = self.install("--harness", "opencode")
+        self.assertNotIn("OpenCode reads it now", result.stdout)
+        self.assertEqual(len(self.blocks(RULES["opencode"])), 1)
+
+    def test_a_later_install_that_adds_opencode_stops_on_the_fallback_until_overwrite_edits(self):
+        self.harness_fakes("codex", "opencode")
+        fallback = self.fallback("my claude rules\n")
+        self.install("--harness", "codex")
+        before = snapshot(self.home)
+        result = self.install("--harness", "opencode", check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(self.FALLBACK_NOTE, result.stdout)
+        self.assertIn("--overwrite-edits", result.stdout)
+        self.assertIn("Nothing was written.", result.stdout)
+        self.assertEqual(snapshot(self.home), before)
+        result = self.install("--harness", "opencode", "--overwrite-edits")
+        self.assertIn("note " + self.FALLBACK_NOTE, result.stdout)
+        self.assertEqual(self.wired(), {"codex", "opencode"})
+        self.assertEqual(fallback.read_text(), "my claude rules\n")
 
     def test_pi_with_only_claude_md_is_skipped(self):
         self.harness_fakes("pi")
@@ -179,19 +224,18 @@ class Precedence(Wiring):
         self.assertIn("skip pi: it reads ~/.pi/agent/AGENTS.override.md", self.install().stdout)
 
     def test_a_target_the_user_creates_after_a_skip_gets_only_the_block_and_is_kept_by_uninstall(self):
-        self.harness_fakes("opencode")
-        (self.home / ".claude").mkdir()
-        (self.home / ".claude/CLAUDE.md").write_text("my claude rules\n")
-        self.install("--harness", "opencode")
-        target = self.home / RULES["opencode"]
-        target.parent.mkdir(parents=True)
-        target.write_text("kept from my claude rules\n")
-        self.assertEqual(self.reads_now("opencode"), target)
-        self.install("--harness", "opencode")
-        self.assertEqual(self.wired(), {"opencode"})
-        self.assertTrue(target.read_text().startswith("kept from my claude rules\n\n<!-- mifal:begin"))
+        self.harness_fakes("pi")
+        (self.home / ".pi/agent").mkdir(parents=True)
+        (self.home / ".pi/agent/CLAUDE.md").write_text("my pi rules\n")
+        self.install("--harness", "pi")
+        target = self.home / RULES["pi"]
+        target.write_text("kept from my pi rules\n")
+        self.assertEqual(self.reads_now("pi"), target)
+        self.install("--harness", "pi")
+        self.assertEqual(self.wired(), {"pi"})
+        self.assertTrue(target.read_text().startswith("kept from my pi rules\n\n<!-- mifal:begin"))
         self.mifal("uninstall")
-        self.assertEqual(target.read_text(), "kept from my claude rules\n")
+        self.assertEqual(target.read_text(), "kept from my pi rules\n")
 
     def test_opencode_reads_its_fallback_as_opencode_does(self):
         self.harness_fakes("opencode")
@@ -208,7 +252,8 @@ class Precedence(Wiring):
         (moved / ".claude/CLAUDE.md").write_text("rules there\n")
         self.assertEqual(self.reads_now("opencode", OPENCODE_TEST_HOME=str(moved)), moved / ".claude/CLAUDE.md")
         result = self.install("--harness", "opencode", OPENCODE_TEST_HOME=str(moved))
-        self.assertIn("skip opencode: it reads ~/elsewhere/.claude/CLAUDE.md now", result.stdout)
+        self.assertIn("note ~/elsewhere/.claude/CLAUDE.md: OpenCode reads it now, and stops once Mifal writes",
+                      result.stdout)
 
 
 class Roots(Wiring):

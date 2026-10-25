@@ -32,7 +32,7 @@ A skills folder that is a symbolic link to a real folder in your home, such as a
 
 A skill of yours that has a reserved name, or a skill link in Mifal's way, is moved to `~/.agents/mifal/backup/` when that is safe; an unsafe engine or rules-file target makes the install refuse, and uninstall restores a backup only into a free target and keeps the others. A file you edit after the install is yours: a reinstall stops before overwriting it, and `--overwrite-edits` saves a copy to `~/.agents/mifal-saved/` first.
 
-Skills of your own can live beside Mifal's in `~/.agents/skills/`. Mifal's skill names are reserved: if a skill of yours has the same name as one Mifal installs, the install backs your folder up to `~/.agents/mifal/backup/` on first install, and uninstall restores it if the destination is free; otherwise the backup is kept and reported. Files you add inside a Mifal skill's folder are kept on update and uninstall. Skills with other names are never touched.
+Skills of your own can live beside Mifal's in `~/.agents/skills/`. Mifal's skill names are reserved: if a skill of yours has the same name as one Mifal installs, a first install backs your folder up to `~/.agents/mifal/backup/`. An update or reinstall that reserves a name you already use stops, lists each clash and changes nothing until you run it again with `--overwrite-edits`, which backs yours up first. `mifal uninstall` restores a backup if the destination is free; otherwise the backup is kept and reported, and `mifal doctor` notes how many backups exist. Files you add inside a Mifal skill's folder are kept on update and uninstall. Skills with other names are never touched.
 
 ## Update and uninstall
 

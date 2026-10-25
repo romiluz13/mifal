@@ -272,7 +272,7 @@ def make_plan(h: Home, source: Path, version: str, overwrite_edits: bool = False
                         and os.path.realpath(other / "skills") == os.path.realpath(folder)):
                     plan.notes.append(f"note also seen by {show(other)}: it shares {show(target)}")
 
-    moves, gone = [], []
+    moves, gone, held = [], [], []
 
     def move(path, dest, line, why):
         moves.append(Step({"op": "move", "from": str(path), "to": str(dest), "why": why}, line))
@@ -285,6 +285,8 @@ def make_plan(h: Home, source: Path, version: str, overwrite_edits: bool = False
         move(path, h.engine / TXN / str(next(stash_names)), line, "stash")
 
     def conflict(path, reason):
+        if any(_inside(path, unit) for unit in held):
+            return
         if overwrite_edits:
             dest = h.under(h.saved / stamp, path)
             move(path, dest, f"save {show(path)} -> {show(dest)}", "save")
@@ -310,6 +312,12 @@ def make_plan(h: Home, source: Path, version: str, overwrite_edits: bool = False
 
     for unit in units:
         if os.path.lexists(unit) and not any(_inside(p, unit) for p in owned):
+            # With a stop (a moved folder) the unit paths no longer match the Manifest's, so none can be judged.
+            if old is not None and not overwrite_edits and not plan.stops:
+                plan.conflicts.append(f"{show(unit)}: exists and was not installed by Mifal, but this release "
+                                      "installs its own at that path")
+                held.append(unit)
+                continue
             dest = h.under(h.engine / "backup" / stamp, unit)
             move(unit, dest, f"backup {show(unit)} -> {show(dest)}", "backup")
             entries.append({"kind": "backup", "path": str(unit), "backup": str(dest)})
@@ -350,6 +358,11 @@ def make_plan(h: Home, source: Path, version: str, overwrite_edits: bool = False
             plan.conflicts.append(where + why)
             plan.unwritable.append((where + why, kind[0], w.name, dest if kind[0] == "link" else None))
             continue
+        if w.warn:
+            if old is None or overwrite_edits:
+                plan.notes.append("note " + w.warn)
+            else:
+                plan.conflicts.append(w.warn)
         text = mf.read_rules(w.rules) if os.path.lexists(w.rules) else None
         found = harness.BLOCK.findall(text or "")
         sep, created, copy = (rec["sep"], rec["created"], None) if rec else (None, text is None, None)

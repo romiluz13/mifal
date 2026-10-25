@@ -9,6 +9,8 @@ from support import PYTHON, REPO, Sandbox, snapshot
 HERDR_STATUS = json.dumps({"client": {"version": "0.9.5"}, "server": {"running": True, "version": "0.9.5"}})
 SCHEMA = REPO / "tools/herdr_adapter/api-schema.json"
 HARNESSES = ("claude", "codex", "droid", "pi", "opencode")
+RULES = {"claude": ".claude/CLAUDE.md", "codex": ".codex/AGENTS.md", "droid": ".factory/AGENTS.md",
+         "pi": ".pi/agent/AGENTS.md", "opencode": ".config/opencode/AGENTS.md"}
 NETWORK = ("curl", "wget", "git", "nc", "ssh")
 # Files a harness keeps settings, tokens or credentials in. The doctor never opens any of them.
 PRIVATE = (".claude/settings.json", ".claude/.credentials.json", ".codex/auth.json", ".codex/config.toml",
@@ -63,7 +65,71 @@ class Healthy(Doctor):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
 
+class Agents(Doctor):
+    def test_no_agent_is_said_to_read_the_pool_natively(self):
+        result = self.doctor()
+        self.assertNotIn("natively", result.stdout)
+        self.assertNotRegex(result.stdout, r"(?m)^PASS skills (codex|droid|pi|opencode)")
+
+    def test_each_served_agent_names_the_file_that_holds_its_block(self):
+        result = self.doctor()
+        for name, rel in RULES.items():
+            with self.subTest(agent=name):
+                self.assertRegex(result.stdout, rf"(?m)^PASS guide {name}: block in ~/{re.escape(rel)}$")
+
+    def test_no_note_about_saved_copies_when_none_were_saved(self):
+        self.assertNotIn("saved in", self.doctor().stdout)
+
+
+class Elsewhere(Sandbox):
+    def setUp(self):
+        super().setUp()
+        self.fake("agent-browser", "exit 0")
+
+    def doctor(self, **kw):
+        return self.mifal("doctor", check=False, **kw)
+
+    def test_a_detected_agent_the_install_never_recorded_is_listed_as_not_served(self):
+        self.harness_fakes("codex")
+        self.install()
+        self.harness_fakes("droid")
+        result = self.doctor()
+        self.assertRegex(result.stdout,
+                         r"(?m)^note found droid at ~/\.factory, not served; run \./install\.sh to add it$")
+        self.assertNotIn("found codex", result.stdout)
+
+    def test_a_detected_agent_is_listed_when_the_install_served_none(self):
+        self.install()
+        self.assertEqual(self.manifest()["harnesses"], {})
+        self.harness_fakes("codex")
+        self.assertRegex(self.doctor().stdout,
+                         r"(?m)^note found codex at ~/\.codex, not served; run \./install\.sh to add it$")
+
+    def test_an_agent_the_install_skipped_is_explained_once_by_its_own_line(self):
+        override = self.home / ".codex/AGENTS.override.md"
+        override.parent.mkdir()
+        override.write_text("override\n")
+        self.harness_fakes("codex")
+        self.install()
+        result = self.doctor()
+        self.assertRegex(result.stdout, r"(?m)^FAIL guide codex: ")
+        self.assertNotIn("found codex", result.stdout)
+
+    def test_a_relative_xdg_config_home_warns_instead_of_stopping_the_doctor(self):
+        self.harness_fakes("codex")
+        self.install()
+        result = self.doctor(unchecked=("XDG_CONFIG_HOME",), XDG_CONFIG_HOME="rel/xdg")
+        self.assertRegex(result.stdout,
+                         r"(?m)^WARN agents: cannot look for agents or Claude homes Mifal does not serve: ")
+        self.assertNotIn("Traceback", result.stderr)
+        self.assertRegex(result.stdout, r"(?m)^doctor: ")
+
+
 class Broken(Doctor):
+    def test_a_deleted_opencode_rules_file_fails_with_its_fix(self):
+        (self.home / RULES["opencode"]).unlink()
+        self.assert_fails_with_fix(self.doctor(), "guide opencode")
+
     def test_a_deleted_skill_fails_with_its_fix(self):
         shutil.rmtree(self.home / ".agents/skills/tdd")
         self.assert_fails_with_fix(self.doctor(), "manifest")
