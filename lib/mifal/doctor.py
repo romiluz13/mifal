@@ -7,6 +7,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -109,9 +110,16 @@ def doctor(h: mf.Home, env, out) -> int:
                 why, _, fix = w.skip.partition(". ")
                 r.line("FAIL", f"guide {name}", "not wired: " + why.split(": ", 1)[-1], fix)
             else:
-                fix = "run ./install.sh in your Mifal clone"
+                # The fix runs in a shell where the variable may be unset, so the command names the recorded root itself.
+                variable = harness.VARIABLES.get(name)
+                if variable and Path(rec["root"]) != harness.roots(
+                        h.home, {k: v for k, v in env.items() if k != variable})[name]:
+                    run = f"run {variable}={shlex.quote(str(rec['root']))} ./install.sh"
+                else:
+                    run = "run ./install.sh"
+                fix = f"{run} in your Mifal clone"
                 if w.warn:
-                    fix = (f"run ./install.sh --overwrite-edits in your Mifal clone; {harness.TITLES[name]} then reads "
+                    fix = (f"{run} --overwrite-edits in your Mifal clone; {harness.TITLES[name]} then reads "
                            f"{show(w.rules)}, not {show(harness.reads_now(name, h.home, env, Path(rec['root'])))}")
                 r.line("WARN", f"guide {name}", f"found at {show(Path(rec['root']))}, not served", fix)
             continue
@@ -179,7 +187,7 @@ def doctor(h: mf.Home, env, out) -> int:
 
 def _elsewhere(r, h, data, shell):
     """Agents found on this machine that the install does not serve, and a second Claude home that shares the
-    wired one's skills without the Guide."""
+    wired one's skills and is not served either."""
     show = h.show
     try:
         for line in harness.unserved(h.home, data, shell, show, unrecorded_only=True):
@@ -194,8 +202,8 @@ def _elsewhere(r, h, data, shell):
     skills = os.path.realpath(Path(rec["root"]) / "skills")
     for other in sorted(homes):
         if os.path.realpath(other) != os.path.realpath(rec["root"]) and os.path.realpath(other / "skills") == skills:
-            r.out(f"note also seen by {show(other)}: it shares {show(skills)}, but Mifal serves {show(rec['root'])}, "
-                  "so Claude Code started there gets the skills without the Guide")
+            r.out(f"note also seen by {show(other)}: it shares {show(skills)}, but Mifal does not serve "
+                  f"{show(other)}, so the Guide reaches it only if its own rules file brings it in")
 
 
 def _guide(r, name, rules: Path, root: Path, entry, guide_sha, h, env):
