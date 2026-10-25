@@ -171,14 +171,16 @@ def update(h, data, args, out) -> int:
         if plan.conflicts or plan.stops:
             for line in plan.stops + plan.conflicts:
                 out(line)
-            hard = {line for line, *_ in plan.unwritable}
+            unsaved = {line for line, *_ in plan.unwritable} | {line for line, *_ in plan.fallbacks}
             if plan.unwritable:
                 for line in inst.unwritable_advice(plan, False):
                     out(line)
-            if any(line not in hard for line in plan.conflicts):
+            if any(line not in unsaved for line in plan.conflicts):
                 out("Nothing was changed. Restore those paths, or run mifal update --overwrite-edits to save a copy of each first.")
             else:
                 out("Nothing was changed.")
+            for line in inst.fallback_advice(plan, "Run mifal update --overwrite-edits"):
+                out(line)
             return 1
         lines = list(plan.lines())
         for line in lines:

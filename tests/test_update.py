@@ -365,7 +365,8 @@ class Skipped(Update):
                                    "status": "skipped"}
         (self.home / ".agents/mifal/install-manifest.json").write_text(json.dumps(data, indent=2, sort_keys=True) + "\n")
 
-    def test_an_update_plans_a_skipped_opencode_and_stops_on_the_claude_fallback_until_overwrite_edits(self):
+    def skipped_opencode(self):
+        """A Claude install whose Manifest records OpenCode as skipped, with a release waiting; the Claude rules file."""
         self.harness_fakes("claude", "opencode")
         fallback = self.home / ".claude/CLAUDE.md"
         fallback.parent.mkdir(parents=True)
@@ -373,6 +374,10 @@ class Skipped(Update):
         self.install("--harness", "claude")
         self.record_skipped("opencode", self.home / ".config/opencode", "AGENTS.md")
         self.publish(**{"skills/grilling/NOTE.md": "note\n"})
+        return fallback
+
+    def test_an_update_plans_a_skipped_opencode_and_stops_on_the_claude_fallback_until_overwrite_edits(self):
+        fallback = self.skipped_opencode()
         before = snapshot(self.home)
         result = self.update("--yes")
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
@@ -388,6 +393,15 @@ class Skipped(Update):
         self.assertEqual(self.manifest()["harnesses"]["opencode"]["status"], "wired")
         self.assertEqual((self.home / ".config/opencode/AGENTS.md").read_text().count("<!-- mifal:begin "), 1)
         self.assertTrue(fallback.read_text().startswith("my claude rules\n"))
+
+    def test_the_fallback_stop_says_what_overwrite_edits_accepts_and_neither_moves_nor_saves_the_file(self):
+        self.skipped_opencode()
+        result = self.update("--yes")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("For ~/.claude/CLAUDE.md: Mifal leaves it as it is. Run mifal update --overwrite-edits to "
+                      "accept that OpenCode then reads ~/.config/opencode/AGENTS.md instead.", result.stdout)
+        for wrong in ("Restore those paths", "save a copy", "saved", "move"):
+            self.assertNotIn(wrong, result.stdout.lower() if wrong == "move" else result.stdout)
 
     def test_an_agent_whose_skip_still_holds_stays_skipped_with_its_note(self):
         self.harness_fakes("claude", "pi")
