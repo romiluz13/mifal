@@ -264,7 +264,7 @@ class AgentNeutralText(unittest.TestCase):
     def test_the_guide_translates_the_skill_tool_for_an_agent_without_one(self):
         text = self.guide()
         self.assertIn("A skill that says to call the Skill tool means the same loading", text)
-        self.assertIn("reading `~/.agents/skills/NAME/SKILL.md` completely", text)
+        self.assertIn("reading `~/.agents/skills/<name>/SKILL.md` completely", text)
 
     def test_the_guide_skips_a_skill_whose_capability_is_missing_and_says_so(self):
         self.assertIn("Skip a skill whose required tool, CLI or harness you lack, and say that you skipped it and why",
