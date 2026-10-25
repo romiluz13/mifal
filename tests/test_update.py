@@ -8,6 +8,10 @@ import unittest
 from support import Sandbox, changed, snapshot
 from test_lifecycle import normalized, planned_paths
 
+BACKUP_NOTE = ("note 1 item(s) of yours are saved in ~/.agents/mifal/backup: a skill folder or link whose name a "
+               "release took, or a file in your Mifal clone that a release replaced. To keep one, copy it from there; "
+               "mifal uninstall puts each back where it was when that place is free")
+
 
 class Update(Sandbox):
     """A clone with a local bare repo as its origin, installed from."""
@@ -474,9 +478,7 @@ class Reserved(Update):
         saved = list((self.home / ".agents/mifal/backup").glob("*/.agents/skills/commit/SKILL.md"))
         self.assertEqual([p.read_text() for p in saved], ["my commit skill\n"])
         doctor = self.mifal("doctor", check=False)
-        self.assertRegex(doctor.stdout, r"(?m)^note 1 skill folder\(s\) or link\(s\) of yours are saved in "
-                                        r"~/.agents/mifal/backup, where Mifal moved them to take their names\. ")
-        self.assertIn("mifal uninstall puts each back", doctor.stdout)
+        self.assertIn(BACKUP_NOTE, doctor.stdout.splitlines())
         self.assertNotRegex(doctor.stdout, r"(?m)^(WARN|FAIL) .*backup")
         self.mifal("uninstall")
         self.assertEqual(theirs.read_text(), "my commit skill\n")
@@ -576,6 +578,7 @@ class Ignored(Update):
         self.assertEqual([p.read_bytes() for p in saved], [self.MINE])
         self.assertEqual(self.head(), new)
         self.assertEqual(self.manifest()["source"]["revision"], new)
+        self.assertIn(BACKUP_NOTE, self.mifal("doctor", check=False).stdout.splitlines())
 
     def test_a_failed_fast_forward_puts_the_backed_up_file_back(self):
         mine = self.ignored("notes/local.md")

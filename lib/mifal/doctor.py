@@ -92,9 +92,9 @@ def doctor(h: mf.Home, env, out) -> int:
 
     saved = sum(os.path.lexists(e["backup"]) for e in data["entries"] if e["kind"] == "backup")
     if saved:
-        out(f"note {saved} skill folder(s) or link(s) of yours are saved in {show(h.engine / 'backup')}, where Mifal "
-            "moved them to take their names. To keep one under another name, copy it from there; mifal uninstall "
-            "puts each back where it was when that place is free")
+        out(f"note {saved} item(s) of yours are saved in {show(h.engine / 'backup')}: a skill folder or link whose "
+            "name a release took, or a file in your Mifal clone that a release replaced. To keep one, copy it from "
+            "there; mifal uninstall puts each back where it was when that place is free")
 
     guide = h.engine / "AGENTS.md"
     guide_sha = hashlib.sha256(guide.read_bytes()).hexdigest() if guide.is_file() else None
