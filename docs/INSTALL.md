@@ -56,7 +56,7 @@ One path for each; the README has the quickstart.
 
 1. **Install**: `./install.sh --dry-run`, then `./install.sh`, from a clone of the release you want. `mifal doctor` checks the result.
 2. **Update**: `mifal update`.
-3. **Rollback**: there is no rollback command. Run `mifal uninstall`, clone the older release tag (`git clone --branch v0.2.3 https://github.com/romiluz13/mifal.git`), and run `./install.sh` from that clone, with `--harness` for each agent you want wired. Uninstall keeps your edits and your own skills, and the older installer puts its own version in place. After a rollback to 0.2.3, OpenCode reads the `~/.claude/CLAUDE.md` fallback again, because 0.2.3 does not write an OpenCode rules file, and the uninstall took Mifal's block out of the one 0.3.0 wrote.
+3. **Rollback**: there is no rollback command. Run `mifal uninstall`, clone the older release tag (`git clone --branch v0.2.3 https://github.com/romiluz13/mifal.git`), and run `./install.sh` from that clone, with `--harness` for each agent you want wired. Uninstall keeps your edits and your own skills, and the older installer puts its own version in place. After a rollback to 0.2.3, OpenCode reads the `~/.claude/CLAUDE.md` fallback again only when `~/.config/opencode/AGENTS.md` is gone: 0.2.3 does not write an OpenCode rules file, and uninstall removes the file Mifal created but, when it holds your own lines, keeps it with only Mifal's block taken out, and OpenCode reads that file first. In that case copy what you want OpenCode to keep reading into it, or delete it.
 4. **Uninstall**: `mifal uninstall --dry-run`, then `mifal uninstall`.
 
 ```sh
