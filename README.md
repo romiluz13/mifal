@@ -69,27 +69,45 @@ flowchart LR
   panes -->|receipts| gate
 ```
 
-By default, Mifal's files live in your home folder: the engine in `~/.agents/mifal/`, the skills in `~/.agents/skills/`, and one Marked block in each successfully wired agent's rules file; an outside-home root needs `--allow-root-outside-home`, and Herdr's installation has its own effects described in INSTALL.md. [docs/INSTALL.md](docs/INSTALL.md) lists every write, and covers update and uninstall.
+By default, Mifal's files live in your home folder: the engine in `~/.agents/mifal/`, the skills in `~/.agents/skills/`, and one Marked block in each successfully wired agent's rules file; an outside-home root needs `--allow-root-outside-home`, and Herdr's installation has its own effects described in INSTALL.md. [docs/INSTALL.md](docs/INSTALL.md) lists every write, and covers update, rollback and uninstall.
 
 ## Status
 
-**Alpha.** The installer, update, uninstall, doctor and validator are covered by tests, run in CI on macOS under the system Python and the current python3. What a program checks, and what still relies on the agent following the Guide, is spelled out in [docs/TRUST.md](docs/TRUST.md).
+**Alpha**, version 0.3.0. The installer, update, uninstall, doctor and validator are covered by tests, run in CI on macOS under the system Python and the current python3. What a program checks, and what still relies on the agent following the Guide, is spelled out in [docs/TRUST.md](docs/TRUST.md).
 
 ## Support
 
-This matrix is provisional. A cell is filled only from a recorded live check: a first session that quotes the Guide and lists Mifal's skills, and a lead that dispatches a task to that agent through Herdr and receives its reply.
+This matrix is provisional. It records one live check on one Mac on 2026-10-25, run on the 0.2.4 code before this release's changes; the session records are kept by the maintainer, not in this repository. Each row is one agent version and one model. A level means:
 
-| Platform | Claude Code | Codex | Droid | Pi | OpenCode |
-|---|---|---|---|---|---|
-| macOS | observed on one Mac | product wiring open | observed on one Mac | observed on one Mac | unverified |
+- **L1 Guide and skills**: a first session quotes the Guide and names Mifal's skills.
+- **L2 method, working alone**: before editing, the agent shows its route and checklist and asks "Full workflow or cut?". This is the entry gate.
+- **L3 team worker**: the agent completes a brief from a lead and passes `receipt --matt`, with one ring to the lead.
+- **L4 team lead**: one lead, one worker, one small task (a failing test in a small fixture), delivered through Herdr; both records pass the validator.
 
-Linux and Windows are not supported in this release. On one tested Mac, Claude Code (personal), Droid and Pi completed a recorded team workflow; Codex's product wiring is still open (a separate personal hook is not product support), and OpenCode is unverified.
+| macOS agent (version, model) | L1 Guide and skills | L2 method, alone | L3 team worker | L4 team lead |
+|---|---|---|---|---|
+| Claude Code 2.1.310, Sonnet 5.5 | partial | partial | pass | pass |
+| Claude Code 2.1.310, Opus 5.5 | pass | partial | pass | not run |
+| Codex 0.164.0, GPT-6.1-Sol (`codex-work` home) | partial | partial | pass | pass |
+| Droid 0.249.0, GLM 5.3 | partial | partial | pass | pass |
+| Pi 1.4.0, Claude Sonnet 5 via GitHub Copilot (`pi -ne`) | partial | fail | pass | pass |
+| OpenCode 1.19.4, GLM-5.3-Flash Free and DeepSeek V4.1 Flash Free | partial | fail | pass | pass |
+
+Read the levels with these limits:
+
+- **L2 is a limitation, not a pass on any agent.** The check asks for a phase-record file, and an agent working alone keeps its checklist in chat, so `validate_contracts.py workflow --gate entry` has nothing to run on. Pi and OpenCode (two attempts each) edited before asking.
+- **L1 is partial where a skill went unnamed or the Guide never arrived.** Claude Code with Sonnet, Droid and Pi did not name `ask-matt`, and Pi's own skill list lacked `engineering-workflow` and `team-lead`. On the 0.2.4 code, Codex (its `codex-work` home) and OpenCode received no Guide. This release writes OpenCode's `~/.config/opencode/AGENTS.md`, and the installer serves the Codex home that `CODEX_HOME` names; neither has been rechecked live yet.
+- **The lead loop is experimental.** The Herdr adapter and the lead loop under `~/.agents/mifal/tools/` are tested with fake agents; the L4 column is one real small task per row, not a measure of reliability.
+- **Skill filters are invisible to `mifal doctor`.** Agent-level settings can hide Mifal's skills while doctor passes: Pi's `skills` setting (and a `.gitignore` inside a skills folder, which Pi honours), Droid's `disabledSkills`, Codex's `[[skills.config]]`, and OpenCode's `permission.skill`. In the recorded run Pi hid nine of Mifal's skills, including `engineering-workflow` and `team-lead`, because of a `.gitignore` in the skills folder.
+- **There is no sandbox or isolation between agents.** Worktrees are a Guide rule, not enforced; recovery from a stuck worker is one budgeted resume action that the lead runs, not a watchdog.
+
+Linux and Windows are not supported in this release.
 
 Keep the clone you installed from: `mifal update` and `mifal doctor`'s completeness check read it. Deleting it leaves the installed skills and rules in place, but you would then clone Mifal again to update.
 
 ## Docs
 
-- [docs/INSTALL.md](docs/INSTALL.md): what gets written, update and uninstall.
+- [docs/INSTALL.md](docs/INSTALL.md): what gets written, and the install, update, rollback and uninstall path.
 - [docs/TRUST.md](docs/TRUST.md): what is checked by a program, and what relies on the agent.
 - [MAINTAINING.md](MAINTAINING.md): how upstream skill, Herdr and agent changes get into Mifal, and how Mifal's changes go back upstream.
 
