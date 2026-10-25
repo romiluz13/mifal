@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# scar: 2026-10-16 — Astra item 5: a router tested only against cases written after the script is policy by assertion.
+# scar: 2026-10-16 — a router tested only against cases written after the script is policy by assertion.
 # fixtures/routing/cases.json is plain JSON and cannot carry a comment; its cases are the ones this file runs.
 import json
 from pathlib import Path

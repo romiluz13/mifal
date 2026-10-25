@@ -4,8 +4,8 @@ stdin and prints {"route", "reasons", "action"}. Callers pass both sides of ever
 and the removed lines. Unknown change fields are refused. It only routes: no route approves or merges, and anything it
 cannot place goes upward. The rule table is documented in references/review-routing.md; keep the two in step (a test
 checks it).
-<!-- scar: 2026-10-16 — Astra item 5: calling instruction or test changes docs-only or tests-only excludes their effect on the gate -->
-<!-- scar: 2026-10-16 — Astra task 12 F1 and F2, Opus T3-O1: a deleted guard, a snake_case or camelCase guard and common auth words (jwt, csrf, login) routed to the lowest review -->
+<!-- scar: 2026-10-16 — a change to instructions or tests that is called docs-only or tests-only excludes its effect on the gate -->
+<!-- scar: 2026-10-16 — a deleted guard, a snake_case or camelCase guard and common auth words (jwt, csrf, login) routed to the lowest review -->
 """
 import json
 import re
