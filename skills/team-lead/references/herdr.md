@@ -52,7 +52,7 @@ anything.
 
 ## The attention loop
 
-1. **Look:** the filtered `agent list` plus `state.md`.
+1. **Look:** the filtered `agent list`, `state.md` and the expected return files.
 2. **Pick** the highest-value moment. Rough order: a `blocked` teammate, a
    report waiting for you, an idle teammate with valuable work, a teammate
    quiet past its expected time, then a reflection that's due.

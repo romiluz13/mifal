@@ -387,6 +387,7 @@ class DoorbellTeachingTests(unittest.TestCase):
         text = prose(HERDR)
         self.assertIn("The file is authoritative; the ring is only a hint, so whenever you wake, and between your "
                       "own steps, check the expected return files whether or not a ring came.", text)
+        self.assertIn("**Look:** the filtered `agent list`, `state.md` and the expected return files.", text)
 
     def test_the_worker_runs_its_bounded_retry_in_the_foreground_and_never_sends_to_a_busy_lead(self):
         text = prose(HERDR)
