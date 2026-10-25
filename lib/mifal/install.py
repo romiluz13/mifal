@@ -312,7 +312,8 @@ def make_plan(h: Home, source: Path, version: str, overwrite_edits: bool = False
 
     for unit in units:
         if os.path.lexists(unit) and not any(_inside(p, unit) for p in owned):
-            if old is not None and not overwrite_edits:
+            # With a stop (a moved folder) the unit paths no longer match the Manifest's, so none can be judged.
+            if old is not None and not overwrite_edits and not plan.stops:
                 plan.conflicts.append(f"{show(unit)}: exists and was not installed by Mifal, but this release "
                                       "installs its own at that path")
                 held.append(unit)
