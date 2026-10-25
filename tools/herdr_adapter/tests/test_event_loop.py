@@ -1,5 +1,6 @@
 import copy
 import json
+import os
 from pathlib import Path
 import select
 import socket
@@ -139,31 +140,30 @@ class EventLoopTest(unittest.TestCase):
         }}
         self.log_lines = []
         self.log_arrived = threading.Condition()
+        log_read, log_write = os.pipe()
         with subprocess.Popen(
             [sys.executable, str(CLI), "--socket", self.peer.path],
-            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=log_write, text=True,
         ) as process:
-            watchdog = threading.Timer(30, process.kill)
-            watchdog.start()
-            follower = threading.Thread(target=self.follow_logs, args=(process.stderr,), daemon=True)
+            os.close(log_write)
+            follower = threading.Thread(target=self.follow_logs, args=(log_read,), daemon=True)
             follower.start()
             try:
-                process.stdin.write(json.dumps(command))
-                process.stdin.close()
-                output = process.stdout.read()
-                process.wait()
-                follower.join()
-            finally:
-                watchdog.cancel()
+                output, _ = process.communicate(json.dumps(command), timeout=30)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                raise
+            follower.join()
         self.assertTrue(output.strip(), f"watch printed nothing: exit {process.returncode}, "
                                         f"stderr tail {''.join(self.log_lines)[-500:]!r}")
         return process.returncode, json.loads(output), [json.loads(line) for line in self.log_lines]
 
-    def follow_logs(self, stream):
-        for line in stream:
-            with self.log_arrived:
-                self.log_lines.append(line)
-                self.log_arrived.notify_all()
+    def follow_logs(self, descriptor):
+        with open(descriptor, encoding="utf-8") as stream:
+            for line in stream:
+                with self.log_arrived:
+                    self.log_lines.append(line)
+                    self.log_arrived.notify_all()
 
     def wait_for_log(self, kind):
         """Block a peer thread until the watch process has logged a row of this kind."""
