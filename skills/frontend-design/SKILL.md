@@ -89,8 +89,7 @@ work. It selects the applicable design, UX, motion and creative-engine
 references inside the current engineering phase; keep the existing plan and
 acceptance gates. This is the primary Matt interface branch. The provider's
 visual guidance above remains supporting reference, not another planning or
-confirmation lifecycle. Work another methodology owns keeps its own frontend
-procedure and the preserved provider guidance above.
+confirmation lifecycle.
 
 The local appendix and references are intentionally adapted, not a full
 Impeccable/LottieFiles plugin installation. Their automation and blanket

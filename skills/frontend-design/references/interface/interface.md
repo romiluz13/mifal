@@ -2,7 +2,7 @@
 
 Support the current Matt phase. Engineering Workflow owns progression; Team
 Lead selects procedures and accepts evidence. A solo agent does both in its
-existing plan. Work another methodology owns returns to that methodology's frontend procedure.
+existing plan.
 
 ## Select the work
 
