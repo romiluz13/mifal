@@ -1,8 +1,11 @@
 #!/bin/bash
-# Upgrade rehearsal in a disposable HOME: install an older release the way a user did, add a skill of the user's own,
-# update with that old release's own code, check what that update left (a known gap is reported, never passed over),
-# repair it with the new code, then publish a synthetic next release and an unreleased commit in a private copy of the
-# remote and update again with the new code. Run before a release.
+# Release rehearsal in a disposable HOME with a stub binary for each of the five agents. It installs an older release
+# the way a user did, with a rules file of the user's own for four of the agents and a skill of the user's own, updates
+# with that old release's own code, checks what that update left (a known gap is reported, never passed over), updates
+# with the new code, then publishes a synthetic next release that reserves one more skill name, plants a user skill
+# under it and updates again. It then uninstalls, installs the candidate fresh, and rolls back to the older release by
+# the documented path (uninstall, then install from a clone of the older tag). Every check prints PASS or FAIL with the
+# exit code of the command it checked; any FAIL makes the script exit 1. Run before a release.
 # usage: maint/rehearse-upgrade.sh REPO FROM_TAG   (REPO is a path or URL; FROM_TAG is the older release to start from)
 set -euo pipefail
 [ $# -eq 2 ] || { echo "usage: $0 REPO FROM_TAG" >&2; exit 2; }
@@ -12,10 +15,44 @@ trap 'rm -rf "${home:?}"' EXIT
 home="$(cd -P "$home" && pwd)"
 python="$(dirname "$(command -v python3)")"
 mkdir -p "$home/stub"
-printf '#!/bin/sh\n[ "$1" = "--version" ] && echo "herdr 0.9.5"\n' >"$home/stub/herdr"
-chmod +x "$home/stub/herdr"
+stub() { printf '#!/bin/sh\n[ "$1" = "--version" ] && echo "%s"\n' "$2" >"$home/stub/$1"; chmod +x "$home/stub/$1"; }
+stub herdr "herdr 0.9.5"
+for agent in claude codex droid pi opencode; do stub "$agent" "$agent 1.0.0"; done
 run() { env -i HOME="$home" PATH="$home/stub:$python:/usr/bin:/bin" LANG=en_US.UTF-8 TERM=dumb "$@"; }
-fail() { echo "REHEARSAL FAILED: $*" >&2; exit 1; }
+all="--harness claude --harness codex --harness droid --harness pi --harness opencode"
+rules="claude:.claude/CLAUDE.md codex:.codex/AGENTS.md droid:.factory/AGENTS.md pi:.pi/agent/AGENTS.md"
+results="$home/results.txt" problems="" failures=0
+
+summary() {
+  [ ! -s "$results" ] || { echo "-- results"; sort -s -k2,2 "$results"; }
+}
+fail() { summary; echo "REHEARSAL FAILED: $*" >&2; exit 1; }
+problem() { problems="$problems; $*"; }
+# verdict LETTER TEXT EXIT: PASS when no problem was recorded since the last verdict, FAIL with the problems otherwise.
+verdict() {
+  if [ -z "$problems" ]; then echo "PASS ($1) $2 (exit $3)" >>"$results"
+  else echo "FAIL ($1) $2 (exit $3)$problems" >>"$results"; failures=$((failures + 1)); fi
+  problems=""
+}
+blocks() { local n; n="$(grep -c '^<!-- mifal:begin ' "$1" 2>/dev/null || true)"; echo "${n:-0}"; }
+snap() {
+  python3 -I - "$home" <<'PY'
+import hashlib, os, sys
+home = sys.argv[1]
+for top in (".agents", ".claude", ".codex", ".factory", ".pi", ".config", ".local"):
+    for root, dirs, files in os.walk(os.path.join(home, top)):
+        dirs.sort()
+        for name in sorted(files + [d for d in dirs if os.path.islink(os.path.join(root, d))]):
+            path = os.path.join(root, name)
+            rel = os.path.relpath(path, home)
+            if os.path.islink(path):
+                print(rel, "->", os.readlink(path))
+            else:
+                print(rel, hashlib.sha256(open(path, "rb").read()).hexdigest())
+PY
+}
+# opencode_named FILE: a line of FILE that names OpenCode and the CLAUDE.md it stops reading.
+opencode_named() { local l; l="$(grep -i opencode "$1" || true)"; grep -q 'CLAUDE.md' <<<"$l"; }
 
 git clone -q --bare "$repo" "$home/origin.git"
 # The candidate is REPO's checked-out revision, published as the private origin's main and, when it is a new
@@ -24,10 +61,16 @@ git -C "$home/origin.git" update-ref refs/heads/main HEAD
 git -C "$home/origin.git" symbolic-ref HEAD refs/heads/main
 next="$(git -C "$home/origin.git" show main:VERSION)"
 git -C "$home/origin.git" rev-parse -q --verify "refs/tags/v$next" >/dev/null || git -C "$home/origin.git" tag "v$next" main
+candidate="$(git -C "$home/origin.git" rev-parse main)"
 git clone -q "$home/origin.git" "$home/clone"
 git -C "$home/clone" checkout -q -B main "$from"
 git -C "$home/clone" branch -q --set-upstream-to=origin/main main
-run /bin/bash "$home/clone/install.sh" --harness claude >"$home/install.log" 2>&1 || { cat "$home/install.log"; fail "install of $from"; }
+for entry in $rules; do
+  mkdir -p "$(dirname "$home/${entry#*:}")"
+  echo "my own ${entry%%:*} rule" >"$home/${entry#*:}"
+done
+run /bin/bash "$home/clone/install.sh" $all >"$home/install.log" 2>&1 || { cat "$home/install.log"; fail "install of $from"; }
+cat "$home/install.log"
 
 mkdir -p "$home/.agents/skills/my-own-skill"
 echo "my own skill" >"$home/.agents/skills/my-own-skill/SKILL.md"
@@ -77,36 +120,156 @@ run /bin/bash "$mifal" update --yes || fail "first update (old code)"
 
 echo "-- what the old code left, checked against the candidate's own tree"
 audit main | tee "$home/gap.txt"
+run /bin/bash "$mifal" doctor >"$home/doctor-gap.txt" 2>&1 || true
+cat "$home/doctor-gap.txt"
 if ! grep -q " 0 gap(s)" "$home/gap.txt"; then
   echo "(expected: $from's update does not install every file the candidate installs)"
-  run /bin/bash "$mifal" doctor >"$home/doctor-gap.txt" 2>&1 || fail "doctor failed on the intermediate state"
-  cat "$home/doctor-gap.txt"
   grep -q "^WARN engine: " "$home/doctor-gap.txt" || fail "doctor did not warn about the files the old update left out"
-  echo "-- a second update by the candidate's code repairs it"
-  run /bin/bash "$mifal" update --yes || fail "the repair update"
+fi
+
+echo "-- an update by the candidate's code: repairs the files $from's update left out and serves OpenCode"
+snap >"$home/before.txt"
+rc=0; out="$(run /bin/bash "$mifal" update --yes 2>&1)" || rc=$?
+echo "$out"
+update_codes=$rc update_out="$out"
+if [ "$rc" -ne 0 ]; then
+  opencode_named <(echo "$out") || fail "the update by the candidate's code stopped, and not on OpenCode's CLAUDE.md fallback"
+  snap >"$home/after.txt"
+  cmp -s "$home/before.txt" "$home/after.txt" || problem "the update that stopped changed files"
+  echo "-- the same update with --overwrite-edits"
+  rc=0; out="$(run /bin/bash "$mifal" update --yes --overwrite-edits 2>&1)" || rc=$?
+  echo "$out"
+  [ "$rc" -eq 0 ] || fail "the update with --overwrite-edits"
+  update_out="$update_out
+$out"
+  update_codes="$update_codes, then $rc with --overwrite-edits"
 fi
 audit main --complete || fail "after the update the install is not the candidate, file for file"
 run /bin/bash "$mifal" update --yes | grep -q "up to date" || fail "an update after the repair was not a no-op"
+opencode="$home/.config/opencode/AGENTS.md"
+[ -f "$opencode" ] || problem "$opencode was not written"
+[ ! -f "$opencode" ] || [ "$(blocks "$opencode")" = 1 ] || problem "$opencode does not hold exactly one Mifal block"
+opencode_named <(echo "$update_out") || problem "the update output has no line naming OpenCode and the CLAUDE.md it stops reading"
+verdict b "OpenCode gets ~/.config/opencode/AGENTS.md, and the update names the CLAUDE.md it stops reading" "$update_codes"
 
-echo "-- a synthetic next release and an unreleased commit, then an update by the new code"
+echo "-- a synthetic next release that reserves one more skill name, and an unreleased commit, then an update by the new code"
 git clone -q "$home/origin.git" "$home/work"
 git="git -C $home/work -c user.name=rehearsal -c user.email=rehearsal@example.com"
+for existing in "$home"/work/skills/*/; do cp -R "$existing" "$home/work/skills/rehearsal-new-skill"; break; done
 echo "99.0.0" >"$home/work/VERSION"
+$git add skills
 $git commit -q -am "release 99.0.0"
 $git tag v99.0.0
 echo "unreleased" >"$home/work/UNRELEASED"
 $git add UNRELEASED
 $git commit -q -m "after the release"
 $git push -q origin main v99.0.0
-run /bin/bash "$mifal" update --yes || fail "update to the synthetic release (new code)"
+reserved="$({ diff <(git -C "$home/origin.git" ls-tree --name-only "v$next" skills/) \
+                   <(git -C "$home/origin.git" ls-tree --name-only v99.0.0 skills/) || true; } | sed -n 's#^> skills/##p')"
+[ -n "$reserved" ] && [ "$(echo "$reserved" | wc -l)" -eq 1 ] || fail "could not pick the one skill name v99.0.0 newly reserves"
+echo "a skill of mine under a name the next release reserves" >"$home/user-skill.md"
+mkdir -p "$home/.agents/skills/$reserved"
+cp "$home/user-skill.md" "$home/.agents/skills/$reserved/SKILL.md"
+ln -s "$home/.agents/skills/$reserved" "$home/.claude/skills/$reserved"
+snap >"$home/before.txt"
+rc=0; out="$(run /bin/bash "$mifal" update --yes 2>&1)" || rc=$?
+echo "$out"
+update_codes=$rc
+[ "$rc" -ne 0 ] || problem "the update exited 0, so it took over $reserved instead of stopping"
+grep -q "$reserved" <<<"$out" || problem "the output does not name $reserved"
+if [ "$rc" -ne 0 ]; then
+  snap >"$home/after.txt"
+  cmp -s "$home/before.txt" "$home/after.txt" || problem "the update that stopped changed files"
+  echo "-- the same update with --overwrite-edits"
+  rc=0; out="$(run /bin/bash "$mifal" update --yes --overwrite-edits 2>&1)" || rc=$?
+  echo "$out"
+  [ "$rc" -eq 0 ] || problem "update --overwrite-edits exited $rc"
+  update_codes="$update_codes, then $rc with --overwrite-edits"
+  saved="$(grep -rlx -F -f "$home/user-skill.md" "$home/.agents/mifal/backup" 2>/dev/null || true)"
+  [ -n "$saved" ] || problem "your copy of $reserved is not under ~/.agents/mifal/backup"
+  git -C "$home/origin.git" show "v99.0.0:skills/$reserved/SKILL.md" | cmp -s - "$home/.agents/skills/$reserved/SKILL.md" ||
+    problem "the release's $reserved is not installed"
+  [ "$(cd -P "$home/.claude/skills/$reserved" && pwd)" = "$home/.agents/skills/$reserved" ] ||
+    problem "~/.claude/skills/$reserved does not lead to the Pool"
+fi
+applied_rc=$rc
+rc=0; run /bin/bash "$mifal" doctor >"$home/doctor-final.txt" 2>&1 || rc=$?
+cat "$home/doctor-final.txt"
+doctor_rc=$rc
+grep -Eq '^note .*(backup|saved)' "$home/doctor-final.txt" || problem "doctor shows no note about the saved copy"
+! grep -Eq '^WARN .*(backup|saved)' "$home/doctor-final.txt" || problem "doctor warns about the saved copy"
+verdict d "update stops on $reserved, a name the next release reserves and a skill of mine has; --overwrite-edits saves my copy" "$update_codes"
 [ "$(cat "$home/.agents/mifal/VERSION")" = "99.0.0" ] || fail "the new code did not install the newest release"
 [ "$(git -C "$home/clone" rev-parse HEAD)" = "$(git -C "$home/origin.git" rev-parse v99.0.0^{commit})" ] || fail "the clone is not at the release"
 [ ! -e "$home/clone/UNRELEASED" ] || fail "an unreleased commit was offered"
 audit v99.0.0 --complete || fail "after the synthetic release the install is not that release, file for file"
 run /bin/bash "$mifal" update --yes | grep -q "up to date" || fail "a second update was not a no-op"
-
 [ "$(cat "$home/.agents/skills/my-own-skill/SKILL.md")" = "my own skill" ] || fail "the user's own skill changed"
-run /bin/bash "$mifal" doctor || fail "doctor after update"
-run /bin/bash "$mifal" uninstall >/dev/null || fail "uninstall"
-[ "$(cat "$home/.agents/skills/my-own-skill/SKILL.md")" = "my own skill" ] || fail "uninstall removed the user's own skill"
-echo "REHEARSAL OK: $from -> main -> v99.0.0 (synthetic)"
+
+for entry in $rules; do
+  file="$home/${entry#*:}"
+  [ "$(blocks "$file")" = 1 ] || problem "$file does not hold exactly one Mifal block"
+  grep -qx "my own ${entry%%:*} rule" "$file" || problem "my line is gone from $file"
+done
+[ ! -f "$opencode" ] || [ "$(blocks "$opencode")" = 1 ] || problem "$opencode does not hold exactly one Mifal block"
+verdict a "each served agent's rules file holds exactly one Mifal block and my own line" "$applied_rc"
+
+! grep -h '^PASS .*natively' "$home/doctor-gap.txt" "$home/doctor-final.txt" || problem "doctor passes a native-reading claim it did not check"
+grep -i opencode "$home/doctor-gap.txt" | grep -qi 'not served' || problem "doctor does not list OpenCode as detected but not served while it is"
+[ "$doctor_rc" -eq 0 ] || problem "doctor exited $doctor_rc after the update"
+verdict c "doctor claims no unchecked native reading, lists the agent it does not serve, and is clean after the update" "$doctor_rc"
+
+echo "-- uninstall"
+rc=0; run /bin/bash "$mifal" uninstall >"$home/uninstall.log" 2>&1 || rc=$?
+cat "$home/uninstall.log"
+[ "$rc" -eq 0 ] || problem "uninstall exited $rc"
+for entry in $rules; do
+  file="$home/${entry#*:}"
+  grep -qx "my own ${entry%%:*} rule" "$file" || problem "my line is gone from $file"
+  ! grep -q 'mifal:begin' "$file" || problem "a Mifal block is left in $file"
+done
+[ ! -f "$opencode" ] || ! grep -q 'mifal:begin' "$opencode" || problem "a Mifal block is left in $opencode"
+[ "$(cat "$home/.agents/skills/my-own-skill/SKILL.md")" = "my own skill" ] || problem "uninstall removed the user's own skill"
+cmp -s "$home/user-skill.md" "$home/.agents/skills/$reserved/SKILL.md" || problem "my $reserved skill was not restored"
+verdict e "uninstall leaves my rules lines and my skills" "$rc"
+
+echo "-- a fresh install of the candidate"
+git -C "$home/clone" checkout -q -B main "$candidate"
+rc=0; out="$(run /bin/bash "$home/clone/install.sh" $all 2>&1)" || rc=$?
+echo "$out"
+[ "$rc" -eq 0 ] || problem "the fresh install exited $rc"
+[ -f "$opencode" ] || problem "$opencode was not written"
+[ ! -f "$opencode" ] || [ "$(blocks "$opencode")" = 1 ] || problem "$opencode does not hold exactly one Mifal block"
+opencode_named <(echo "$out") || problem "the install output has no line naming OpenCode and the CLAUDE.md it stops reading"
+verdict b "a fresh install writes ~/.config/opencode/AGENTS.md and names the CLAUDE.md OpenCode stops reading" "$rc"
+
+echo "-- rollback to $from: uninstall, then install from a clone of $from"
+# The agents $from's own installer wired are the ones to bring back: it may skip an agent that the candidate serves.
+served=""
+for pair in claude:"Claude Code" codex:Codex droid:Droid pi:Pi opencode:OpenCode; do
+  case ", $(sed -n 's/^Wired: //p' "$home/install.log")," in *", ${pair#*:},"*) served="$served --harness ${pair%%:*}";; esac
+done
+rc=0; run /bin/bash "$mifal" uninstall >"$home/uninstall-rollback.log" 2>&1 || rc=$?
+[ "$rc" -eq 0 ] || problem "the uninstall before the rollback exited $rc"
+git -C "$home/clone" checkout -q -B main "$from"
+rc=0; run /bin/bash "$home/clone/install.sh" $served >"$home/rollback.log" 2>&1 || rc=$?
+cat "$home/rollback.log"
+[ "$rc" -eq 0 ] || problem "the install of $from exited $rc"
+[ "$(run /bin/bash "$mifal" version)" = "mifal ${from#v}" ] || problem "the installed version is not $from"
+for entry in $rules; do
+  file="$home/${entry#*:}"
+  [ "$(blocks "$file")" = 1 ] && grep -q "^<!-- mifal:begin version=${from#v} " "$file" || problem "$file does not hold one Mifal block of $from"
+  grep -qx "my own ${entry%%:*} rule" "$file" || problem "my line is gone from $file"
+done
+[ "$(cat "$home/.agents/skills/my-own-skill/SKILL.md")" = "my own skill" ] || problem "my own skill changed"
+rc=0; run /bin/bash "$mifal" doctor >"$home/doctor-rollback.txt" 2>&1 || rc=$?
+cat "$home/doctor-rollback.txt"
+[ "$rc" -eq 0 ] || problem "doctor exited $rc after the rollback"
+verdict f "rollback to $from by uninstall and install from its clone leaves doctor clean and my files in place" "$rc"
+
+summary
+if [ "$failures" -ne 0 ]; then
+  echo "REHEARSAL FAILED: $failures check(s) failed" >&2
+  exit 1
+fi
+echo "REHEARSAL OK: $from -> main -> v99.0.0 (synthetic), then fresh $next and back to $from"
