@@ -65,7 +65,7 @@ The vendored `herdr` skill updates through `maint/upstream.py` like any other.
 One maintainer, several agents. Production is `main`; everything else is short-lived.
 
 1. **Dogfood first.** Try a change in your own setup. A change that proves itself there becomes a pull request here; nothing flows back automatically.
-2. **One branch, one worktree, one writer per task.** `git worktree add ../.worktrees/mifal/<task> -b agent/<who>-<topic> origin/main` (run `git fetch` first). Check `git worktree list` before starting, so two agents never share a branch or a folder. Never work in the folder you installed from.
+2. **One branch, one worktree, one writer per task.** `git worktree add <folder> -b agent/<who>-<topic> origin/main` (run `git fetch` first; choose a folder outside your clone). Check `git worktree list` before starting, so two agents never share a branch or a folder. Never work in the folder you installed from.
 3. **Pull request, then merge.** `main` takes only pull requests whose `mifal` check passed; merged branches delete themselves.
 4. **Release on purpose.** Follow Releasing below. For tag-following installs, only a pushed `vX.Y.Z` tag publishes a release; older or branch-following installs and fresh `main` clones receive `main` directly. Production release tags are treated as immutable, so a bad release is fixed by the next one.
 5. **Weekly cleanup.** `git fetch --prune`, `git worktree prune`, and `git branch --merged main`; delete a branch only after checking that it holds no commit `main` lacks (`git log main..<branch>`). Remove the worktrees of merged branches.
