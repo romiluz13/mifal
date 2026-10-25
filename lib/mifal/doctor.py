@@ -127,8 +127,7 @@ def doctor(h: mf.Home, env, out) -> int:
                 r.line("WARN", "your skills claude", f"{len(yours)} skill(s) of your own in {show(h.pool)} are not "
                        f"linked into {show(root / 'skills')}, so Claude Code does not see them: " + ", ".join(yours[:5]),
                        f"ln -s {show(h.pool)}/{yours[0]} {show(root / 'skills')}/{yours[0]}")
-        else:
-            r.line("PASS", f"skills {name}", f"reads {show(h.pool)} natively, {len(skills)} skills")
+    _elsewhere(r, h, data, shell)
 
     try:
         path, validator = _validator(h)
@@ -166,6 +165,27 @@ def doctor(h: mf.Home, env, out) -> int:
 
     out(f"doctor: {r.counts['PASS']} passed, {r.counts['WARN']} warning(s), {r.counts['FAIL']} failed")
     return 1 if r.counts["FAIL"] else 0
+
+
+def _elsewhere(r, h, data, shell):
+    """Agents found on this machine that the install does not serve, and a second Claude home that shares the
+    wired one's skills without the Guide."""
+    show = h.show
+    try:
+        for line in harness.unserved(h.home, data, shell, show, unrecorded_only=True):
+            r.out(line)
+        homes = {harness.roots(h.home, e)["claude"] for e in (shell, {})}
+    except harness.Refused as e:
+        r.line("WARN", "agents", f"cannot look for agents or Claude homes Mifal does not serve: {e}")
+        return
+    rec = (data.get("harnesses") or {}).get("claude")
+    if not rec or rec["status"] != "wired":
+        return
+    skills = os.path.realpath(Path(rec["root"]) / "skills")
+    for other in sorted(homes):
+        if os.path.realpath(other) != os.path.realpath(rec["root"]) and os.path.realpath(other / "skills") == skills:
+            r.out(f"note also seen by {show(other)}: it shares {show(skills)}, but Mifal serves {show(rec['root'])}, "
+                  "so Claude Code started there gets the skills without the Guide")
 
 
 def _guide(r, name, rules: Path, root: Path, entry, guide_sha, h, env):

@@ -83,14 +83,18 @@ def recorded_env(data: dict, env, show=str):
     return out, notes
 
 
-def unserved(home: Path, data: dict, env, show=str) -> list:
-    """A note for each harness detected in the shell's environment that the install does not serve."""
+def unserved(home: Path, data: dict, env, show=str, unrecorded_only=False) -> list:
+    """A note for each harness detected in the shell's environment that the install does not serve. With
+    unrecorded_only (the doctor), a harness the Manifest records as skipped is left out, because the doctor
+    explains it already, and a Manifest that records none lists every detected harness; an update gives no
+    notes then, because it wires them."""
     records = data.get("harnesses") or {}
-    if not records:
+    if not records and not unrecorded_only:
         return []
     found = roots(home, env)
     return [f"note found {name} at {show(found[name])}, not served; run ./install.sh to add it"
-            for name in detect(home, env, found) if records.get(name, {}).get("status") != "wired"]
+            for name in detect(home, env, found)
+            if records.get(name, {}).get("status") != "wired" and not (unrecorded_only and name in records)]
 
 
 def _binary(name, env) -> bool:
