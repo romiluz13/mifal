@@ -48,6 +48,16 @@ VERIFIER_LIMIT = 600
 GIT_TIMEOUT = 5
 UNKNOWN = "UNKNOWN"
 IN_FLIGHT = ("dispatching", "sent", "uncertain", "help-answered", "review-pending")
+# One row per agent_status in api-schema.json (AgentStatus): what an owner row says about an in-flight owner with no
+# closing return, and the blind spot it names. working is the only status that is not silence.
+LOOK_AT_PANE = "look at the pane"
+OWNER_ROWS = {
+    "idle": ("is idle", "a /clear or replaced session in the pane looks the same"),
+    "done": ("is done", "a /clear or replaced session in the pane looks the same"),
+    "blocked": ("is blocked", "the pane waits on a dialog only a human answers: look at it, never type into it"),
+    "unknown": ("has Herdr status unknown", "Herdr cannot tell what the pane is doing: " + LOOK_AT_PANE),
+    "working": None,
+}
 IDENTITY_KINDS = ("reviewed", "installed", "bounded")
 ATTENTION_MINUTES = 10
 MAX_PINS = 64
@@ -461,14 +471,17 @@ def attention_rows(root, state, now):
             rows.append(f"DONE {task['active']} returned {span((now - returned).total_seconds())} ago "
                         f"and is not reviewed (limit {limit}m)")
         status = state["members"][task["owner"]].get("status")
-        if task["status"] in IN_FLIGHT and status in {"idle", "done"} and return_status(root, task) is None:
+        # None is no observation yet, not a Herdr status; a value the schema does not list needs a look too.
+        row = (OWNER_ROWS.get(status, (f"reports the unrecognised Herdr status {status!r}", LOOK_AT_PANE))
+               if status is not None else None)
+        if task["status"] in IN_FLIGHT and row and return_status(root, task) is None:
             sent = [e["at"] for e in state["progress"] if e.get("action") == "dispatch" and e.get("task") == task["active"]]
             dispatched = parse_stamp(sent[-1]) if sent else None
             waited = (now - dispatched).total_seconds() if dispatched else None
             if waited is None or waited > limit * 60:
-                rows.append(f"owner {task['owner']} is {status} while task {task['active']} has no return closing it "
+                rows.append(f"owner {task['owner']} {row[0]} while task {task['active']} has no return closing it "
                             f"({'dispatch time ' + UNKNOWN if waited is None else 'dispatched ' + span(waited) + ' ago'}, "
-                            f"limit {limit}m); a /clear or replaced session in the pane looks the same")
+                            f"limit {limit}m); {row[1]}")
         if task["status"] == "queued":
             for dep in task.get("after", []):
                 if state["tasks"][dep]["status"] == "accepted" and not satisfied(state, dep):

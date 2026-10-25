@@ -2942,6 +2942,54 @@ class LeadTest(unittest.TestCase):
         self.turn()
         self.assertEqual(self.owner_rows(), [], "a working owner is not silent")
 
+    def silent_owner_rows(self, status):
+        """Owner rows when the owner of a task dispatched 30 minutes ago reports this Herdr status."""
+        self.init()
+        self.turn()
+        self.dispatched_ago(30)
+        self.snapshot["agents"][0]["agent_status"] = status
+        self.turn()
+        return self.owner_rows()
+
+    def test_attention_names_a_blocked_owner_and_says_to_look_at_the_dialog_not_type_into_it(self):
+        self.init()
+        self.turn()
+        self.dispatched_ago(5)
+        self.snapshot["agents"][0]["agent_status"] = "blocked"
+        self.turn()
+        self.assertEqual(self.owner_rows(), [], "inside attention_minutes a dialog may just have opened")
+        self.dispatched_ago(30)
+        self.rerender()
+        rows = self.owner_rows()
+        self.assertEqual(len(rows), 1, self.attention())
+        self.assertRegex(rows[0], r"^owner alpha is blocked while task 7 has no return closing it "
+                                  r"\(dispatched 30m\d\ds ago, limit 10m\)")
+        self.assertIn("dialog only a human answers", rows[0])
+        self.assertIn("never type into it", rows[0])
+
+    def test_attention_names_an_owner_whose_herdr_status_is_unknown(self):
+        rows = self.silent_owner_rows("unknown")
+        self.assertEqual(len(rows), 1, self.attention())
+        self.assertRegex(rows[0], r"^owner alpha has Herdr status unknown while task 7 has no return closing it "
+                                  r"\(dispatched 30m\d\ds ago, limit 10m\)")
+        self.assertIn("Herdr cannot tell what the pane is doing", rows[0])
+
+    def test_attention_names_an_owner_whose_status_the_schema_does_not_list(self):
+        rows = self.silent_owner_rows("paused")
+        self.assertEqual(len(rows), 1, self.attention())
+        self.assertRegex(rows[0], r"^owner alpha reports the unrecognised Herdr status 'paused' while task 7 ")
+        self.assertIn("look at the pane", rows[0])
+
+    def test_attention_leaves_a_working_owner_alone(self):
+        self.assertEqual(self.silent_owner_rows("working"), [])
+
+    def test_every_agent_status_in_the_schema_has_an_attention_test(self):
+        schema = json.loads((CLI.parent / "api-schema.json").read_text())
+        statuses = schema["schemas"]["success_response"]["$defs"]["AgentStatus"]["enum"]
+        # idle and done: the idle-owner test above; blocked, unknown and working: their own tests; a new Herdr
+        # status fails here until it is decided in lead.py's OWNER_ROWS and tested.
+        self.assertEqual(sorted(statuses), ["blocked", "done", "idle", "unknown", "working"])
+
     def test_an_interrupted_or_cleared_worker_leaves_the_task_pending_and_is_flagged_not_accepted(self):
         # Esc and /clear never run a Stop hook, so no hook output exists at all. The attempt must stay unaccepted
         # and the silence must reach the lead as an attention row, whatever the pane does next.

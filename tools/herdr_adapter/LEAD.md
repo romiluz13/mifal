@@ -555,11 +555,17 @@ stopping the durable index. It holds, in order:
      (workflow field, default 10) after its `returned_at`;
   3. an in-flight task whose last lead turn is older than the recorded wake
      `deadline_seconds`, or any in-flight task when no wake was recorded;
-  4. an owner idle or done while its task is in flight and no return closes
-     the attempt, more than `attention_minutes` after dispatch (dispatch time
-     `UNKNOWN` also raises it). This is also the only place a `/clear`, a
-     replaced session or a worker lost before it wrote anything becomes
-     visible: a Stop hook cannot see those (see Acceptance preflight);
+  4. an owner whose Herdr status is anything but `working` while its task is
+     in flight and no return closes the attempt, more than `attention_minutes`
+     after dispatch (dispatch time `UNKNOWN` also raises it). Each status the
+     schema lists has its own wording: `idle` and `done` name the blind spot
+     below; `blocked` says the pane waits on a dialog only a human answers
+     (look at it, never type into it); `unknown` says Herdr cannot tell what
+     the pane is doing; a status the schema does not list says so and asks for
+     a look. An owner with no observed status yet raises nothing here. This is
+     also the only place a `/clear`, a replaced session or a worker lost before
+     it wrote anything becomes visible: a Stop hook cannot see those (see
+     Acceptance preflight);
   5. the same for each assignment pin in `<record-root>/assignments/` (default
      10 minutes): an owner who is a member of the record and idle or done, or
      owner status `UNKNOWN` for a pane the record cannot observe; a pin that
