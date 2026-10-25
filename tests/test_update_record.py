@@ -76,15 +76,16 @@ class Skipped(Recorded):
         (codex / "AGENTS.override.md").write_text("mine\n")
         return super().install(*args, **kw)
 
-    def test_a_skipped_agent_is_noted_and_not_wired(self):
+    def test_a_skipped_agent_whose_skip_no_longer_holds_is_wired_by_the_update(self):
         self.assertEqual(self.manifest()["harnesses"]["codex"]["status"], "skipped")
         self.publish("add a skill", **NEW_SKILL)
         (self.home / ".codex/AGENTS.override.md").unlink()
         result = self.update("--yes")
         self.assert_served(result)
-        self.assertIn("note found codex at ~/.codex, not served; run ./install.sh to add it", result.stdout)
-        self.assertFalse((self.home / ".codex/AGENTS.md").exists())
-        self.assertEqual(self.manifest()["harnesses"]["codex"]["status"], "skipped")
+        self.assertIn("block ~/.codex/AGENTS.md", result.stdout.splitlines())
+        self.assertNotIn("not served", result.stdout)
+        self.assertEqual((self.home / ".codex/AGENTS.md").read_text().count("<!-- mifal:begin "), 1)
+        self.assertEqual(self.manifest()["harnesses"]["codex"]["status"], "wired")
 
 
 class Absent(Recorded):
