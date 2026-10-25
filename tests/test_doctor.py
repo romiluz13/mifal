@@ -98,6 +98,25 @@ class Elsewhere(Sandbox):
                          r"(?m)^note found droid at ~/\.factory, not served; run \./install\.sh to add it$")
         self.assertNotIn("found codex", result.stdout)
 
+    def test_a_recorded_skip_that_no_longer_holds_is_not_served_and_the_fix_wires_it(self):
+        self.harness_fakes("claude", "opencode")
+        (self.home / ".claude").mkdir()
+        (self.home / ".claude/CLAUDE.md").write_text("my claude rules\n")
+        self.install("--harness", "claude")
+        data = self.manifest()
+        root = str((self.home / ".config").resolve() / "opencode")
+        data["harnesses"]["opencode"] = {"root": root, "rules": root + "/AGENTS.md", "status": "skipped"}
+        (self.home / ".agents/mifal/install-manifest.json").write_text(json.dumps(data, indent=2, sort_keys=True) + "\n")
+        result = self.doctor()
+        self.assertRegex(result.stdout, r"(?m)^WARN guide opencode: found at ~/\.config/opencode, not served$")
+        fix = re.search(r"(?m)^     fix: (.+)$", result.stdout.split("WARN guide opencode", 1)[1]).group(1)
+        self.assertIn("./install.sh --overwrite-edits", fix)
+        self.assertIn("OpenCode then reads ~/.config/opencode/AGENTS.md, not ~/.claude/CLAUDE.md", fix)
+        self.assertNotIn("not wired yet", result.stdout)
+        self.install("--overwrite-edits")
+        self.assertEqual(self.manifest()["harnesses"]["opencode"]["status"], "wired")
+        self.assertRegex(self.doctor().stdout, r"(?m)^PASS guide opencode: block in ~/\.config/opencode/AGENTS\.md$")
+
     def test_a_detected_agent_is_listed_when_the_install_served_none(self):
         self.install()
         self.assertEqual(self.manifest()["harnesses"], {})

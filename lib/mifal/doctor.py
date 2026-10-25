@@ -109,7 +109,11 @@ def doctor(h: mf.Home, env, out) -> int:
                 why, _, fix = w.skip.partition(". ")
                 r.line("FAIL", f"guide {name}", "not wired: " + why.split(": ", 1)[-1], fix)
             else:
-                r.line("WARN", f"guide {name}", "not wired yet; run ./install.sh to wire it")
+                fix = "run ./install.sh in your Mifal clone"
+                if w.warn:
+                    fix = (f"run ./install.sh --overwrite-edits in your Mifal clone; {harness.TITLES[name]} then reads "
+                           f"{show(w.rules)}, not {show(harness.reads_now(name, h.home, env, Path(rec['root'])))}")
+                r.line("WARN", f"guide {name}", f"found at {show(Path(rec['root']))}, not served", fix)
             continue
         rules, root = Path(rec["rules"]), Path(rec["root"])
         _guide(r, name, rules, root, blocks.get(rec["rules"]), guide_sha, h, env)
