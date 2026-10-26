@@ -1,6 +1,6 @@
 # Mifal
 
-**A shared engineering workflow for the coding agents Mifal can wire on your Mac, plus a validator that checks their records when run; you still review the work.**
+**One engineering workflow for the coding agents on your Mac, and the paperwork it leaves behind: a brief that names every claim, a receipt that answers each one, and a validator that refuses a record missing its required sections.**
 
 [![tests](https://github.com/romiluz13/mifal/actions/workflows/test.yml/badge.svg)](https://github.com/romiluz13/mifal/actions/workflows/test.yml) ![status: alpha](https://img.shields.io/badge/status-alpha-C2362B) ![platform: macOS](https://img.shields.io/badge/platform-macOS-1C1B19) [![license: MIT](https://img.shields.io/badge/license-MIT-2E7A4C)](LICENSE)
 
@@ -14,7 +14,9 @@ An agent's "done" message is not independent proof that the work passed its chec
 
 ## What you get
 
-- 🧭 **One workflow, five agents.** For each selected home that can be wired, the installer adds the same Guide. The Guide instructs the agent to load `engineering-workflow` before an engineering request; Mifal does not force that invocation. A multi-session build runs scope → grill → spec → tickets → implement → review → retro in order; research, planning, debugging and review take shorter routes. `mifal doctor` checks the recorded install, the Guide blocks and the configured skill paths; it does not start agents or prove they loaded the Guide or the skills.
+- 🧭 **One workflow, five agents.** For each selected home that can be wired, the installer adds the same Guide. The Guide instructs the agent to load `engineering-workflow` before an engineering request, name its owner, route, phase and next gate, and ask whether you want the full workflow or a cut; Mifal does not force that invocation. A multi-session build runs scope → grill → spec → tickets → implement → review → retro in order; research, planning, debugging and review take shorter routes. `mifal doctor` checks the recorded install, the Guide blocks and the configured skill paths; it does not start agents or prove they loaded the Guide or the skills.
+- 📋 **A brief, not a prompt.** The lead writes each task as a file before work starts: why it matters, what done looks like, the claims that must hold with the check behind each one, a stop rule, and the line it is **least sure of**, the assumption most likely wrong and the observation that would settle it. It makes the uncertainty specific enough to investigate.
+- 🧾 **A receipt, not a "done".** The worker answers every claim in the brief with passed, failed or untested, cites the revision it checked and points at what it ran; an omitted claim keeps the receipt invalid, never passed.
 - 🏠 **Several Homes of one agent.** `--home NAME=PATH`, repeatable, names each Home; for a Harness named this way only those Homes are served, and a reinstall keeps every Home already recorded (only `mifal uninstall` drops one). A Codex Home whose rules file is a link is served through one Mifal-marked `developer_instructions` key in its own `config.toml`, every other byte kept; a Home with its own `SessionStart` hook is recorded pending and the hook is never edited. `mifal doctor` prints one line per recorded Home and names an unrecorded Home that reads a shared rules file.
 - 🛡️ **Gates that refuse.** The Guide has the agent run `validate_contracts.py` before every dispatch, review and acceptance. A record that lacks its required fields is refused with a diagnostic, and a passing record still needs its cited work and evidence reviewed:
 
@@ -26,8 +28,19 @@ An agent's "done" message is not independent proof that the work passed its chec
     Methodology: matt
     ...
   ```
-- ↩️ **Previewed, and undone where unchanged.** `--dry-run` lists the planned changes before anything changes. Your own rules files keep everything you wrote; Mifal adds one Marked block. `mifal uninstall` removes unchanged managed files, links and blocks, preserves your edits and additions, and restores a moved-aside backup only when its target is free (otherwise it keeps and reports the backup); Herdr stays installed.
+  The validator reads records; it does not run your tests or prove an agent loaded a skill. [docs/TRUST.md](docs/TRUST.md) draws that line.
+
+- ↩️ **Previewed, and undone where unchanged.** `--dry-run` lists the planned changes before anything changes. Your own rules files keep everything you wrote; Mifal adds one Marked block, or the opt-in Codex key described below. `mifal uninstall` removes unchanged managed files, links and blocks, preserves your edits and additions, and restores a moved-aside backup only when its target is free (otherwise it keeps and reports the backup); Herdr stays installed.
 - 👥 **A team, not a single chat.** The team lead skill has the lead brief agents in [Herdr](https://herdr.dev) panes, check their receipts with the validator, and send their work to a reviewer before accepting it, as in the replay above.
+
+## Where the lead's authority ends
+
+The lead is an agent too, so Mifal trusts it no further than its evidence. The Guide routes it to the engineering and team-lead procedures, which require these limits. The validator checks the records where it can; it does not enforce the agent’s behavior.
+
+- **It cannot approve its own plan.** Another agent grills the plan in rounds until no question is left open, and the validator refuses a grilling owned by the plan's author. A design change needs a new grilling; a scope change still needs the appropriate approval.
+- **It cannot cut a step.** Only the person who asked can drop part of the workflow, and the cut is recorded in their own words with where they said it: `Cut: <steps> | <quote> | <source>`. Silence is not a cut.
+- **It cannot accept a claim it cannot check.** The lead must compare the work and its evidence at the declared revision; a valid receipt alone is not proof that the work passed. A failed required check keeps acceptance open.
+- **It cannot blame the model first.** When work fails, the lead checks the brief, the context and the tools before it changes the assignment, and it treats "everyone agreed" as a warning rather than proof: agents are trained to agree. The output is one rule with a trigger, an owner and a check.
 
 ## Quickstart
 
@@ -58,7 +71,7 @@ Mifal 0.1 was built by a Mifal team: a Claude lead, a Codex reviewer, a Claude r
 
 ```mermaid
 flowchart LR
-  ask[Your request] --> guide["Mifal Guide<br/>(a block in each wired agent's rules file)"]
+  ask[Your request] --> guide["Mifal Guide<br/>(a rules-file block or opt-in Codex key)"]
   guide --> ew[engineering-workflow]
   ew --> am[Ask Matt selects the phase skill]
   am --> phase["build route: scope → grill → spec<br/>→ tickets → implement → review → retro"]
@@ -70,7 +83,7 @@ flowchart LR
   panes -->|receipts| gate
 ```
 
-By default, Mifal's files live in your home folder: the engine in `~/.agents/mifal/`, the skills in `~/.agents/skills/`, and one Marked block in each successfully wired Home's rules file, or one marked key in a linked Codex Home's own `config.toml`; an outside-home root needs `--allow-root-outside-home`, and Herdr's installation has its own effects described in INSTALL.md. Mifal wires only the five agent families above: other tools, Gemini say, are not served, and it never edits an agent's hooks or settings. [docs/INSTALL.md](docs/INSTALL.md) lists every write, and covers update, rollback, uninstall and several Homes of one agent.
+By default, Mifal's files live in your home folder: the engine in `~/.agents/mifal/`, the skills in `~/.agents/skills/`, and one Marked block in each successfully wired Home's rules file, or one marked key in a linked Codex Home's own `config.toml`; an outside-home root needs `--allow-root-outside-home`, and Herdr's installation has its own effects described in INSTALL.md. Mifal wires only the five agent families above: other tools, Gemini say, are not served; it never edits an agent's hooks. The marked Codex key is the only agent setting it writes. [docs/INSTALL.md](docs/INSTALL.md) lists every write, and covers update, rollback, uninstall and several Homes of one agent.
 
 ## Status
 
