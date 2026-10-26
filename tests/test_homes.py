@@ -1,0 +1,133 @@
+"""Several Homes per Harness, named with --home NAME=PATH, in a disposable HOME that mirrors a real multi-Home layout."""
+
+import os
+import unittest
+
+from support import Sandbox, snapshot
+
+SHARED = "my shared rules\n"
+CLAUDE_RULES = "@~/.ai/AGENTS.md\n"
+CODEX_RULES = "my codex rules\n"
+
+
+class Layout:
+    """A shared Personal layer file, two Claude Homes that import it and two Codex Homes with their own rules files."""
+
+    def lay_out(self):
+        (self.home / ".ai").mkdir()
+        (self.home / ".ai/AGENTS.md").write_text(SHARED)
+        self.claude = [self.home / ".claude", self.home / ".claude-personal"]
+        self.codex = [self.home / ".codex-work", self.home / ".codex-personal"]
+        for root in self.claude:
+            root.mkdir()
+            (root / "CLAUDE.md").write_text(CLAUDE_RULES)
+        for root in self.codex:
+            root.mkdir()
+            (root / "AGENTS.md").write_text(CODEX_RULES)
+
+    def flags(self, claude=None, codex=None):
+        pairs = [("claude", r) for r in (self.claude if claude is None else claude)]
+        pairs += [("codex", r) for r in (self.codex if codex is None else codex)]
+        return [f for name, root in pairs for f in ("--home", f"{name}={root}")]
+
+    def records(self):
+        return {name: [(r["root"], r["rules"], r["status"]) for r in homes]
+                for name, homes in self.manifest()["harnesses"].items()}
+
+    def expected_records(self):
+        return {"claude": [(str(r), str(r / "CLAUDE.md"), "wired") for r in self.claude],
+                "codex": [(str(r), str(r / "AGENTS.md"), "wired") for r in self.codex]}
+
+
+class Homes(Layout, Sandbox):
+    def setUp(self):
+        super().setUp()
+        self.lay_out()
+
+
+class Install(Homes):
+    def test_two_claude_and_two_codex_homes_are_each_wired_once_and_recorded_separately(self):
+        result = self.install(*self.flags())
+        for root in self.claude:
+            text = (root / "CLAUDE.md").read_text()
+            self.assertTrue(text.startswith(CLAUDE_RULES), text)
+            self.assertEqual(text.count("<!-- mifal:begin "), 1)
+            self.assertIn("\n@~/.agents/mifal/AGENTS.md\n", text)
+        for root in self.codex:
+            text = (root / "AGENTS.md").read_text()
+            self.assertTrue(text.startswith(CODEX_RULES), text)
+            self.assertEqual(text.count("<!-- mifal:begin "), 1)
+        self.assertEqual(self.records(), self.expected_records())
+        self.assertIn("Wired: Claude Code, Codex", result.stdout)
+        self.assertFalse((self.home / ".codex").exists())
+        self.assertEqual((self.home / ".ai/AGENTS.md").read_text(), SHARED)
+
+    def test_each_claude_home_has_its_own_skill_links_and_codex_reads_the_pool(self):
+        self.install(*self.flags())
+        pool = (self.home / ".agents/skills").resolve()
+        for root in self.claude:
+            self.assertEqual(os.readlink(root / "skills/grilling"), str(pool / "grilling"))
+        for root in self.codex:
+            self.assertFalse((root / "skills").exists())
+
+    def test_a_name_mifal_does_not_serve_or_a_relative_path_stops_with_nothing_written(self):
+        before = snapshot(self.home)
+        for value, message in (
+                ("gemini=" + str(self.home / ".gemini"),
+                 "mifal: --home gemini=" + str(self.home / ".gemini") + ": NAME must be one of claude, codex, droid, "
+                 "pi, opencode. Nothing was written."),
+                ("codex", "mifal: --home codex: write it as NAME=PATH, such as codex=$HOME/.codex-work. "
+                          "Nothing was written."),
+                ("codex=.codex-work", "mifal: --home codex=.codex-work: PATH must be absolute, such as "
+                                      "codex=$HOME/.codex-work. Nothing was written.")):
+            with self.subTest(value=value):
+                result = self.install("--home", value, check=False)
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                self.assertIn(message, result.stdout)
+                self.assertEqual(snapshot(self.home), before)
+
+    def test_a_home_folder_that_does_not_exist_yet_is_created_and_wired(self):
+        new = self.home / "accounts/.codex-new"
+        self.install("--home", f"codex={new}")
+        self.assertEqual((new / "AGENTS.md").read_text().count("<!-- mifal:begin "), 1)
+        self.assertEqual(self.records()["codex"], [(str(new), str(new / "AGENTS.md"), "wired")])
+
+    def test_a_path_that_starts_with_a_tilde_is_read_from_the_home_folder(self):
+        self.install("--home", "codex=~/.codex-work")
+        self.assertEqual(self.records()["codex"], [(str(self.codex[0]), str(self.codex[0] / "AGENTS.md"), "wired")])
+
+    def test_a_stop_in_one_home_stops_the_whole_run_with_nothing_written(self):
+        linked = self.codex[1] / "AGENTS.md"
+        linked.unlink()
+        linked.symlink_to(self.home / ".ai/AGENTS.md")
+        before = snapshot(self.home)
+        result = self.install(*self.flags(), check=False)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("~/.codex-personal/AGENTS.md: is a symbolic link to ~/.ai/AGENTS.md, and Mifal does not write "
+                      "through a link", result.stdout)
+        self.assertIn("Nothing was written.", result.stdout)
+        self.assertIn("Or wire only the other Homes: ./install.sh --harness claude --home claude=" + str(self.claude[0])
+                      + " --home claude=" + str(self.claude[1]) + " --harness codex --home codex=" + str(self.codex[0]),
+                      result.stdout.splitlines())
+        self.assertEqual(snapshot(self.home), before)
+
+    def test_a_reinstall_naming_fewer_homes_keeps_every_recorded_home(self):
+        self.install(*self.flags())
+        before = snapshot(self.home)
+        result = self.install(*self.flags(claude=[], codex=self.codex[:1]))
+        self.assertIn("Nothing to change: Mifal is installed and current.", result.stdout)
+        self.assertEqual(snapshot(self.home), before)
+        self.assertEqual(self.records(), self.expected_records())
+
+
+class Uninstall(Homes):
+    def test_uninstall_leaves_every_home_byte_for_byte_as_before_install(self):
+        before = snapshot(self.home)
+        self.install(*self.flags())
+        self.assertNotEqual(snapshot(self.home), before)
+        self.mifal("uninstall")
+        self.assertEqual(snapshot(self.home), before)
+
+
+if __name__ == "__main__":
+    unittest.main()

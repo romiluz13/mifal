@@ -5,6 +5,7 @@ import itertools
 import os
 import json
 import re
+import shlex
 import subprocess
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -214,7 +215,9 @@ def linked_folder(h: Home, folder: Path):
 
 
 def make_plan(h: Home, source: Path, version: str, overwrite_edits: bool = False, selected=None, env=None,
-              allow_outside: bool = False, source_record=None) -> Plan:
+              allow_outside: bool = False, source_record=None, named=None) -> Plan:
+    """named: the Homes given with --home, by Harness; for a Harness named there, they replace the detected root.
+    Every recorded Home of a planned Harness is planned again, so a re-install never drops one."""
     loaded = mf.load(h)
     old, previous = loaded if loaded else (None, None)
     if old is None and os.path.lexists(h.engine):
@@ -230,8 +233,18 @@ def make_plan(h: Home, source: Path, version: str, overwrite_edits: bool = False
 
     found_roots = harness.roots(h.home, env)
     was_wired = {n for n, r in mf.homes(old or {}) if r["status"] == "wired"}
-    names = [n for n in harness.NAMES if n in set(harness.detect(h.home, env, found_roots) if selected is None else selected) | was_wired]
-    homes = [(n, found_roots[n]) for n in names]
+    named = named or {}
+    names = [n for n in harness.NAMES
+             if n in set(harness.detect(h.home, env, found_roots) if selected is None else selected) | was_wired | set(named)]
+    spelled = {(k.split(":", 2)[1], f["real"]): Path(f["path"])
+               for k, f in (old or {}).get("folders", {}).items() if k.startswith("harness:")}
+    homes, seen = [], set()
+    for n in names:
+        recorded = [spelled.get((n, r["root"]), Path(r["root"])) for m, r in mf.homes(old or {}) if m == n]
+        for path in recorded + named.get(n, [found_roots[n]]):
+            if (n, os.path.realpath(path)) not in seen:
+                seen.add((n, os.path.realpath(path)))
+                homes.append((n, path))
     now_folders = folders(h, homes)
     plan.stops += moved_folders(h, {k: f for k, f in (old or {}).get("folders", {}).items()
                                     if k in now_folders or k.startswith("harness:") and k.split(":")[1] in names})
@@ -338,7 +351,7 @@ def make_plan(h: Home, source: Path, version: str, overwrite_edits: bool = False
             links.append(Step({"op": "link", "path": str(path), "target": target}, f"link {show(path)} -> {target}"))
         entries.append({"kind": "symlink", "path": str(path), "target": target})
 
-    blocks, records = [], {}
+    blocks, records, unwritable_roots = [], {}, set()
     for w in wirings:
         record = {"root": str(w.root), "rules": str(w.rules), "status": "skipped" if w.skip else "wired"}
         records.setdefault(w.name, []).append(record)
@@ -362,6 +375,7 @@ def make_plan(h: Home, source: Path, version: str, overwrite_edits: bool = False
                 why = "is not a regular file"
             plan.conflicts.append(where + why)
             plan.unwritable.append((where + why, kind[0], w.name, dest if kind[0] == "link" else None))
+            unwritable_roots.add(w.root)
             continue
         if w.warn:
             if old is None or overwrite_edits:
@@ -485,7 +499,12 @@ def make_plan(h: Home, source: Path, version: str, overwrite_edits: bool = False
     }
     blocked = {u[2] for u in plan.unwritable}
     if not blocked & was_wired:
-        plan.leave_out = [w.name for w in wirings if w.name not in blocked and not w.skip]
+        # A Harness named with --home can leave out just its refused Home; any other is left out whole, as before.
+        kept = [(n, path) for (n, path), w in zip(homes, wirings) if not w.skip and
+                (w.root not in unwritable_roots if n in named else n not in blocked)]
+        for name in dict.fromkeys(n for n, _ in kept):
+            plan.leave_out += ["--harness", name] + [word for n, path in kept if n == name and n in named
+                                                     for word in ("--home", shlex.quote(f"{n}={path}"))]
     return plan
 
 
@@ -508,5 +527,6 @@ def unwritable_advice(plan, can_leave_out: bool) -> list:
     else:
         lines[0] += "."
     if can_leave_out and plan.leave_out:
-        lines.append("Or wire only the other agents: ./install.sh " + " ".join(f"--harness {n}" for n in plan.leave_out))
+        others = "Homes" if "--home" in plan.leave_out else "agents"
+        lines.append(f"Or wire only the other {others}: ./install.sh " + " ".join(plan.leave_out))
     return lines
