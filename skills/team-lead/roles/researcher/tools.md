@@ -3,7 +3,6 @@
 Expected for this role:
 
 - **Web fetch/search** — primary source gathering
-- **octocode** — GitHub code search (`npx octocode search <query> <owner/repo>`)
 - Local file read/search (Grep/Glob) for codebase-local questions
 
 Before starting:

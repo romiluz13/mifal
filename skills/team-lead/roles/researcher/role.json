@@ -3,8 +3,8 @@
   "summary": "Explores a question and returns evidence-backed findings with citations; does not change production code. Typical latitude is look or propose — findings and recommendations, not commits.",
   "defaultLatitude": "look",
   "kind": "research",
-  "skills": ["research", "wayfinder", "octocode"],
-  "toolsExpected": ["web fetch/search", "octocode (GitHub code search)"],
+  "skills": ["research", "wayfinder"],
+  "toolsExpected": ["web fetch/search", "local file read/search"],
   "toolsCheck": "python3 stewardship/steward.py ledger show",
   "readFirst": [
     "references/contracts/doorbell.md",
