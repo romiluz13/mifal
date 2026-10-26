@@ -21,7 +21,7 @@ class Repair(test_update.Update):
     def test_update_yes_installs_and_records_the_missing_files_and_doctor_is_clean(self):  # a
         result = self.update("--yes")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("this install is missing 9 file(s) this version installs", result.stdout)
+        self.assertIn("this install is missing 16 file(s) this version installs", result.stdout)
         for rel in LICENCES:
             self.assertTrue((self.home / rel).is_file(), rel)
             self.assertIn(str((self.home / rel).resolve()), self.paths_owned())
@@ -49,7 +49,7 @@ class Repair(test_update.Update):
 
     def test_declining_the_prompt_changes_nothing(self):  # d
         result = self.update_in_terminal("n\n")
-        self.assertIn("this install is missing 9 file(s)", result.stdout)
+        self.assertIn("this install is missing 16 file(s)", result.stdout)
         self.assertIn("Not applied", result.stdout)
         self.assertEqual(snapshot(self.home), self.installed)
 
@@ -100,7 +100,7 @@ class RepairBeyondTheRelease(test_update.Update):
         self.drop_licences()
         result = self.update("--yes")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("this install is missing 9 file(s)", result.stdout)
+        self.assertIn("this install is missing 16 file(s)", result.stdout)
         self.assertEqual(self.head(), beyond)
         self.assertEqual(self.manifest()["source"]["revision"], release)
         self.assertTrue((self.home / ".agents/mifal/NOTICE").is_file())

@@ -103,7 +103,7 @@ class Install(OptionC):
         for config in (None, CONFIG.replace("\n", "\r\n")):
             with self.subTest(crlf=config is not None):
                 self.setUp()
-                (self.clone / "guide/AGENTS.md").write_text(hostile, encoding="utf-8", newline="")
+                (self.clone / "guide/AGENTS.md").write_bytes(hostile.encode("utf-8"))
                 if config:
                     (self.workhome / "config.toml").write_bytes(config.encode())
                 self.install_c()

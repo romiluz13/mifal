@@ -360,7 +360,7 @@ class Completeness(test_update.Update):
         self.assertEqual(len(self.engine_lines(result)), 1, result.stdout)
         lines = result.stdout.splitlines()
         at = next(i for i, line in enumerate(lines) if line.startswith("WARN engine"))
-        self.assertIn("9 file(s)", lines[at])
+        self.assertIn("16 file(s)", lines[at])
         self.assertEqual(lines[at + 1].strip(), "fix: run mifal update")
         self.assertEqual(snapshot(self.home), before)
 

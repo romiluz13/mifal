@@ -19,7 +19,7 @@ class Layout:
     def lay_out(self):
         (self.home / ".ai").mkdir()
         (self.home / ".ai/AGENTS.md").write_text(SHARED)
-        self.claude = [self.home / ".claude", self.home / ".claude-personal"]
+        self.claude = [self.home / ".claude", self.home / ".claude-second"]
         self.codex = [self.home / ".codex-work", self.home / ".codex-personal"]
         for root in self.claude:
             root.mkdir()
@@ -106,8 +106,8 @@ class Install(Homes):
         before = snapshot(self.home)
         result = self.install(*self.flags(), check=False)
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
-        self.assertIn("~/.claude-personal/CLAUDE.md: is a symbolic link to ~/.ai/AGENTS.md, and Mifal does not write "
-                      "through a link", result.stdout)
+        self.assertIn(f"~/{linked.relative_to(self.home)}: is a symbolic link to ~/.ai/AGENTS.md, and Mifal does not "
+                      "write through a link", result.stdout)
         self.assertIn("Nothing was written.", result.stdout)
         self.assertIn("Or wire only the other Homes: ./install.sh --harness claude --home claude=" + str(self.claude[0])
                       + " --harness codex --home codex=" + str(self.codex[0]) + " --home codex=" + str(self.codex[1]),
@@ -227,7 +227,7 @@ class Shared(Homes):
         self.install(*self.flags(claude=self.claude, codex=[]))
         doctor = self.mifal("doctor", check=False, CLAUDE_CONFIG_DIR=str(self.claude[1]))
         self.assertEqual(doctor.returncode, 0, doctor.stdout)
-        self.assertNotIn("note also seen by ~/.claude-personal", doctor.stdout)
+        self.assertNotIn("note also seen by ~/.claude-second", doctor.stdout)
         stray = self.home / ".claude-stray"
         stray.mkdir()
         (stray / "skills").symlink_to(self.claude[0] / "skills")
