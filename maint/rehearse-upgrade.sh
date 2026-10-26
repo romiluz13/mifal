@@ -4,7 +4,11 @@
 # with that old release's own code, checks what that update left (a known gap is reported, never passed over), updates
 # with the new code, then publishes a synthetic next release that reserves one more skill name, plants a user skill
 # under it and updates again. It then uninstalls, installs the candidate fresh, and rolls back to the older release by
-# the documented path (uninstall, then install from a clone of the older tag). Every check prints PASS or FAIL with the
+# the documented path (uninstall, then install from a clone of the older tag). The tail is a multi-Home slice: the
+# 0.2.x single-Home records are migrated by an update, a negative control proves the multi-Home check fails when one
+# Home is not wired, then one fresh install serves two Claude and two Codex Homes, one of them linked and served
+# through the marked config.toml key, an update moves every Home, and an exact clean uninstall leaves every Home
+# byte for byte as before. Every check prints PASS or FAIL with the
 # exit code of the command it checked; any FAIL makes the script exit 1. Run before a release.
 # usage: maint/rehearse-upgrade.sh REPO FROM_TAG   (REPO is a path or URL; FROM_TAG is the older release to start from)
 set -euo pipefail
@@ -127,7 +131,7 @@ if ! grep -q " 0 gap(s)" "$home/gap.txt"; then
   grep -q "^WARN engine: " "$home/doctor-gap.txt" || fail "doctor did not warn about the files the old update left out"
 fi
 
-echo "-- an update by the candidate's code: repairs the files $from's update left out and serves OpenCode"
+echo "-- an update by the candidate's code: repairs the files $from's update left out and keeps the gone skipped OpenCode Home skipped"
 snap >"$home/before.txt"
 rc=0; out="$(run /bin/bash "$mifal" update --yes 2>&1)" || rc=$?
 echo "$out"
@@ -147,10 +151,11 @@ fi
 audit main --complete || fail "after the update the install is not the candidate, file for file"
 run /bin/bash "$mifal" update --yes | grep -q "up to date" || fail "an update after the repair was not a no-op"
 opencode="$home/.config/opencode/AGENTS.md"
-[ -f "$opencode" ] || problem "$opencode was not written"
-[ ! -f "$opencode" ] || [ "$(blocks "$opencode")" = 1 ] || problem "$opencode does not hold exactly one Mifal block"
-opencode_named <(echo "$update_out") || problem "the update output has no line naming OpenCode and the CLAUDE.md it stops reading"
-verdict b "OpenCode gets ~/.config/opencode/AGENTS.md, and the update names the CLAUDE.md it stops reading" "$update_codes"
+# 0.3.0: a recorded skipped Home whose folder is gone stays skipped on update, nothing created; naming it serves it.
+[ ! -e "$opencode" ] || problem "$opencode was created, but a skipped Home whose folder is gone stays skipped on update"
+grep -q "skip opencode: ~/.config/opencode no longer exists, so Mifal keeps it recorded as skipped and writes " \
+  <<<"$update_out" || problem "the update does not keep the gone skipped OpenCode Home skipped, with its note"
+verdict b "the update repairs the files $from's update left out and keeps the gone skipped OpenCode Home skipped until it is named" "$update_codes"
 
 echo "-- a synthetic next release that reserves one more skill name, and an unreleased commit, then an update by the new code"
 git clone -q "$home/origin.git" "$home/work"
@@ -267,9 +272,165 @@ cat "$home/doctor-rollback.txt"
 [ "$rc" -eq 0 ] || problem "doctor exited $rc after the rollback"
 verdict f "rollback to $from by uninstall and install from its clone leaves doctor clean and my files in place" "$rc"
 
+echo "-- an update from $from's single-Home records: every default Home keeps its Guide"
+rc=0; out="$(run /bin/bash "$mifal" update --yes 2>&1)" || rc=$?
+echo "$out"
+[ "$rc" -eq 0 ] || problem "the update run by $from's own code exited $rc"
+[ "$(cat "$home/.agents/mifal/VERSION")" = "99.0.0" ] || problem "the update run by $from's own code did not land on v99.0.0"
+rc2=0; out2="$(run /bin/bash "$mifal" update --yes 2>&1)" || rc2=$?
+echo "$out2"
+update_codes="$rc, then $rc2"
+if [ "$rc2" -ne 0 ]; then
+  opencode_named <(echo "$out2") || problem "the second update stopped, and not on OpenCode's CLAUDE.md fallback"
+  rc2=0; out3="$(run /bin/bash "$mifal" update --yes --overwrite-edits 2>&1)" || rc2=$?
+  echo "$out3"
+  update_codes="$update_codes, then $rc2 with --overwrite-edits"
+fi
+[ "$rc2" -eq 0 ] || problem "the update that migrates $from's records exited $rc2"
+for entry in $rules; do
+  file="$home/${entry#*:}"
+  [ "$(blocks "$file")" = 1 ] || problem "$file does not hold exactly one Mifal block after the migrated update"
+  grep -q "^<!-- mifal:begin version=99.0.0 " "$file" || problem "$file does not hold the new release's block"
+  grep -qx "my own ${entry%%:*} rule" "$file" || problem "my line is gone from $file"
+done
+verdict g "an update from $from's single-Home records keeps every default Home served" "$update_codes"
+
+echo "-- uninstall before the multi-Home slice"
+rc=0; run /bin/bash "$mifal" uninstall >"$home/uninstall-mh0.log" 2>&1 || rc=$?
+cat "$home/uninstall-mh0.log"
+[ "$rc" -eq 0 ] || problem "the uninstall before the multi-Home slice exited $rc"
+for entry in $rules; do
+  file="$home/${entry#*:}"
+  grep -qx "my own ${entry%%:*} rule" "$file" || problem "my line is gone from $file"
+  ! grep -q 'mifal:begin' "$file" || problem "a Mifal block is left in $file"
+done
+rm -rf "$home/.agents/skills/$reserved" "$home/.claude/skills/$reserved"
+
+echo "-- a multi-Home layout: two Claude and two Codex Homes, one linked, and a stray reader of the shared file"
+mh_rules="claude-work:.claude-work/CLAUDE.md claude-second:.claude-second/CLAUDE.md codex-work:.codex-work/AGENTS.md"
+for entry in $mh_rules; do
+  mkdir -p "$(dirname "$home/${entry#*:}")"
+  echo "my own ${entry%%:*} rule" >"$home/${entry#*:}"
+done
+mkdir -p "$home/.ai" "$home/.codex-second" "$home/.codex-stray"
+echo "my shared rules" >"$home/.ai/AGENTS.md"
+ln -s "$home/.ai/AGENTS.md" "$home/.codex-second/AGENTS.md"
+ln -s "$home/.ai/AGENTS.md" "$home/.codex-stray/AGENTS.md"
+printf 'model = "gpt-6.1"\nmodel_provider = "openai"\n' >"$home/.codex-second/config.toml"
+cp "$home/.codex-second/config.toml" "$home/config-original.toml"
+keyblocks() { local n; n="$(grep -c '^# mifal:begin ' "$1" 2>/dev/null || true)"; echo "${n:-0}"; }
+# strip_key FILE: the file's bytes with Mifal's marked key block taken out.
+strip_key() { awk '/^# mifal:begin /{owned=1} owned{if (/^# mifal:end$/) {owned=0}; next} {print}' "$1"; }
+mh_snap() {
+  python3 -I - "$home" "$@" <<'PY'
+import hashlib, os, sys
+home = sys.argv[1]
+for top in sys.argv[2:]:
+    for root, dirs, files in os.walk(os.path.join(home, top)):
+        dirs.sort()
+        for name in sorted(files + [d for d in dirs if os.path.islink(os.path.join(root, d))]):
+            path = os.path.join(root, name)
+            rel = os.path.relpath(path, home)
+            if os.path.islink(path):
+                print(rel, "->", os.readlink(path))
+            else:
+                print(rel, hashlib.sha256(open(path, "rb").read()).hexdigest())
+PY
+}
+# mh_assert [VERSION]: every named Home is served, read from the files on disk, not from the installer's records.
+mh_assert() {
+  local version="${1:-}" file claude cfg="$home/.codex-second/config.toml"
+  for entry in $mh_rules; do
+    file="$home/${entry#*:}"
+    [ "$(blocks "$file")" = 1 ] || problem "$file does not hold exactly one Mifal block"
+    grep -qx "my own ${entry%%:*} rule" "$file" || problem "my line is gone from $file"
+    [ -z "$version" ] || grep -q "^<!-- mifal:begin version=$version " "$file" ||
+      problem "$file does not hold the $version block"
+  done
+  for claude in .claude-work .claude-second; do
+    [ -L "$home/$claude/skills/engineering-workflow" ] || problem "~/$claude holds no engineering-workflow link"
+    [ "$(cd -P "$home/$claude/skills/engineering-workflow" 2>/dev/null && pwd)" = "$home/.agents/skills/engineering-workflow" ] ||
+      problem "~/$claude/skills/engineering-workflow does not lead to the Pool"
+  done
+  [ "$(readlink "$home/.codex-second/AGENTS.md")" = "$home/.ai/AGENTS.md" ] ||
+    problem "the linked rules file ~/.codex-second/AGENTS.md was replaced"
+  [ "$(cat "$home/.ai/AGENTS.md")" = "my shared rules" ] || problem "the shared file ~/.ai/AGENTS.md changed"
+  [ "$(readlink "$home/.codex-stray/AGENTS.md")" = "$home/.ai/AGENTS.md" ] || problem "the stray reader's link changed"
+  [ "$(keyblocks "$cfg")" = 1 ] || problem "$cfg does not hold exactly one marked key"
+  head -n 1 "$cfg" | grep -q '^# mifal:begin ' || problem "the marked key is not at the top of $cfg"
+  cmp -s <(strip_key "$cfg") "$home/config-original.toml" ||
+    problem "$cfg keeps bytes outside the marked key differently than before"
+  [ -z "$version" ] || grep -q "^# mifal:begin version=$version " "$cfg" || problem "$cfg does not hold the $version key"
+}
+
+echo "-- negative control: the multi-Home check must fail when one Home is not wired"
+git -C "$home/clone" checkout -q -B main "$candidate"
+rc=0; run /bin/bash "$home/clone/install.sh" --harness claude --harness codex \
+  --home "claude=$home/.claude-work" --home "codex=$home/.codex-work" --home "codex=$home/.codex-second" \
+  >"$home/install-control.log" 2>&1 || rc=$?
+cat "$home/install-control.log"
+[ "$rc" -eq 0 ] || problem "the control install exited $rc"
+problems=""
+mh_assert
+control="$problems"
+problems=""
+if [ -z "$control" ]; then
+  problem "the multi-Home check passed although ~/.claude-second was not named, so the control is vacuous"
+elif ! grep -q "claude-second/CLAUDE.md" <<<"$control"; then
+  problem "the multi-Home check failed without ~/.claude-second wired, but on: $control"
+else
+  echo "(expected: without ~/.claude-second named, the multi-Home check reports: $control)"
+fi
+rc=0; run /bin/bash "$mifal" uninstall >"$home/uninstall-control.log" 2>&1 || rc=$?
+cat "$home/uninstall-control.log"
+[ "$rc" -eq 0 ] || problem "the uninstall of the control install exited $rc"
+cmp -s "$home/.codex-second/config.toml" "$home/config-original.toml" ||
+  problem "the control uninstall left ~/.codex-second/config.toml changed"
+verdict h "the multi-Home check fails when one Home is not wired" "$rc"
+
+echo "-- a fresh multi-Home install of the candidate"
+mh_snap .claude-work .claude-second .codex-work .codex-second .ai .codex-stray >"$home/mh-before.txt"
+rc=0; out="$(run /bin/bash "$home/clone/install.sh" --harness claude --harness codex \
+  --home "claude=$home/.claude-work" --home "claude=$home/.claude-second" \
+  --home "codex=$home/.codex-work" --home "codex=$home/.codex-second" 2>&1)" || rc=$?
+echo "$out"
+[ "$rc" -eq 0 ] || problem "the multi-Home install exited $rc"
+grep -qx "Wired: Claude Code, Codex" <<<"$out" || problem "the install does not report exactly Claude Code and Codex wired"
+grep -q "key ~/.codex-second/config.toml: developer_instructions" <<<"$out" ||
+  problem "the install output does not name the marked key"
+mh_assert
+rc=0; run /bin/bash "$mifal" doctor >"$home/doctor-mh.txt" 2>&1 || rc=$?
+cat "$home/doctor-mh.txt"
+[ "$rc" -eq 0 ] || problem "doctor exited $rc on the multi-Home install"
+for line in "PASS guide claude: block in ~/.claude-work/CLAUDE.md" \
+            "PASS guide claude: block in ~/.claude-second/CLAUDE.md" \
+            "PASS guide codex: block in ~/.codex-work/AGENTS.md" \
+            "PASS guide codex: Mifal's developer_instructions key in ~/.codex-second/config.toml, as installed" \
+            "note ~/.codex-stray reads ~/.ai/AGENTS.md, not served by this install"; do
+  grep -qx "$line" "$home/doctor-mh.txt" || problem "doctor does not print: $line"
+done
+verdict i "one install serves two Claude and two Codex Homes, the linked one through the marked key, and doctor names each Home and the stray reader" "$rc"
+
+echo "-- an update moves every Home to the synthetic release"
+rc=0; out="$(run /bin/bash "$mifal" update --yes 2>&1)" || rc=$?
+echo "$out"
+[ "$rc" -eq 0 ] || problem "the update over every Home exited $rc"
+[ "$(cat "$home/.agents/mifal/VERSION")" = "99.0.0" ] || problem "the multi-Home update did not land on v99.0.0"
+mh_assert 99.0.0
+verdict j "mifal update moves every recorded Home to the new release and keeps the config's other bytes" "$rc"
+
+echo "-- an exact clean uninstall of every Home"
+rc=0; run /bin/bash "$mifal" uninstall >"$home/uninstall-mh.log" 2>&1 || rc=$?
+cat "$home/uninstall-mh.log"
+[ "$rc" -eq 0 ] || problem "the multi-Home uninstall exited $rc"
+mh_snap .claude-work .claude-second .codex-work .codex-second .ai .codex-stray >"$home/mh-after.txt"
+cmp -s "$home/mh-before.txt" "$home/mh-after.txt" ||
+  problem "the multi-Home uninstall left a Home different from before the install"
+verdict k "mifal uninstall leaves every Home byte for byte as before the install" "$rc"
+
 summary
 if [ "$failures" -ne 0 ]; then
   echo "REHEARSAL FAILED: $failures check(s) failed" >&2
   exit 1
 fi
-echo "REHEARSAL OK: $from -> main -> v99.0.0 (synthetic), then fresh $next and back to $from"
+echo "REHEARSAL OK: $from -> main -> v99.0.0 (synthetic), then fresh $next and back to $from, then a multi-Home slice: 0.2.x records migrated, two Claude and two Codex Homes served by one install (negative control red), every Home updated, exact uninstall"
