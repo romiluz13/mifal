@@ -363,6 +363,25 @@ mh_assert() {
   [ -z "$version" ] || grep -q "^# mifal:begin version=$version " "$cfg" || problem "$cfg does not hold the $version key"
 }
 
+# mh_expected PROBLEMS: true for exactly the three diagnostics a missing ~/.claude-second Home must produce,
+# and nothing else: its rules file without a Mifal block, its missing skills link, and that link's Pool
+# resolution. Not any failure that names the Home.
+mh_expected() {
+  local item count=0 block=0 link=0 pool=0
+  while IFS= read -rd ';' item; do
+    item="${item# }"
+    [ -n "$item" ] || continue
+    case "$item" in
+      *".claude-second/CLAUDE.md does not hold exactly one Mifal block") block=1 ;;
+      *".claude-second holds no engineering-workflow link") link=1 ;;
+      *".claude-second/skills/engineering-workflow does not lead to the Pool") pool=1 ;;
+      *) return 1 ;;
+    esac
+    count=$((count + 1))
+  done <<<"${1};"
+  [ "$count" -eq 3 ] && [ "$block" -eq 1 ] && [ "$link" -eq 1 ] && [ "$pool" -eq 1 ]
+}
+
 echo "-- negative control: the multi-Home check must fail when one Home is not wired"
 git -C "$home/clone" checkout -q -B main "$candidate"
 rc=0; run /bin/bash "$home/clone/install.sh" --harness claude --harness codex \
@@ -370,16 +389,21 @@ rc=0; run /bin/bash "$home/clone/install.sh" --harness claude --harness codex \
   >"$home/install-control.log" 2>&1 || rc=$?
 cat "$home/install-control.log"
 [ "$rc" -eq 0 ] || problem "the control install exited $rc"
-problems=""
+# The control's problems are read beside anything earlier: nothing is reset here, so an earlier failure
+# (the pre-slice uninstall, a nonzero control install) still fails the verdict instead of being wiped.
+before="$problems"
 mh_assert
 control="$problems"
-problems=""
-if [ -z "$control" ]; then
+added="${control#"$before"}"
+if [ -z "$added" ]; then
   problem "the multi-Home check passed although ~/.claude-second was not named, so the control is vacuous"
-elif ! grep -q "claude-second/CLAUDE.md" <<<"$control"; then
-  problem "the multi-Home check failed without ~/.claude-second wired, but on: $control"
+elif ! mh_expected "$added"; then
+  problem "the multi-Home check failed without ~/.claude-second wired, but on:$added"
 else
-  echo "(expected: without ~/.claude-second named, the multi-Home check reports: $control)"
+  # Only the three expected diagnostics are dropped: they are the control's point, not a failure of the
+  # candidate. Everything earlier stays, and the verdict sees it.
+  problems="$before"
+  echo "(expected: without ~/.claude-second named, the multi-Home check reports exactly:$added)"
 fi
 rc=0; run /bin/bash "$mifal" uninstall >"$home/uninstall-control.log" 2>&1 || rc=$?
 cat "$home/uninstall-control.log"

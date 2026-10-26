@@ -313,8 +313,14 @@ def _key(r, rec, entry, guide_sha, h):
     status, reason, _, source = cc.hooks(root, cc.spellings(h), show)
     mend = None
     if status == "unknown":
-        mend = (f"make {show(source)} a regular file in the JSON shape Codex reads" if source.name == "hooks.json"
-                else f"fix the [hooks] table in {show(source)} to the shape Codex reads")
+        try:
+            state(source)
+        except OSError:
+            mend = f"restore read access to {show(source)} so Mifal can classify it"
+        else:
+            mend = (f"make {show(source)} a regular file in the JSON shape Codex reads"
+                    if source.name == "hooks.json"
+                    else f"fix the [hooks] table in {show(source)} to the shape Codex reads")
     if rec["status"] in ("pending", "unknown"):
         if status == "unknown":
             r.line("FAIL", check, f"{show(root)} is unknown: {reason}", f"{mend}, then run mifal update")

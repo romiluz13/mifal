@@ -91,5 +91,44 @@ class CloneAdapter(Sandbox):
         self.assertEqual(result.stdout.strip(), str(self.clone / "skills/team-lead/scripts"))
 
 
+class RelocatedEngine(Sandbox):
+    """An independently relocated engine: the Pool comes from the installed Manifest's recorded root, not
+    from a physical sibling of the engine."""
+
+    def install_relocated(self, engine_to, pool_real=None):
+        if pool_real is not None:
+            pool_real.mkdir(parents=True, exist_ok=True)
+            skills = self.home / ".agents/skills"
+            skills.parent.mkdir(parents=True, exist_ok=True)
+            skills.symlink_to(pool_real)
+        self.install()
+        shutil.rmtree(self.clone)
+        engine = self.home / ".agents/mifal"
+        engine_to.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(engine), engine_to)
+        engine.symlink_to(engine_to)
+
+    def lead_scripts(self, *modules):
+        return self.run_cmd("python3", "-B", "-c",
+                            "import sys; sys.path.insert(0, sys.argv[1]); import " + ", ".join(modules) +
+                            "; print(lead.SCRIPTS)",
+                            str(self.home / ADAPTER))
+
+    def test_a_relocated_engine_with_the_pool_in_place_imports_and_resolves_the_pool(self):
+        self.install_relocated(self.home / "storage/engine")
+        result = self.lead_scripts("lead", "wake", "preflight", "resume")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        result = self.lead_scripts("lead")
+        self.assertEqual(result.stdout.strip(), str(self.home / SCRIPTS))
+
+    def test_a_relocated_engine_and_a_separately_linked_pool_resolve_the_recorded_pool(self):
+        pool_real = self.home / "storage/pool"
+        self.install_relocated(self.home / "storage/engine", pool_real)
+        result = self.lead_scripts("lead", "wake", "preflight", "resume")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        result = self.lead_scripts("lead")
+        self.assertEqual(result.stdout.strip(), str(pool_real / "team-lead" / "scripts"))
+
+
 if __name__ == "__main__":
     unittest.main()

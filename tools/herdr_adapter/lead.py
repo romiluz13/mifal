@@ -28,12 +28,20 @@ from event_loop import watch
 def scripts_dir():
     """Where the team-lead scripts live. In a clone, this file sits at <repo>/tools/herdr_adapter and the
     scripts are the repository's skills/team-lead/scripts. Installed, it sits at <home>/.agents/mifal/
-    tools/herdr_adapter (the engine), and the scripts live in the Pool the installer writes beside the
-    engine: <home>/.agents/skills (lib/mifal/manifest.py: ENGINE ".agents/mifal", POOL ".agents/skills").
-    Derived from this file's own location; no home is hardcoded."""
+    tools/herdr_adapter (the engine), and the scripts live in the Pool the installer recorded in the
+    engine's Manifest (install.py:folders, "pool"->"real"), which stays the Pool when the engine or the
+    Pool is relocated or linked anywhere else; <home>/.agents/skills (lib/mifal/manifest.py: ENGINE
+    ".agents/mifal", POOL ".agents/skills") is only the default it was recorded from. Derived from this
+    file's own location and the Manifest beside it; no home is hardcoded."""
     engine = Path(__file__).resolve().parents[2]
     cloned = engine / "skills" / "team-lead" / "scripts"
-    return cloned if cloned.is_dir() else engine.parent / "skills" / "team-lead" / "scripts"
+    if cloned.is_dir():
+        return cloned
+    try:
+        folders = json.loads((engine / "install-manifest.json").read_bytes().decode("utf-8"))["folders"]
+        return Path(folders["pool"]["real"]) / "team-lead" / "scripts"
+    except (OSError, ValueError, KeyError, TypeError):
+        return engine.parent / "skills" / "team-lead" / "scripts"
 
 
 SCRIPTS = scripts_dir()

@@ -535,6 +535,38 @@ class PendingLifecycle(Update, OptionC):
         self.assertEqual(self.parsed(self.personal)["developer_instructions"], self.guide())
         self.assertEqual(self.status(self.personal), "wired")
 
+    def test_an_unreadable_hooks_file_is_unknown_and_writes_no_key(self):
+        os.chmod(self.hook, 0)
+        result = self.install_c(self.personal)
+        text = result.stdout + result.stderr
+        self.assertIn("unknown codex: ~/.codex-personal: ~/.codex-personal/hooks.json cannot be read, "
+                      "so it adds no key", text)
+        self.assertEqual(self.status(self.personal), "unknown")
+        self.assertFalse((self.personal / "config.toml").exists())
+        os.chmod(self.hook, 0o644)
+        self.assertEqual(self.hook.read_text(), hooks("cat ~/.agents/mifal/AGENTS.md"))
+
+    def test_a_hook_made_unreadable_beside_an_owned_key_holds_it(self):
+        self.hook.unlink()
+        self.install_c(self.personal)
+        self.hook.write_text(hooks("echo hi"))
+        os.chmod(self.hook, 0o644)
+        before = snapshot(self.home)
+        # The snapshot fixture reads every file, so read access is restored around each snapshot while
+        # every install and update run sees the hook denied.
+        os.chmod(self.hook, 0)
+        for run in (lambda: self.update("--yes"), lambda: self.install(check=False)):
+            result = run()
+            text = result.stdout + result.stderr
+            self.assertEqual(result.returncode, 1, text)
+            self.assertIn("~/.codex-personal/config.toml: holds Mifal's developer_instructions key, but "
+                          "~/.codex-personal/hooks.json cannot be read, so it adds no key", text)
+            os.chmod(self.hook, 0o644)
+            self.assertEqual(snapshot(self.home), before)
+            os.chmod(self.hook, 0)
+        self.assertEqual(self.status(self.personal), "wired")
+        os.chmod(self.hook, 0o644)
+
     def test_an_unknown_home_stays_unknown_across_a_reinstall_and_an_update(self):
         self.hook.write_text("{")
         self.install_c(self.personal)
@@ -601,6 +633,22 @@ class Doctor(OptionC):
         hook.unlink()
         self.assertEqual(self.doctor(), ["WARN guide codex: ~/.codex-personal is pending, and nothing in its "
                                          "hooks stops the key now"])
+
+    def test_a_hooks_file_that_cannot_be_read_fails_per_home_and_beside_an_owned_key(self):
+        hook = self.personal / "hooks.json"
+        hook.write_text(hooks("cat ~/.agents/mifal/AGENTS.md"))
+        os.chmod(hook, 0)
+        self.install_c(self.personal)
+        self.assertEqual(self.doctor(), ["FAIL guide codex: ~/.codex-personal is unknown: ~/.codex-personal/"
+                                         "hooks.json cannot be read, so it adds no key"])
+        self.install_c()
+        hook_work = self.workhome / "hooks.json"
+        if not hook_work.exists():
+            hook_work.write_text("{}")
+        os.chmod(hook_work, 0)
+        lines = [line for line in self.doctor() if "codex-personal" not in line]
+        self.assertEqual(lines, ["FAIL guide codex: ~/.codex-work/hooks.json cannot be read, so it adds no key, "
+                                 "beside Mifal's developer_instructions key in ~/.codex-work/config.toml"])
 
     def test_an_inline_hook_never_passes_and_a_state_only_table_does(self):
         config = self.personal / "config.toml"

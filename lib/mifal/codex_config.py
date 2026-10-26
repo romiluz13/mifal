@@ -138,7 +138,12 @@ def _session_start(events, spellings):
 
 
 def _file_hooks(path: Path, spellings, show):
-    now = state(path)
+    try:
+        now = state(path)
+    except OSError:
+        # A real read denial (mode 000), not a shape problem: no state is fabricated, so nothing can be
+        # bound or authorized from a file Mifal could not read.
+        return "unknown", f"{show(path)} cannot be read, so it adds no key", None
     unknown = ("unknown", f"Mifal cannot classify {show(path)}, so it adds no key", now)
     if now == MISSING:
         return "clear", None, now
