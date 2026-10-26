@@ -81,11 +81,18 @@ def diverted(path: Path, through=()):
     return None
 
 
+def homes(data: dict):
+    """(harness, record) for every Home the Manifest records."""
+    for name, records in (data.get("harnesses") or {}).items():
+        for rec in records:
+            yield name, rec
+
+
 def linked_skill_folders(data: dict) -> set:
     """The wired agents' skills folders that are links and were never Mifal's own folders: the person's link, which
     Mifal wrote its skill links through. A recorded dir entry is a folder Mifal made, so it never counts."""
     made = {Path(e["path"]) for e in data.get("entries", []) if e["kind"] == "dir"}
-    found = {Path(r["root"]) / "skills" for r in data.get("harnesses", {}).values() if r.get("status") == "wired"}
+    found = {Path(r["root"]) / "skills" for _, r in homes(data) if r.get("status") == "wired"}
     return {f for f in found if f.is_symlink() and f not in made}
 
 
@@ -134,7 +141,12 @@ def load(h: Home):
     if not h.manifest.exists():
         return None
     raw = h.manifest.read_text(encoding="utf-8")
-    data = json.loads(raw)
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        data = None
+    if not isinstance(data, dict):
+        raise _unreadable(h, "it is not a JSON object")
     if data.get("format") != FORMAT:
         raise SystemExit(f"mifal: {h.show(h.manifest)} has format {data.get('format')!r}; this mifal reads format {FORMAT}")
     recorded = data.get("home")
@@ -145,7 +157,32 @@ def load(h: Home):
             f"mifal: {h.show(h.manifest)} belongs to the Mifal install for {recorded}, not this home ({h.real}). "
             f"Nothing was changed.\n{_link_advice(h)}"
         )
-    return data, raw
+    return migrate(h, data), raw
+
+
+def _unreadable(h: Home, why: str) -> SystemExit:
+    return SystemExit(f"mifal: the Manifest at {h.show(h.manifest)} cannot be read: {why}. Nothing was changed.")
+
+
+def migrate(h: Home, data: dict) -> dict:
+    """data with a list of Homes per Harness and a folder record per Home. Mifal 0.2.x kept one record and one folder
+    record per Harness; each is read as a one-Home list, and the next install or update writes it back that way."""
+    harnesses, folders = data.get("harnesses"), data.get("folders")
+    if harnesses is not None and not isinstance(harnesses, dict):
+        raise _unreadable(h, "its harness records are not a mapping")
+    for name, records in (harnesses or {}).items():
+        records = [records] if isinstance(records, dict) else records
+        if not isinstance(records, list) or not all(
+                isinstance(r, dict) and all(isinstance(r.get(k), str) for k in ("root", "rules", "status")) for r in records):
+            raise _unreadable(h, f"harness {name} has no usable home record")
+        harnesses[name] = records
+    if folders is not None and not (isinstance(folders, dict) and all(
+            isinstance(f, dict) and isinstance(f.get("path"), str) and isinstance(f.get("real"), str) for f in folders.values())):
+        raise _unreadable(h, "its folder records are not usable")
+    for key in [k for k in folders or {} if k.startswith("harness:") and k.count(":") == 1]:
+        record = folders.pop(key)
+        folders[f"{key}:{record['path']}"] = record
+    return data
 
 
 def same_home(recorded: str, h: Home) -> bool:

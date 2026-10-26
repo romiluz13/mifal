@@ -362,7 +362,7 @@ class OpenCode(Update):
         result = self.update("--overwrite-edits", "--yes", OPENCODE_TEST_HOME=str(moved))
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("block ~/.config/opencode/AGENTS.md", result.stdout)
-        self.assertEqual(self.manifest()["harnesses"]["opencode"]["status"], "wired")
+        self.assertEqual(self.manifest()["harnesses"]["opencode"][0]["status"], "wired")
         self.assertEqual(fallback.read_text(), "my claude rules\n")
 
 
@@ -401,7 +401,7 @@ class Skipped(Update):
         result = self.update("--overwrite-edits", "--yes")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("block ~/.config/opencode/AGENTS.md", result.stdout)
-        self.assertEqual(self.manifest()["harnesses"]["opencode"]["status"], "wired")
+        self.assertEqual(self.manifest()["harnesses"]["opencode"][0]["status"], "wired")
         self.assertEqual((self.home / ".config/opencode/AGENTS.md").read_text().count("<!-- mifal:begin "), 1)
         self.assertTrue(fallback.read_text().startswith("my claude rules\n"))
 
@@ -419,13 +419,13 @@ class Skipped(Update):
         (self.home / ".pi/agent").mkdir(parents=True)
         (self.home / ".pi/agent/CLAUDE.md").write_text("my pi rules\n")
         self.install("--harness", "claude", "--harness", "pi")
-        self.assertEqual(self.manifest()["harnesses"]["pi"]["status"], "skipped")
+        self.assertEqual(self.manifest()["harnesses"]["pi"][0]["status"], "skipped")
         self.publish(**{"skills/grilling/NOTE.md": "note\n"})
         result = self.update("--yes")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("skip pi: it reads ~/.pi/agent/CLAUDE.md now", result.stdout)
         self.assertNotIn("found pi", result.stdout)
-        self.assertEqual(self.manifest()["harnesses"]["pi"]["status"], "skipped")
+        self.assertEqual(self.manifest()["harnesses"]["pi"][0]["status"], "skipped")
         self.assertFalse((self.home / ".pi/agent/AGENTS.md").exists())
 
     def test_a_skipped_agent_is_planned_at_its_recorded_home_not_the_default_one(self):
@@ -435,7 +435,7 @@ class Skipped(Update):
         (alt / "AGENTS.override.md").write_text("my override\n")
         (self.home / ".codex").mkdir()
         self.install("--harness", "claude", "--harness", "codex", CODEX_HOME=str(alt))
-        self.assertEqual(self.manifest()["harnesses"]["codex"]["status"], "skipped")
+        self.assertEqual(self.manifest()["harnesses"]["codex"][0]["status"], "skipped")
         self.publish(**{"skills/grilling/NOTE.md": "note\n"})
         result = self.update("--yes")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)

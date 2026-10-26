@@ -46,7 +46,7 @@ class Plan:
 
     @property
     def changes_manifest(self) -> bool:
-        return bool(self.steps) or self.old is None or any(
+        return bool(self.steps) or self.old is None or json.loads(self.previous) != self.old or any(
             self.old.get(k) != self.data.get(k) for k in ("version", "home", "source", "entries", "dependencies", "harnesses", "folders"))
 
     def lines(self):
@@ -176,10 +176,11 @@ def _depth(path: Path):
     return (len(path.parts), str(path))
 
 
-def folders(h: Home, found_roots: dict, names) -> dict:
-    """Each folder Mifal writes into: its path as the user names it, and its realpath now."""
+def folders(h: Home, homes) -> dict:
+    """Each folder Mifal writes into: its path as the user names it, and its realpath now. A Home's folder is keyed by
+    its Harness and that path."""
     named = {"engine": h.home / mf.ENGINE, "pool": h.home / mf.POOL, "bin": h.home / mf.BIN}
-    named.update({"harness:" + n: found_roots[n] for n in names})
+    named.update({f"harness:{n}:{p}": p for n, p in homes})
     return {k: {"path": str(p), "real": os.path.realpath(p)} for k, p in named.items()}
 
 
@@ -228,15 +229,17 @@ def make_plan(h: Home, source: Path, version: str, overwrite_edits: bool = False
     env = os.environ if env is None else env
 
     found_roots = harness.roots(h.home, env)
-    was_wired = [n for n, r in (old or {}).get("harnesses", {}).items() if r["status"] == "wired"]
-    names = [n for n in harness.NAMES if n in set(harness.detect(h.home, env, found_roots) if selected is None else selected) | set(was_wired)]
-    now_folders = folders(h, found_roots, names)
-    plan.stops += moved_folders(h, {k: f for k, f in (old or {}).get("folders", {}).items() if k in now_folders})
+    was_wired = {n for n, r in mf.homes(old or {}) if r["status"] == "wired"}
+    names = [n for n in harness.NAMES if n in set(harness.detect(h.home, env, found_roots) if selected is None else selected) | was_wired]
+    homes = [(n, found_roots[n]) for n in names]
+    now_folders = folders(h, homes)
+    plan.stops += moved_folders(h, {k: f for k, f in (old or {}).get("folders", {}).items()
+                                    if k in now_folders or k.startswith("harness:") and k.split(":")[1] in names})
     for key, f in now_folders.items():
         if not allow_outside and not _inside(Path(f["real"]), h.real):
             plan.stops.append(f"{show(f['path'])} resolves to {f['real']}, outside your home folder. "
                               "Run with --allow-root-outside-home to write there.")
-    wirings = [harness.plan(n, h.home, env, Path(now_folders["harness:" + n]["real"]), show) for n in names]
+    wirings = [harness.plan(n, h.home, env, Path(os.path.realpath(p)), show) for n, p in homes]
     guide_text = (source / "guide" / "AGENTS.md").read_text(encoding="utf-8")
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     stash_names = itertools.count()
@@ -337,13 +340,14 @@ def make_plan(h: Home, source: Path, version: str, overwrite_edits: bool = False
 
     blocks, records = [], {}
     for w in wirings:
-        records[w.name] = {"root": str(w.root), "rules": str(w.rules), "status": "skipped" if w.skip else "wired"}
+        record = {"root": str(w.root), "rules": str(w.rules), "status": "skipped" if w.skip else "wired"}
+        records.setdefault(w.name, []).append(record)
         rec = old_blocks.get(w.rules)
         if w.skip:
             plan.notes.append(w.skip)
             if rec:
                 entries.append(rec)
-                records[w.name]["status"] = "wired"
+                record["status"] = "wired"
             continue
         new_block = harness.block(w.name, version, guide_text)
         if os.path.lexists(w.rules) and state(w.rules)[0] != "file":
@@ -480,7 +484,7 @@ def make_plan(h: Home, source: Path, version: str, overwrite_edits: bool = False
         "folders": now_folders,
     }
     blocked = {u[2] for u in plan.unwritable}
-    if not blocked & set(was_wired):
+    if not blocked & was_wired:
         plan.leave_out = [w.name for w in wirings if w.name not in blocked and not w.skip]
     return plan
 

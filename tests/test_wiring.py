@@ -61,8 +61,8 @@ class EachHarness(Wiring):
         harnesses = self.manifest()["harnesses"]
         for name, rel in RULES.items():
             with self.subTest(harness=name):
-                self.assertEqual(harnesses[name]["rules"], os.path.realpath(self.home / rel))
-                self.assertEqual(harnesses[name]["status"], "wired")
+                self.assertEqual(harnesses[name][0]["rules"], os.path.realpath(self.home / rel))
+                self.assertEqual(harnesses[name][0]["status"], "wired")
 
     def test_dry_run_lists_every_block_and_link_it_writes(self):
         self.harness_fakes(*RULES)
@@ -283,7 +283,7 @@ class Roots(Wiring):
                 root = self.home / folder
                 self.install(**{variable: str(root)})
                 self.assertEqual(len(BLOCK.findall((root / rules).read_text())), 1)
-                self.assertEqual(self.manifest()["harnesses"][name]["root"], os.path.realpath(root))
+                self.assertEqual(self.manifest()["harnesses"][name][0]["root"], os.path.realpath(root))
                 self.assertFalse((self.home / RULES[name]).exists())
                 if name == "claude":
                     self.assertTrue((root / "skills/tdd").is_symlink())

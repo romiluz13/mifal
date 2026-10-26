@@ -71,8 +71,8 @@ def recorded_env(data: dict, env, show=str):
         return env, []
     out, notes = dict(env), []
     for name, variable in VARIABLES.items():
-        rec = records.get(name)
-        if not rec or rec["status"] != "wired":
+        rec = next((r for r in records.get(name, []) if r["status"] == "wired"), None)
+        if not rec:
             out.pop(variable, None)
             continue
         shell = env.get(variable)
@@ -94,7 +94,7 @@ def unserved(home: Path, data: dict, env, show=str, unrecorded_only=False) -> li
     found = roots(home, env)
     return [f"note found {name} at {show(found[name])}, not served; run ./install.sh to add it"
             for name in detect(home, env, found)
-            if records.get(name, {}).get("status") != "wired" and not (unrecorded_only and name in records)]
+            if not any(r["status"] == "wired" for r in records.get(name, [])) and not (unrecorded_only and name in records)]
 
 
 def _binary(name, env) -> bool:

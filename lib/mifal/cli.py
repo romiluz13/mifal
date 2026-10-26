@@ -75,7 +75,7 @@ def _interrupted(h, dry_run):
     note = journal.update_note(data)
     if note:
         print(note)
-    return json.loads(data["previous"]) if data["previous"] is not None else None
+    return mf.migrate(h, json.loads(data["previous"])) if data["previous"] is not None else None
 
 
 def _refused(plan) -> bool:
@@ -133,7 +133,8 @@ def _summary(h, plan):
     for step in plan.steps:
         if step.op["op"] == "block":
             yield step.line
-    wired = [harness.TITLES[n] for n in harness.NAMES if plan.data["harnesses"].get(n, {}).get("status") == "wired"]
+    wired = [harness.TITLES[n] for n in harness.NAMES
+             if any(r["status"] == "wired" for r in plan.data["harnesses"].get(n, []))]
     yield f"Wired: {', '.join(wired) or 'none'}"
 
 

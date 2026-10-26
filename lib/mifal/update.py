@@ -13,6 +13,7 @@ from pathlib import Path
 from . import harness
 from . import install as inst
 from . import journal
+from . import manifest as mf
 
 REPO_URL = "https://github.com/romiluz13/mifal.git"
 
@@ -160,7 +161,7 @@ def _plan(h, tree, version, args, data, src, clone, head, sha, stamp):
     file stops the update, or with --overwrite-edits is backed up first."""
     records = data.get("harnesses") or {}
     env, notes = harness.recorded_env(data, os.environ, h.show)
-    for name, rec in records.items():
+    for name, rec in mf.homes(data):
         if rec["status"] != "wired" and name in harness.VARIABLES:
             env[harness.VARIABLES[name]] = rec["root"]
     notes += harness.unserved(h.home, data, os.environ, h.show, unrecorded_only=bool(records))

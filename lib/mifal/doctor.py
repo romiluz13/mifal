@@ -110,7 +110,7 @@ def doctor(h: mf.Home, env, out) -> int:
     pool_prefix = str(h.pool) + os.sep
     mifal_skills = {e["path"][len(pool_prefix):].split(os.sep, 1)[0] for e in data["entries"]
                     if e["kind"] in ("file", "symlink") and e["path"].startswith(pool_prefix)}
-    for name, rec in sorted(data.get("harnesses", {}).items()):
+    for name, rec in sorted(mf.homes(data), key=lambda home: home[0]):
         if rec["status"] != "wired":
             w = harness.plan(name, h.home, env, Path(rec["root"]), show)
             if w.skip:
@@ -203,8 +203,8 @@ def _elsewhere(r, h, data, shell):
     except harness.Refused as e:
         r.line("WARN", "agents", f"cannot look for agents or Claude homes Mifal does not serve: {e}")
         return
-    rec = (data.get("harnesses") or {}).get("claude")
-    if not rec or rec["status"] != "wired":
+    rec = next((r for r in (data.get("harnesses") or {}).get("claude", []) if r["status"] == "wired"), None)
+    if not rec:
         return
     skills = os.path.realpath(Path(rec["root"]) / "skills")
     for other in sorted(homes):

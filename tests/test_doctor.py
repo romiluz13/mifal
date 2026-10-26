@@ -116,7 +116,7 @@ class Elsewhere(Sandbox):
         self.assertNotIn("OPENCODE_CONFIG_DIR=", fix)
         self.assertNotIn("not wired yet", result.stdout)
         self.install("--overwrite-edits")
-        self.assertEqual(self.manifest()["harnesses"]["opencode"]["status"], "wired")
+        self.assertEqual(self.manifest()["harnesses"]["opencode"][0]["status"], "wired")
         self.assertRegex(self.doctor().stdout, r"(?m)^PASS guide opencode: block in ~/\.config/opencode/AGENTS\.md$")
 
     def test_the_not_served_fix_for_a_custom_recorded_root_sets_the_variable_to_reach_it(self):
