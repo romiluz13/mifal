@@ -7,6 +7,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -224,11 +225,15 @@ def _reads(home: Path, rules: Path) -> set:
         text = rules.read_text(encoding="utf-8", errors="replace")
     except OSError:
         return set()
-    found, fenced = set(), False
+    found, fence = set(), None
     for line in text.splitlines():
-        if harness.FENCE.match(line):
-            fenced = not fenced
-        elif not fenced and line.strip().startswith("@"):
+        if fence:
+            # A fence ends at a line of the same character, at least as long as the opener, and nothing else.
+            if re.fullmatch(" {0,3}" + re.escape(fence[0]) + "{%d,}[ \\t]*" % len(fence), line):
+                fence = None
+        elif opens := re.match(r" {0,3}(`{3,}(?=[^`]*$)|~{3,})", line):
+            fence = opens.group(1)
+        elif line.strip().startswith("@"):
             path = line.strip()[1:]
             path = str(home) + path[1:] if path.startswith("~/") else path
             if os.path.isabs(path):

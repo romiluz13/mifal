@@ -270,6 +270,26 @@ class Readers(Homes):
                           "note ~/.codex reads ~/.ai/AGENTS.md, not served by this install",
                           "note ~/.config/agentx reads ~/.ai/AGENTS.md, not served by this install"])
 
+    def reader_notes(self, **env):
+        doctor = self.mifal("doctor", check=False, **env)
+        self.assertNotIn("Traceback", doctor.stdout + doctor.stderr)
+        return [l for l in doctor.stdout.splitlines() if "not served by this install" in l]
+
+    def test_an_import_line_inside_a_code_fence_is_not_a_reader_whatever_the_fence_looks_like(self):
+        self.install(*self.flags())
+        fenced = {".tilde-then-ticks": "~~~\n```\n@~/.ai/AGENTS.md\n~~~\n",
+                  ".long-then-short": "````\n```\n@~/.ai/AGENTS.md\n````\n",
+                  ".ticks-then-tildes": "```\n~~~\n@~/.ai/AGENTS.md\n```\n",
+                  ".indented": "  ```\n@~/.ai/AGENTS.md\n  ```\n"}
+        live = {".after-a-fence": "```\ncode\n```\n@~/.ai/AGENTS.md\n",
+                ".after-a-long-fence": "~~~~\n~~~\n~~~~\n@~/.ai/AGENTS.md\n"}
+        for rel, text in {**fenced, **live}.items():
+            (self.home / rel).mkdir()
+            (self.home / rel / "CLAUDE.md").write_text(text)
+        self.assertEqual(self.reader_notes(),
+                         ["note ~/.after-a-fence reads ~/.ai/AGENTS.md, not served by this install",
+                          "note ~/.after-a-long-fence reads ~/.ai/AGENTS.md, not served by this install"])
+
 
 class Uninstall(Homes):
     def test_uninstall_leaves_every_home_byte_for_byte_as_before_install(self):
