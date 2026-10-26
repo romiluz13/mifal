@@ -452,5 +452,57 @@ class PendingLifecycle(Update, OptionC):
         self.assertEqual(self.manifest()["version"], "0.3.0")
 
 
+class Doctor(OptionC):
+    """Doctor claims the owned key's integrity only, and re-reads hooks.json for a pending Home."""
+
+    def doctor(self):
+        result = self.mifal("doctor", check=False)
+        self.assertNotIn(SECRET, result.stdout + result.stderr)
+        return [line for line in result.stdout.splitlines() if "guide codex" in line]
+
+    def test_a_clean_key_passes_on_integrity_alone(self):
+        (self.workhome / "config.toml").write_text(CONFIG)
+        self.install_c()
+        self.assertEqual(self.doctor(), ["PASS guide codex: Mifal's developer_instructions key in "
+                                         "~/.codex-work/config.toml, as installed"])
+
+    def test_an_edited_key_or_a_config_that_no_longer_parses_fails(self):
+        config = self.workhome / "config.toml"
+        config.write_text(CONFIG)
+        self.install_c()
+        keyed = config.read_text()
+        for name, text, line in (
+                ("edited", keyed.replace("Mifal Guide", "Mifal  Guide", 1),
+                 "FAIL guide codex: the Mifal developer_instructions key in ~/.codex-work/config.toml is missing or "
+                 "edited"),
+                ("unparseable", keyed + f'model = "{SECRET}\n',
+                 "FAIL guide codex: ~/.codex-work/config.toml is not UTF-8 TOML any more"),
+                ("removed", None, "FAIL guide codex: ~/.codex-work/config.toml is missing")):
+            with self.subTest(name=name):
+                if text is None:
+                    config.unlink()
+                else:
+                    config.write_text(text)
+                self.assertEqual(self.doctor(), [line])
+
+    def test_a_pending_home_warns_and_an_unreadable_hooks_file_fails(self):
+        hook = self.personal / "hooks.json"
+        hook.write_text(hooks("cat ~/.agents/mifal/AGENTS.md"))
+        self.install_c(self.personal)
+        self.assertEqual(self.doctor(), [f"WARN guide codex: ~/.codex-personal is pending: {REFERENCES}"])
+        hook.write_text("{")
+        self.assertEqual(self.doctor(), ["FAIL guide codex: ~/.codex-personal is pending: Mifal cannot classify "
+                                         "~/.codex-personal/hooks.json, so it adds no key"])
+        hook.unlink()
+        self.assertEqual(self.doctor(), ["WARN guide codex: ~/.codex-personal is pending, and nothing in its "
+                                         "hooks.json stops the key now"])
+
+    def test_a_hook_beside_a_clean_key_warns(self):
+        self.install_c()
+        (self.workhome / "hooks.json").write_text(hooks("cat ~/.agents/mifal/AGENTS.md"))
+        self.assertEqual(self.doctor(), ["WARN guide codex: ~/.codex-work/hooks.json has a SessionStart hook beside "
+                                         "Mifal's developer_instructions key in ~/.codex-work/config.toml"])
+
+
 if __name__ == "__main__":
     unittest.main()

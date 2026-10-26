@@ -1,6 +1,7 @@
 """mifal doctor: prove an install is healthy. Read-only: it writes nothing, uses no network, runs no harness,
 and opens no settings, token or credential file itself (`herdr status` loads Herdr's own config); it reads
-Mifal's own files and the rules files it wired."""
+Mifal's own files and the rules files it wired, and, in a Codex Home served through config.toml, only that file and
+the Home's hooks.json."""
 from __future__ import annotations
 
 import hashlib
@@ -14,6 +15,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from . import codex_config as cc
 from . import harness
 from . import herdr
 from . import manifest as mf
@@ -111,7 +113,11 @@ def doctor(h: mf.Home, env, out) -> int:
     pool_prefix = str(h.pool) + os.sep
     mifal_skills = {e["path"][len(pool_prefix):].split(os.sep, 1)[0] for e in data["entries"]
                     if e["kind"] in ("file", "symlink") and e["path"].startswith(pool_prefix)}
+    keys = {e["path"]: e for e in data["entries"] if e["kind"] == "key"}
     for name, rec in sorted(mf.homes(data), key=lambda home: home[0]):
+        if rec.get("delivery") == "config":
+            _key(r, rec, keys.get(rec["config"]), guide_sha, h)
+            continue
         if rec["status"] != "wired":
             w = harness.plan(name, h.home, env, Path(rec["root"]), show)
             if w.skip:
@@ -297,6 +303,55 @@ def _guide(r, name, rules: Path, root: Path, entry, guide_sha, h, env):
         r.line("WARN", check, f"{show(rules)} is {len(text.encode('utf-8'))} bytes, near Codex's 32 KiB default cap")
         return
     r.line("PASS", check, f"block in {show(rules)}")
+
+
+def _key(r, rec, entry, guide_sha, h):
+    """Option C: the owned block's bytes against the record, never a claim that a session loaded it, and the
+    Home's hooks.json read again as data. No config value or hook command is printed."""
+    show, check = h.show, "guide codex"
+    root, config = Path(rec["root"]), Path(rec["config"])
+    spellings = cc.SPELLED + (str(h.home / mf.ENGINE / "AGENTS.md"), str(h.engine / "AGENTS.md"))
+    status, reason, _ = cc.hooks(root, spellings, show)
+    if rec["status"] == "pending":
+        if status == "unknown":
+            r.line("FAIL", check, f"{show(root)} is pending: {reason}", f"make {show(root / 'hooks.json')} a "
+                   "regular file in the JSON shape Codex reads, then run mifal update")
+        elif status == "pending":
+            r.line("WARN", check, f"{show(root)} is pending: {reason}",
+                   "Mifal never edits your hook; once its SessionStart hooks are gone, run mifal update")
+        else:
+            r.line("WARN", check, f"{show(root)} is pending, and nothing in its hooks.json stops the key now",
+                   "run mifal update to add it")
+        return
+    if state(config) == mf.MISSING:
+        r.line("FAIL", check, f"{show(config)} is missing", f"restore it: {REINSTALL}")
+        return
+    try:
+        text = cc.read(config) if state(config)[0] == "file" else None
+        if text is not None:
+            cc.parse(text)
+    except (cc.Invalid, OSError):
+        r.line("FAIL", check, f"{show(config)} is not UTF-8 TOML any more",
+               f"fix it so Codex can read it, then {REINSTALL}")
+        return
+    found = cc.split(text, entry["sha256"]) if text is not None and entry else None
+    if found is None:
+        r.line("FAIL", check, f"the Mifal {cc.KEY} key in {show(config)} is missing or edited",
+               f"restore it: {REINSTALL}")
+        return
+    if f"guide=sha256:{guide_sha}" not in found[0].splitlines()[0]:
+        r.line("FAIL", check, f"the key in {show(config)} carries another Guide than {show(h.engine / 'AGENTS.md')}",
+               REINSTALL)
+        return
+    if status == "unknown":
+        r.line("FAIL", check, f"{reason}, beside Mifal's {cc.KEY} key in {show(config)}",
+               f"make {show(root / 'hooks.json')} a regular file in the JSON shape Codex reads")
+    elif status == "pending":
+        r.line("WARN", check, f"{show(root / 'hooks.json')} has a SessionStart hook beside Mifal's {cc.KEY} key in "
+               f"{show(config)}", "remove the hook, or run mifal uninstall to remove the key; the next install or "
+               "update holds until one of them goes")
+    else:
+        r.line("PASS", check, f"Mifal's {cc.KEY} key in {show(config)}, as installed")
 
 
 def _herdr(r, h):
