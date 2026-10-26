@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import os
 import re
+import shlex
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
@@ -77,7 +78,7 @@ def recorded_env(data: dict, env, show=str):
             shown = [show(r) for r in served]
             listed = shown[0] if len(shown) == 1 else ", ".join(shown[:-1]) + " and " + shown[-1]
             notes.append(f"note {variable} is {show(shell)}, but Mifal serves {listed}; "
-                         "to serve another home, run ./install.sh")
+                         f"to serve another home, run ./install.sh --home {shlex.quote(f'{name}={shell}')}")
     return {k: v for k, v in env.items() if k not in VARIABLES.values()}, notes
 
 

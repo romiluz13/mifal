@@ -122,6 +122,36 @@ class Install(Homes):
         self.assertEqual(self.records(), self.expected_records())
 
 
+class Reinstall(Homes):
+    def test_a_reinstall_without_home_plans_exactly_the_recorded_homes(self):
+        self.install(*self.flags())
+        (self.home / ".codex").mkdir()
+        (self.home / ".claude-stray").mkdir()
+        before = snapshot(self.home)
+        for env in ({}, {"CODEX_HOME": str(self.home / ".codex")}, {"CLAUDE_CONFIG_DIR": str(self.home / ".claude-stray")}):
+            with self.subTest(env=env):
+                result = self.install(**env)
+                self.assertIn("Nothing to change: Mifal is installed and current.", result.stdout)
+                self.assertEqual(snapshot(self.home), before)
+                self.assertEqual(self.records(), self.expected_records())
+
+    def test_a_fresh_install_without_home_serves_the_one_detected_home(self):
+        self.install()
+        self.assertEqual(self.records(), {"claude": [(str(self.claude[0]), str(self.claude[0] / "CLAUDE.md"), "wired")]})
+
+    def test_the_note_for_a_shell_variable_names_the_command_that_serves_that_home(self):
+        self.install(*self.flags())
+        other = self.home / ".codex"
+        other.mkdir()
+        doctor = self.mifal("doctor", check=False, CODEX_HOME=str(other))
+        note = ("note CODEX_HOME is ~/.codex, but Mifal serves ~/.codex-work and ~/.codex-personal; to serve another "
+                f"home, run ./install.sh --home codex={other}")
+        self.assertIn(note, doctor.stdout.splitlines())
+        self.install("--home", f"codex={other}")
+        self.assertEqual(self.records()["codex"], self.expected_records()["codex"]
+                         + [(str(other), str(other / "AGENTS.md"), "wired")])
+
+
 class Uninstall(Homes):
     def test_uninstall_leaves_every_home_byte_for_byte_as_before_install(self):
         before = snapshot(self.home)
@@ -179,7 +209,7 @@ class Updates(Layout, Update):
         (self.home / ".codex").mkdir()
         noted = self.mifal("doctor", check=False, CODEX_HOME=str(self.home / ".codex"))
         self.assertIn("note CODEX_HOME is ~/.codex, but Mifal serves ~/.codex-work and ~/.codex-personal; to serve "
-                      "another home, run ./install.sh", noted.stdout.splitlines())
+                      f"another home, run ./install.sh --home codex={self.home / '.codex'}", noted.stdout.splitlines())
 
 
 if __name__ == "__main__":
