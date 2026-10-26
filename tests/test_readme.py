@@ -15,6 +15,7 @@ README = REPO / "README.md"
 INSTALL = REPO / "docs" / "INSTALL.md"
 TRUST = REPO / "docs" / "TRUST.md"
 HARNESSES = ("claude", "codex", "droid", "pi", "opencode")
+FAMILIES = ("Claude Code", "Codex", "Droid", "Pi", "OpenCode")
 SH = re.compile(r"(?ms)^```sh\n(.*?)^```")
 URL = re.compile(r"git clone (\S+)")
 
@@ -23,31 +24,13 @@ def text(path=README):
     return path.read_text(encoding="utf-8")
 
 
-# The reviewed level of each support-matrix cell, from the recorded live check (L1, L2, L3, L4). Pinning it makes an
-# upgrade a deliberate, reviewed change to this table and the README together; it is not evidence that anything was
-# observed.
-LEVELS = {"pass", "partial", "fail", "not run"}
-PINNED_ROWS = {
-    "Claude Code 2.1.310, Sonnet 5.5": ("partial", "partial", "pass", "pass"),
-    "Claude Code 2.1.310, Opus 5.5": ("pass", "partial", "pass", "not run"),
-    "Codex 0.164.0, GPT-6.1-Sol (`codex-work` home)": ("partial", "partial", "pass", "pass"),
-    "Droid 0.249.0, GLM 5.3": ("partial", "partial", "pass", "pass"),
-    "Pi 1.4.0, Claude Sonnet 5 via GitHub Copilot (`pi -ne`)": ("partial", "fail", "pass", "pass"),
-    "OpenCode 1.19.4, GLM-5.3-Flash Free and DeepSeek V4.1 Flash Free": ("partial", "fail", "pass", "pass"),
-}
+# The recorded live check behind the Support section's limits: one Mac, one date, kept by the maintainer. Pinning it makes
+# an upgrade a deliberate, reviewed change to that claim and the README together; it is not evidence anything was observed.
+RECORDED_CHECK = "one Mac on 2026-10-25"
 
 
 def support_section(readme):
     return re.search(r"(?ms)^## Support\n(.*?)^## ", readme).group(1)
-
-
-def matrix_rows(readme):
-    """The support matrix as {agent version and model: (L1, L2, L3, L4)}."""
-    split = lambda line: [c.strip() for c in line.strip().strip("|").split("|")]
-    lines = [l for l in support_section(readme).splitlines() if l.startswith("| ")]
-    header, rows = split(lines[0]), [split(l) for l in lines[1:]]
-    assert header[0].startswith("macOS agent") and len(header) == 5, header
-    return {row[0]: tuple(row[1:]) for row in rows}
 
 
 class Readme(Sandbox):
@@ -95,27 +78,22 @@ class Readme(Sandbox):
         self.assertIn("(docs/TRUST.md)", text())
         self.assertIn("(docs/INSTALL.md)", text())
 
-    def test_the_support_matrix_pins_the_recorded_cells(self):
-        readme = text()
-        rows = matrix_rows(readme)
-        self.assertEqual(rows, PINNED_ROWS)
-        for label, levels in rows.items():
-            self.assertRegex(label, r"\d+\.\d+", label)
-            self.assertLessEqual(set(levels), LEVELS, label)
-        self.assertIn("provisional", support_section(readme))
-
-    def test_the_pin_refuses_a_cell_upgraded_in_the_readme_alone(self):
-        readme = text()
-        for old in ("| fail |", "| partial |", "| not run |"):
-            with self.subTest(old=old):
-                self.assertIn(old, readme)
-                self.assertNotEqual(matrix_rows(readme.replace(old, "| pass |", 1)), PINNED_ROWS)
+    def test_the_support_section_is_agent_agnostic_and_names_every_family(self):
+        section = support_section(text())
+        self.assertIn("agent-agnostic", section)
+        for family in FAMILIES:  # every family Mifal wires, not a per-agent results table
+            with self.subTest(family=family):
+                self.assertIn(family, section)
+        self.assertNotIn("| macOS", section)
+        self.assertIn(RECORDED_CHECK, section)
+        self.assertIn("kept by the maintainer, not in this repository", section)
 
     def test_the_support_section_states_its_limits(self):
         section = support_section(text())
-        for phrase in ("L2 is a limitation", "entry gate", "one lead, one worker, one small task",
+        for phrase in ("entry gate", "edited before asking", "not a measure of reliability",
                        "experimental", "fake agents", "invisible to `mifal doctor`", "`disabledSkills`",
-                       "`[[skills.config]]`", "`permission.skill`", "no sandbox or isolation"):
+                       "`[[skills.config]]`", "`permission.skill`", "no sandbox or isolation",
+                       "not live-checked", "never edits or runs a hook"):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, section)
 

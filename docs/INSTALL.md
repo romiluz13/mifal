@@ -52,7 +52,7 @@ Mifal never edits or runs a hook, a settings file or another tool's session-star
 
 ## Skills of your own, precedence and filters
 
-When a skill of yours and a Mifal skill share a name, which one the agent uses depends on the agent, and Mifal does not move its links to change that. As documented for the versions in the README matrix:
+When a skill of yours and a Mifal skill share a name, which one the agent uses depends on the agent, and Mifal does not move its links to change that, as documented for the versions in the recorded live check (see the README's Support section):
 
 - **Claude Code**: personal skills (`~/.claude/skills`, where Mifal's links are) win over a project's `.claude/skills` skill of the same name.
 - **Pi**: a project skill wins over `~/.pi/agent/skills`, which wins over `~/.agents/skills`; the first discovered name is kept with a warning.
