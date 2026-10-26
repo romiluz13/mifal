@@ -198,6 +198,21 @@ class Shared(Homes):
         self.mifal("uninstall")
         self.assertEqual(snapshot(self.home), before)
 
+    def test_doctor_does_not_call_a_served_home_that_shares_the_skills_folder_unserved(self):
+        (self.claude[0] / "skills").mkdir()
+        (self.claude[1] / "skills").symlink_to(self.claude[0] / "skills")
+        self.install(*self.flags(claude=self.claude, codex=[]))
+        doctor = self.mifal("doctor", check=False, CLAUDE_CONFIG_DIR=str(self.claude[1]))
+        self.assertEqual(doctor.returncode, 0, doctor.stdout)
+        self.assertNotIn("note also seen by ~/.claude-personal", doctor.stdout)
+        stray = self.home / ".claude-stray"
+        stray.mkdir()
+        (stray / "skills").symlink_to(self.claude[0] / "skills")
+        doctor = self.mifal("doctor", check=False, CLAUDE_CONFIG_DIR=str(stray))
+        self.assertEqual(doctor.returncode, 0, doctor.stdout)
+        self.assertIn("note also seen by ~/.claude-stray: it shares ~/.claude/skills, but Mifal does not serve "
+                      "~/.claude-stray", doctor.stdout)
+
 
 class Uninstall(Homes):
     def test_uninstall_leaves_every_home_byte_for_byte_as_before_install(self):

@@ -193,8 +193,8 @@ def doctor(h: mf.Home, env, out) -> int:
 
 
 def _elsewhere(r, h, data, shell):
-    """Agents found on this machine that the install does not serve, and a second Claude home that shares the
-    wired one's skills and is not served either."""
+    """Agents found on this machine that the install does not serve, and a Claude home that shares a served one's
+    skills and is not served itself."""
     show = h.show
     try:
         for line in harness.unserved(h.home, data, shell, show, unrecorded_only=True):
@@ -203,13 +203,15 @@ def _elsewhere(r, h, data, shell):
     except harness.Refused as e:
         r.line("WARN", "agents", f"cannot look for agents or Claude homes Mifal does not serve: {e}")
         return
-    rec = next((r for r in (data.get("harnesses") or {}).get("claude", []) if r["status"] == "wired"), None)
-    if not rec:
+    recs = [r for r in (data.get("harnesses") or {}).get("claude", []) if r["status"] == "wired"]
+    if not recs:
         return
-    skills = os.path.realpath(Path(rec["root"]) / "skills")
+    served = {os.path.realpath(Path(r["root"])) for r in recs}
+    shared = {os.path.realpath(Path(r["root"]) / "skills") for r in recs}
     for other in sorted(homes):
-        if os.path.realpath(other) != os.path.realpath(rec["root"]) and os.path.realpath(other / "skills") == skills:
-            r.out(f"note also seen by {show(other)}: it shares {show(skills)}, but Mifal does not serve "
+        real = os.path.realpath(other / "skills")
+        if os.path.realpath(other) not in served and real in shared:
+            r.out(f"note also seen by {show(other)}: it shares {show(real)}, but Mifal does not serve "
                   f"{show(other)}, so the Guide reaches it only if its own rules file brings it in")
 
 
