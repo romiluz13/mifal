@@ -119,12 +119,25 @@ def _references(command: str, spellings) -> bool:
     return any(re.search(r"(?<![\w./~${}-])" + re.escape(s) + r"(?![\w./-])", command) for s in spellings)
 
 
-def hooks(root: Path, spellings, show) -> tuple:
-    """(status, reason, state) of the Home's own hooks.json, read as data in the shape Codex 0.164 reads
-    (codex-rs/config/src/hook_config.rs): clear, pending or unknown. It is never run, followed or edited, and no
-    command is ever printed. Only SessionStart is inspected; any handler there that does not name the Guide is one
-    Mifal cannot classify, since it does not read scripts."""
-    path = root / "hooks.json"
+def _session_start(events, spellings):
+    """The kind of one event table in the shape both sources share: clear, reference, other or unknown. A handler that does not name the Guide is one Mifal cannot classify, since it does not read scripts."""
+    groups = events.get("SessionStart", []) if isinstance(events, dict) else None
+    if not isinstance(groups, list) or not all(isinstance(g, dict) and isinstance(g.get("hooks", []), list)
+                                               for g in groups):
+        return "unknown"
+    handlers = [x for g in groups for x in g.get("hooks", [])]
+    if not all(isinstance(x, dict) and x.get("type") in HANDLERS for x in handlers):
+        return "unknown"
+    commands = [[x.get(k) for k in ("command", "commandWindows", "command_windows")]
+                for x in handlers if x["type"] == "command"]
+    if not all(isinstance(c[0], str) and all(v is None or isinstance(v, str) for v in c[1:]) for c in commands):
+        return "unknown"
+    if any(v and _references(v, spellings) for c in commands for v in c):
+        return "reference"
+    return "other" if handlers else "clear"
+
+
+def _file_hooks(path: Path, spellings, show):
     now = state(path)
     unknown = ("unknown", f"Mifal cannot classify {show(path)}, so it adds no key", now)
     if now == MISSING:
@@ -137,23 +150,53 @@ def hooks(root: Path, spellings, show) -> tuple:
         return unknown
     if not isinstance(data, dict) or set(data) - {"description", "hooks"}:
         return unknown
-    events = data.get("hooks", {})
-    groups = events.get("SessionStart", []) if isinstance(events, dict) else None
-    if not isinstance(groups, list) or not all(isinstance(g, dict) and isinstance(g.get("hooks", []), list)
-                                               for g in groups):
+    kind = _session_start(data.get("hooks", {}), spellings)
+    if kind == "unknown":
         return unknown
-    handlers = [x for g in groups for x in g.get("hooks", [])]
-    if not all(isinstance(x, dict) and x.get("type") in HANDLERS for x in handlers):
-        return unknown
-    commands = [[x.get(k) for k in ("command", "commandWindows", "command_windows")]
-                for x in handlers if x["type"] == "command"]
-    if not all(isinstance(c[0], str) and all(v is None or isinstance(v, str) for v in c[1:]) for c in commands):
-        return unknown
-    if any(v and _references(v, spellings) for c in commands for v in c):
+    if kind == "reference":
         return "pending", REFERENCES, now
-    if handlers:
+    if kind == "other":
         return "pending", f"{show(path)}: it has a SessionStart hook Mifal cannot classify; no key was added", now
     return "clear", None, now
+
+
+def _inline_hooks(config: Path, spellings, show):
+    """The [hooks] table of config.toml, whose event tables Codex reads like hooks.json's. Its `state` map holds
+    trust records, not hooks, and is ignored. A config that cannot be read as TOML is the plan's to refuse."""
+    try:
+        if state(config)[0] != "file":
+            return "clear", None
+        table = parse(read(config)).get("hooks", {})
+    except (Invalid, OSError):
+        return "clear", None
+    unknown = ("unknown", f"Mifal cannot classify the [hooks] table in {show(config)}, so it adds no key")
+    if not isinstance(table, dict) or not isinstance(table.get("state", {}), dict):
+        return unknown
+    kind = _session_start({k: v for k, v in table.items() if k != "state"}, spellings)
+    if kind == "unknown":
+        return unknown
+    if kind == "reference":
+        return "pending", f"{show(config)}: your [hooks] SessionStart command references the Guide; no key was added"
+    if kind == "other":
+        return "pending", (f"{show(config)}: it has a [hooks] SessionStart hook Mifal cannot classify; "
+                           "no key was added")
+    return "clear", None
+
+
+def hooks(root: Path, spellings, show) -> tuple:
+    """(status, reason, state, source) of the Home's hooks, read as data in the shape Codex 0.164 reads
+    (codex-rs/config/src/hook_config.rs): hooks.json and the [hooks] table of config.toml, both treated as active
+    because the retained source lacks the loader and the official page says Codex merges them. Status is clear,
+    pending or unknown; unknown wins, and hooks.json is named first. state is hooks.json's, source the file that
+    decided. Nothing is run, followed or edited, and no command is ever printed."""
+    status, reason, now = _file_hooks(root / "hooks.json", spellings, show)
+    source = root / "hooks.json"
+    config = root / "config.toml"
+    if status != "unknown":
+        inline, why = _inline_hooks(config, spellings, show)
+        if inline == "unknown" or status == "clear" and inline != "clear":
+            status, reason, source = inline, why, config
+    return status, reason, now, source if status != "clear" else None
 
 
 @dataclass

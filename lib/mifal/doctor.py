@@ -1,7 +1,7 @@
 """mifal doctor: prove an install is healthy. Read-only: it writes nothing, uses no network, runs no harness,
 and opens no settings, token or credential file itself (`herdr status` loads Herdr's own config); it reads
 Mifal's own files and the rules files it wired, and, in a Codex Home served through config.toml, only that file and
-the Home's hooks.json."""
+the Home's hooks.json and its [hooks] table."""
 from __future__ import annotations
 
 import hashlib
@@ -307,14 +307,17 @@ def _guide(r, name, rules: Path, root: Path, entry, guide_sha, h, env):
 
 def _key(r, rec, entry, guide_sha, h):
     """Option C: the owned block's bytes against the record, never a claim that a session loaded it, and the
-    Home's hooks.json read again as data. No config value or hook command is printed."""
+    Home's hooks.json and config.toml [hooks] read again as data. No config value or hook command is printed."""
     show, check = h.show, "guide codex"
     root, config = Path(rec["root"]), Path(rec["config"])
-    status, reason, _ = cc.hooks(root, cc.spellings(h), show)
+    status, reason, _, source = cc.hooks(root, cc.spellings(h), show)
+    mend = None
+    if status == "unknown":
+        mend = (f"make {show(source)} a regular file in the JSON shape Codex reads" if source.name == "hooks.json"
+                else f"fix the [hooks] table in {show(source)} to the shape Codex reads")
     if rec["status"] in ("pending", "unknown"):
         if status == "unknown":
-            r.line("FAIL", check, f"{show(root)} is unknown: {reason}", f"make {show(root / 'hooks.json')} a "
-                   "regular file in the JSON shape Codex reads, then run mifal update")
+            r.line("FAIL", check, f"{show(root)} is unknown: {reason}", f"{mend}, then run mifal update")
         elif status == "pending":
             r.line("WARN", check, f"{show(root)} is pending: {reason}",
                    "Mifal never edits your hook; once its SessionStart hooks are gone, run mifal update")
@@ -344,9 +347,9 @@ def _key(r, rec, entry, guide_sha, h):
         return
     if status == "unknown":
         r.line("FAIL", check, f"{reason}, beside Mifal's {cc.KEY} key in {show(config)}",
-               f"make {show(root / 'hooks.json')} a regular file in the JSON shape Codex reads")
+               mend)
     elif status == "pending":
-        r.line("WARN", check, f"{show(root / 'hooks.json')} has a SessionStart hook beside Mifal's {cc.KEY} key in "
+        r.line("WARN", check, f"{show(source)} has a SessionStart hook beside Mifal's {cc.KEY} key in "
                f"{show(config)}", "remove the hook, or run mifal uninstall to remove the key; the next install or "
                "update holds until one of them goes")
     else:

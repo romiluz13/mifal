@@ -201,7 +201,7 @@ def update(h, data, args, out) -> int:
             out(f"  {line}")
         return 1
     installed = source.get("revision")
-    # A Codex Home served through config.toml is re-checked on every run, so its hooks.json can make it pending,
+    # A Codex Home served through config.toml is re-checked on every run, so its hooks can make it pending,
     # hold it, or let a pending Home get the key, even when there is no new release.
     recheck = bool(installed) and any(r.get("delivery") == "config" for _, r in mf.homes(data))
     try:

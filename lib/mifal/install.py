@@ -405,7 +405,7 @@ def make_plan(h: Home, source: Path, version: str, overwrite_edits: bool = False
                 if config in old_keys:
                     entries.append(old_keys[config])
                 continue
-            status, reason, hook_state = cc.hooks(w.root, cc.spellings(h), show)
+            status, reason, hook_state, _ = cc.hooks(w.root, cc.spellings(h), show)
             plan.bound.append((str(w.root / "hooks.json"), hook_state))
             if status != "clear":
                 if config in old_keys:

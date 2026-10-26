@@ -292,6 +292,58 @@ class Hooks(OptionC):
         self.pending(f"Mifal cannot classify {self.show(self.workhome / 'hooks.json')}, so it adds no key",
                      status="unknown")
 
+    def test_an_inline_session_start_command_naming_the_guide_is_pending_with_no_key(self):
+        for command in ("cat ~/.agents/mifal/AGENTS.md", 'cat "$HOME/.agents/mifal/AGENTS.md"',
+                        "cat ${HOME}/.agents/mifal/AGENTS.md", "cat {home}/.agents/mifal/AGENTS.md;echo"):
+            with self.subTest(command=command):
+                self.setUp()
+                config = self.inlined(inline(command.replace("{home}", str(self.home))))
+                self.pending(f"{self.show(config)}: {INLINE_REFERENCES}")
+
+    def test_an_inline_session_start_hook_mifal_cannot_classify_is_pending_with_no_key(self):
+        for name, text in (("command", inline("python3 ~/x.py")), ("prompt", inline(handler={"type": "prompt"})),
+                           ("mcp", inline(handler={"type": "mcp_tool", "server": "s", "tool": "t"}))):
+            with self.subTest(name=name):
+                self.setUp()
+                config = self.inlined(text)
+                self.pending(f"{self.show(config)}: {INLINE_UNCLASSIFIED}")
+
+    def test_inline_state_records_and_other_events_are_not_session_start_hooks(self):
+        for name, text in (("state only", '[hooks.state."/x/hooks.json:pre_tool_use:0:0"]\nenabled = true\n'),
+                           ("other event", inline("cat ~/.agents/mifal/AGENTS.md", event="PreToolUse")),
+                           ("empty session start", "[hooks]\nSessionStart = []\n")):
+            with self.subTest(name=name):
+                self.setUp()
+                self.inlined(text)
+                self.keyed()
+                self.assertIn(text, (self.workhome / "config.toml").read_text())
+
+    def test_a_malformed_inline_hooks_table_is_unknown_and_gets_no_key(self):
+        cases = {"hooks not a table": 'hooks = "x"\n', "session start a table": "[hooks.SessionStart]\nmatcher = 'x'\n",
+                 "group hooks not a list": "[[hooks.SessionStart]]\nhooks = 'x'\n",
+                 "unknown handler type": inline(handler={"type": "script", "path": "x"}),
+                 "command not a string": inline(handler={"type": "command", "command": 1}),
+                 "state not a table": '[hooks]\nstate = 1\n'}
+        for name, text in cases.items():
+            with self.subTest(name=name):
+                self.setUp()
+                config = self.inlined(text)
+                self.pending(f"Mifal cannot classify the [hooks] table in {self.show(config)}, so it adds no key",
+                             status="unknown")
+
+    def test_the_two_hook_sources_are_both_read(self):
+        hook = self.hooked(hooks("echo hi"))
+        config = self.inlined(inline("cat ~/.agents/mifal/AGENTS.md"))
+        self.pending(f"{self.show(hook)}: {UNCLASSIFIED}")
+        self.setUp()
+        self.hooked(hooks("echo hi", event="PreToolUse"))
+        config = self.inlined(inline("cat ~/.agents/mifal/AGENTS.md"))
+        self.pending(f"{self.show(config)}: {INLINE_REFERENCES}")
+        self.setUp()
+        hook = self.hooked("{")
+        self.inlined(inline("cat ~/.agents/mifal/AGENTS.md"))
+        self.pending(f"Mifal cannot classify {self.show(hook)}, so it adds no key", status="unknown")
+
     def test_a_pending_home_beside_a_clear_one_is_served_in_the_same_run_and_named_apart(self):
         self.hooked(hooks("cat ~/.agents/mifal/AGENTS.md"), self.personal)
         result = self.install_c(self.workhome, self.personal)
@@ -458,6 +510,31 @@ class PendingLifecycle(Update, OptionC):
                           f"{REFERENCES}; remove that hook", text)
             self.assertEqual(snapshot(self.home), before)
 
+    def test_an_inline_hook_added_beside_an_owned_key_holds_the_plan(self):
+        self.install_c(self.workhome)
+        config = self.workhome / "config.toml"
+        config.write_text(config.read_text() + inline("cat ~/.agents/mifal/AGENTS.md"))
+        before = snapshot(self.home)
+        for run in (lambda: self.update("--yes"), lambda: self.install(check=False)):
+            result = run()
+            text = result.stdout + result.stderr
+            self.assertEqual(result.returncode, 1, text)
+            self.assertIn("~/.codex-work/config.toml: holds Mifal's developer_instructions key, but "
+                          f"~/.codex-work/config.toml: {INLINE_REFERENCES}; remove that hook", text)
+            self.assertEqual(snapshot(self.home), before)
+
+    def test_removing_an_inline_hook_then_a_same_revision_update_writes_the_key(self):
+        self.hook.unlink()
+        config = self.personal / "config.toml"
+        config.write_text(inline("cat ~/.agents/mifal/AGENTS.md") + 'model = "x"\n')
+        self.install_c(self.personal)
+        self.assertEqual(self.status(self.personal), "pending")
+        config.write_text('model = "x"\n')
+        result = self.update("--yes")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.parsed(self.personal)["developer_instructions"], self.guide())
+        self.assertEqual(self.status(self.personal), "wired")
+
     def test_an_unknown_home_stays_unknown_across_a_reinstall_and_an_update(self):
         self.hook.write_text("{")
         self.install_c(self.personal)
@@ -524,6 +601,26 @@ class Doctor(OptionC):
         hook.unlink()
         self.assertEqual(self.doctor(), ["WARN guide codex: ~/.codex-personal is pending, and nothing in its "
                                          "hooks stops the key now"])
+
+    def test_an_inline_hook_never_passes_and_a_state_only_table_does(self):
+        config = self.personal / "config.toml"
+        config.write_text(inline("python3 ~/x.py"))
+        self.install_c(self.personal)
+        self.assertEqual(self.doctor(), [f"WARN guide codex: ~/.codex-personal is pending: "
+                                         f"~/.codex-personal/config.toml: {INLINE_UNCLASSIFIED}"])
+        config.write_text("[hooks]\nSessionStart = 1\n")
+        self.assertEqual(self.doctor(), ["FAIL guide codex: ~/.codex-personal is unknown: Mifal cannot classify the "
+                                         "[hooks] table in ~/.codex-personal/config.toml, so it adds no key"])
+        config.write_text('[hooks.state."/x/hooks.json:pre_tool_use:0:0"]\nenabled = true\n')
+        self.assertEqual(self.doctor(), ["WARN guide codex: ~/.codex-personal is pending, and nothing in its "
+                                         "hooks stops the key now"])
+
+    def test_an_inline_hook_beside_a_clean_key_warns(self):
+        self.install_c()
+        config = self.workhome / "config.toml"
+        config.write_text(config.read_text() + inline("cat ~/.agents/mifal/AGENTS.md"))
+        self.assertEqual(self.doctor(), ["WARN guide codex: ~/.codex-work/config.toml has a SessionStart hook beside "
+                                         "Mifal's developer_instructions key in ~/.codex-work/config.toml"])
 
     def test_a_hook_beside_a_clean_key_warns(self):
         self.install_c()
