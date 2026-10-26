@@ -414,8 +414,8 @@ def make_plan(h: Home, source: Path, version: str, overwrite_edits: bool = False
                     plan.held.append(plan.conflicts[-1])
                     entries.append(old_keys[config])
                 else:
-                    record.update(status="pending", reason=reason)
-                    plan.notes.append(f"pending codex: {show(w.root)}: {reason}. Mifal never edits your hook and "
+                    record.update(status=status, reason=reason)
+                    plan.notes.append(f"{status} codex: {show(w.root)}: {reason}. Mifal never edits your hook and "
                                       "checks it again on every install and update")
                 continue
             k = cc.plan(config, version, guide_exact, old_keys.get(config), show)

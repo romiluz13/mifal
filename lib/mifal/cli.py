@@ -161,10 +161,12 @@ def _summary(h, plan):
     wired = [harness.TITLES[n] for n in harness.NAMES
              if any(r["status"] == "wired" for r in plan.data["harnesses"].get(n, []))]
     yield f"Wired: {', '.join(wired) or 'none'}"
-    pending = [f"{harness.TITLES[n]} at {h.show(r['root'])}" for n in harness.NAMES
-               for r in plan.data["harnesses"].get(n, []) if r["status"] == "pending"]
-    if pending:
-        yield "Pending, not served until their hooks allow it: " + ", ".join(pending)
+    for status, label in (("pending", "Pending, not served until their hooks allow it"),
+                          ("unknown", "Unknown, not served (Mifal cannot read their hooks)")):
+        homes = [f"{harness.TITLES[n]} at {h.show(r['root'])}" for n in harness.NAMES
+                 for r in plan.data["harnesses"].get(n, []) if r["status"] == status]
+        if homes:
+            yield f"{label}: " + ", ".join(homes)
 
 
 def main(argv) -> int:

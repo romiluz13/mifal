@@ -178,8 +178,17 @@ def hooks(*commands, event="SessionStart", handler=None):
         handler or {"type": "command", "command": c, "timeout": 5} for c in commands or [None]]}]}})
 
 
+def inline(*commands, event="SessionStart", handler=None):
+    """The same hook as hooks(), written as a [hooks] table in config.toml."""
+    body = "".join(f"[[hooks.{event}.hooks]]\n" + "".join(f"{k} = {json.dumps(v)}\n" for k, v in
+                   (handler or {"type": "command", "command": c, "timeout": 5}).items()) for c in commands or [None])
+    return f'[[hooks.{event}]]\nmatcher = "startup"\n{body}'
+
+
 REFERENCES = "your SessionStart command references the Guide; no key was added"
 UNCLASSIFIED = "it has a SessionStart hook Mifal cannot classify; no key was added"
+INLINE_REFERENCES = "your [hooks] SessionStart command references the Guide; no key was added"
+INLINE_UNCLASSIFIED = "it has a [hooks] SessionStart hook Mifal cannot classify; no key was added"
 
 
 class Hooks(OptionC):
@@ -190,16 +199,25 @@ class Hooks(OptionC):
         (root / "hooks.json").write_bytes(text.encode() if isinstance(text, str) else text)
         return root / "hooks.json"
 
-    def pending(self, why, root=None):
+    def inlined(self, text, root=None):
         root = root or self.workhome
-        hook = root / "hooks.json"
+        (root / "config.toml").write_text(text)
+        return root / "config.toml"
+
+    def pending(self, why, root=None, status="pending"):
+        root = root or self.workhome
+        hook, config = root / "hooks.json", root / "config.toml"
         held = hook.read_bytes() if hook.is_file() and not hook.is_symlink() else None
+        kept = config.read_bytes() if config.exists() else None
         result = self.install_c(root)
-        self.assertFalse((root / "config.toml").exists())
-        self.assertEqual(self.record(root)["status"], "pending")
-        self.assertIn(f"pending codex: {self.show(root)}: {why}", result.stdout)
+        self.assertEqual(config.read_bytes() if config.exists() else None, kept)
+        self.assertEqual(self.record(root)["status"], status)
+        self.assertIn(f"{status} codex: {self.show(root)}: {why}", result.stdout)
         self.assertNotIn("Wired: Codex", result.stdout)
-        self.assertIn(f"Pending, not served until their hooks allow it: Codex at {self.show(root)}", result.stdout)
+        summary = {"pending": "Pending, not served until their hooks allow it",
+                   "unknown": "Unknown, not served (Mifal cannot read their hooks)"}
+        self.assertIn(f"{summary[status]}: Codex at {self.show(root)}", result.stdout)
+        self.assertNotIn(summary["pending" if status == "unknown" else "unknown"], result.stdout)
         if held is not None:
             self.assertEqual(hook.read_bytes(), held)
             for command in held.decode("utf-8", "replace").split('"command": "')[1:]:
@@ -265,13 +283,14 @@ class Hooks(OptionC):
             with self.subTest(name=name):
                 self.setUp()
                 hook = self.hooked(text)
-                self.pending(f"Mifal cannot classify {self.show(hook)}, so it adds no key")
+                self.pending(f"Mifal cannot classify {self.show(hook)}, so it adds no key", status="unknown")
 
     def test_a_linked_hooks_file_is_unknown_and_its_target_is_not_read(self):
         target = self.home / "dotfiles-hooks.json"
         target.write_text(hooks("echo hi"))
         (self.workhome / "hooks.json").symlink_to(target)
-        self.pending(f"Mifal cannot classify {self.show(self.workhome / 'hooks.json')}, so it adds no key")
+        self.pending(f"Mifal cannot classify {self.show(self.workhome / 'hooks.json')}, so it adds no key",
+                     status="unknown")
 
     def test_a_pending_home_beside_a_clear_one_is_served_in_the_same_run_and_named_apart(self):
         self.hooked(hooks("cat ~/.agents/mifal/AGENTS.md"), self.personal)
@@ -439,6 +458,15 @@ class PendingLifecycle(Update, OptionC):
                           f"{REFERENCES}; remove that hook", text)
             self.assertEqual(snapshot(self.home), before)
 
+    def test_an_unknown_home_stays_unknown_across_a_reinstall_and_an_update(self):
+        self.hook.write_text("{")
+        self.install_c(self.personal)
+        for run in (lambda: self.install(), lambda: self.update("--yes")):
+            result = run()
+            self.assertIn("unknown codex: ~/.codex-personal: Mifal cannot classify", result.stdout)
+            self.assertEqual(self.status(self.personal), "unknown")
+            self.assertNotIn("Pending, not served", result.stdout)
+
     def test_a_hook_change_during_approval_stops_the_update(self):
         self.install_c(self.workhome, self.personal)
         self.publish("a new release", VERSION="9.9.9\n")
@@ -491,11 +519,11 @@ class Doctor(OptionC):
         self.install_c(self.personal)
         self.assertEqual(self.doctor(), [f"WARN guide codex: ~/.codex-personal is pending: {REFERENCES}"])
         hook.write_text("{")
-        self.assertEqual(self.doctor(), ["FAIL guide codex: ~/.codex-personal is pending: Mifal cannot classify "
+        self.assertEqual(self.doctor(), ["FAIL guide codex: ~/.codex-personal is unknown: Mifal cannot classify "
                                          "~/.codex-personal/hooks.json, so it adds no key"])
         hook.unlink()
         self.assertEqual(self.doctor(), ["WARN guide codex: ~/.codex-personal is pending, and nothing in its "
-                                         "hooks.json stops the key now"])
+                                         "hooks stops the key now"])
 
     def test_a_hook_beside_a_clean_key_warns(self):
         self.install_c()

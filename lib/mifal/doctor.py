@@ -311,15 +311,15 @@ def _key(r, rec, entry, guide_sha, h):
     show, check = h.show, "guide codex"
     root, config = Path(rec["root"]), Path(rec["config"])
     status, reason, _ = cc.hooks(root, cc.spellings(h), show)
-    if rec["status"] == "pending":
+    if rec["status"] in ("pending", "unknown"):
         if status == "unknown":
-            r.line("FAIL", check, f"{show(root)} is pending: {reason}", f"make {show(root / 'hooks.json')} a "
+            r.line("FAIL", check, f"{show(root)} is unknown: {reason}", f"make {show(root / 'hooks.json')} a "
                    "regular file in the JSON shape Codex reads, then run mifal update")
         elif status == "pending":
             r.line("WARN", check, f"{show(root)} is pending: {reason}",
                    "Mifal never edits your hook; once its SessionStart hooks are gone, run mifal update")
         else:
-            r.line("WARN", check, f"{show(root)} is pending, and nothing in its hooks.json stops the key now",
+            r.line("WARN", check, f"{show(root)} is {rec['status']}, and nothing in its hooks stops the key now",
                    "run mifal update to add it")
         return
     if state(config) == mf.MISSING:
