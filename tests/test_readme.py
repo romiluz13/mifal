@@ -68,12 +68,13 @@ class Readme(Sandbox):
         self.assertIn("(docs/TRUST.md)", text())
         self.assertIn("(docs/INSTALL.md)", text())
 
-    def test_the_support_matrix_is_provisional_and_every_cell_untested(self):
-        matrix = re.search(r"(?ms)^## Support\n(.*?)^## ", text()).group(1)
-        rows = [line for line in matrix.splitlines() if line.startswith("| macOS")]
-        self.assertEqual(len(rows), 1)
-        self.assertEqual(rows[0].count("untested"), len(HARNESSES))
-        self.assertIn("provisional", matrix)
+    def test_the_support_section_is_agent_agnostic_and_names_every_family(self):
+        support = re.search(r"(?ms)^## Support\n(.*?)^## ", text()).group(1)
+        self.assertIn("agent-agnostic", support)
+        for family in ("Claude Code", "Codex", "Droid", "Pi", "OpenCode"):
+            self.assertIn(family, support)
+        self.assertNotIn("| macOS", support,
+                         "no per-agent results table: Mifal wires every family it detects")
 
     def test_the_readme_says_herdr_stays_and_how_to_remove_it(self):
         self.assertRegex(text(INSTALL), r"Herdr stays installed")

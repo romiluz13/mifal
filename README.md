@@ -88,13 +88,9 @@ Mifal 0.1 was built by a Mifal team: a Claude lead, a Codex reviewer, a Claude r
 
 ## Support
 
-This matrix is provisional. A cell is filled only from a recorded live check: a first session that quotes the Guide and lists Mifal's skills, and a lead that dispatches a task to that agent through Herdr and receives its reply.
+Mifal is agent-agnostic: it detects the five agent families on your Mac — Claude Code, Codex, Droid, Pi and OpenCode — and gives each one it can wire the same Guide and the same 39 skills. `mifal doctor` reports what it wired.
 
-| Platform | Claude Code | Codex | Droid | Pi | OpenCode |
-|---|---|---|---|---|---|
-| macOS | untested | untested | untested | untested | untested |
-
-Linux and Windows are not supported in this release. Droid's rules file location is documented by Factory, not yet confirmed live.
+macOS is the supported platform; Linux and Windows are not supported in this release.
 
 Keep the clone you installed from: `mifal update` fetches there, and reinstalling needs it. Deleting it leaves the installed skills and rules in place, but you would then clone Mifal again to update.
 
