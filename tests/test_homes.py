@@ -152,6 +152,28 @@ class Reinstall(Homes):
                          + [(str(other), str(other / "AGENTS.md"), "wired")])
 
 
+class Skipped(Homes):
+    """Homes the install recorded as skipped, at roots only --home names; none of the Harness is wired."""
+
+    def test_a_reinstall_keeps_a_recorded_skipped_home_and_its_folder_record(self):
+        for root in self.codex:
+            (root / "AGENTS.override.md").write_text("mine\n")
+        self.install(*self.flags())
+        self.assertEqual(self.records()["codex"],
+                         [(str(r), str(r / "AGENTS.md"), "skipped") for r in self.codex])
+        before = snapshot(self.home)
+        result = self.install()
+        self.assertIn("Nothing to change: Mifal is installed and current.", result.stdout)
+        self.assertIn("skip codex: it reads ~/.codex-personal/AGENTS.override.md", result.stdout)
+        self.assertEqual(snapshot(self.home), before)
+        self.assertEqual(self.records(), {
+            "claude": [(str(r), str(r / "CLAUDE.md"), "wired") for r in self.claude],
+            "codex": [(str(r), str(r / "AGENTS.md"), "skipped") for r in self.codex]})
+        self.assertEqual({k for k in self.manifest()["folders"] if k.startswith("harness:")},
+                         {f"harness:{n}:{r}" for n, roots in (("claude", self.claude), ("codex", self.codex))
+                          for r in roots})
+
+
 class Uninstall(Homes):
     def test_uninstall_leaves_every_home_byte_for_byte_as_before_install(self):
         before = snapshot(self.home)

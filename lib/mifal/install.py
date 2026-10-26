@@ -235,8 +235,11 @@ def make_plan(h: Home, source: Path, version: str, overwrite_edits: bool = False
     found_roots = harness.roots(h.home, env)
     was_wired = {n for n, r in mf.homes(old or {}) if r["status"] == "wired"}
     named = named or {}
+    # Every recorded Harness is planned again, even when all its Homes are skipped, so a re-install drops no Home;
+    # only uninstall drops one.
     names = [n for n in harness.NAMES
-             if n in set(harness.detect(h.home, env, found_roots) if selected is None else selected) | was_wired | set(named)]
+             if n in set(harness.detect(h.home, env, found_roots) if selected is None else selected)
+             | {n for n, _ in mf.homes(old or {})} | was_wired | set(named)]
     spelled = {(k.split(":", 2)[1], f["real"]): Path(f["path"])
                for k, f in (old or {}).get("folders", {}).items() if k.startswith("harness:")}
     homes, seen = [], set()
