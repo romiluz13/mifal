@@ -5,11 +5,13 @@ import itertools
 import os
 import json
 import re
+import shlex
 import subprocess
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
+from . import codex_config as cc
 from . import harness
 from . import manifest as mf
 from .journal import TXN
@@ -35,7 +37,9 @@ class Plan:
     steps: list = field(default_factory=list)
     pre: int = 0
     notes: list = field(default_factory=list)
+    bound: list = field(default_factory=list)
     conflicts: list = field(default_factory=list)
+    held: list = field(default_factory=list)
     stops: list = field(default_factory=list)
     unwritable: list = field(default_factory=list)
     fallbacks: list = field(default_factory=list)
@@ -46,7 +50,7 @@ class Plan:
 
     @property
     def changes_manifest(self) -> bool:
-        return bool(self.steps) or self.old is None or any(
+        return bool(self.steps) or self.old is None or json.loads(self.previous) != self.old or any(
             self.old.get(k) != self.data.get(k) for k in ("version", "home", "source", "entries", "dependencies", "harnesses", "folders"))
 
     def lines(self):
@@ -176,10 +180,11 @@ def _depth(path: Path):
     return (len(path.parts), str(path))
 
 
-def folders(h: Home, found_roots: dict, names) -> dict:
-    """Each folder Mifal writes into: its path as the user names it, and its realpath now."""
+def folders(h: Home, homes) -> dict:
+    """Each folder Mifal writes into: its path as the user names it, and its realpath now. A Home's folder is keyed by
+    its Harness and that path."""
     named = {"engine": h.home / mf.ENGINE, "pool": h.home / mf.POOL, "bin": h.home / mf.BIN}
-    named.update({"harness:" + n: found_roots[n] for n in names})
+    named.update({f"harness:{n}:{p}": p for n, p in homes})
     return {k: {"path": str(p), "real": os.path.realpath(p)} for k, p in named.items()}
 
 
@@ -213,7 +218,12 @@ def linked_folder(h: Home, folder: Path):
 
 
 def make_plan(h: Home, source: Path, version: str, overwrite_edits: bool = False, selected=None, env=None,
-              allow_outside: bool = False, source_record=None) -> Plan:
+              allow_outside: bool = False, source_record=None, named=None, linked=()) -> Plan:
+    """named: Homes by Harness, given with --home or taken from an update's records. Every recorded Home of a planned
+    Harness is planned again, so none is dropped, and with the named ones; the root the environment points at is
+    planned only for a Harness that has neither, so a re-install never adds a Home nobody named. linked: realpaths of
+    Codex Homes named with --home in this run, which option C serves when their AGENTS.md is a link; a Home recorded
+    with that delivery keeps it."""
     loaded = mf.load(h)
     old, previous = loaded if loaded else (None, None)
     if old is None and os.path.lexists(h.engine):
@@ -222,22 +232,47 @@ def make_plan(h: Home, source: Path, version: str, overwrite_edits: bool = False
         raise SystemExit("mifal: an interrupted install must be rolled back first; run the installer again.")
     owned = {Path(e["path"]): e for e in old["entries"] if e["kind"] in OWNED} if old else {}
     old_blocks = {Path(e["path"]): e for e in old["entries"] if e["kind"] == "block"} if old else {}
+    old_keys = {Path(e["path"]): e for e in old["entries"] if e["kind"] == "key"} if old else {}
+    via_config = {r["root"] for n, r in mf.homes(old or {}) if n == "codex" and r.get("delivery") == "config"}
     entries = [e for e in old["entries"] if e["kind"] in CARRIED] if old else []
     plan = Plan(h, previous=previous, old=old)
     show = h.show
     env = os.environ if env is None else env
 
     found_roots = harness.roots(h.home, env)
-    was_wired = [n for n, r in (old or {}).get("harnesses", {}).items() if r["status"] == "wired"]
-    names = [n for n in harness.NAMES if n in set(harness.detect(h.home, env, found_roots) if selected is None else selected) | set(was_wired)]
-    now_folders = folders(h, found_roots, names)
-    plan.stops += moved_folders(h, {k: f for k, f in (old or {}).get("folders", {}).items() if k in now_folders})
+    was_wired = {n for n, r in mf.homes(old or {}) if r["status"] == "wired"}
+    named = named or {}
+    # Every recorded Harness is planned again, even when all its Homes are skipped, so a re-install drops no Home;
+    # only uninstall drops one.
+    names = [n for n in harness.NAMES
+             if n in set(harness.detect(h.home, env, found_roots) if selected is None else selected)
+             | {n for n, _ in mf.homes(old or {})} | was_wired | set(named)]
+    spelled = {(k.split(":", 2)[1], f["real"]): Path(f["path"])
+               for k, f in (old or {}).get("folders", {}).items() if k.startswith("harness:")}
+    homes, seen = [], set()
+    for n in names:
+        recorded = [spelled.get((n, r["root"]), Path(r["root"])) for m, r in mf.homes(old or {}) if m == n]
+        for path in recorded + named.get(n, [] if recorded else [found_roots[n]]):
+            if (n, os.path.realpath(path)) not in seen:
+                seen.add((n, os.path.realpath(path)))
+                homes.append((n, path))
+    now_folders = folders(h, homes)
+    plan.stops += moved_folders(h, {k: f for k, f in (old or {}).get("folders", {}).items()
+                                    if k in now_folders or k.startswith("harness:") and k.split(":")[1] in names})
     for key, f in now_folders.items():
         if not allow_outside and not _inside(Path(f["real"]), h.real):
             plan.stops.append(f"{show(f['path'])} resolves to {f['real']}, outside your home folder. "
                               "Run with --allow-root-outside-home to write there.")
-    wirings = [harness.plan(n, h.home, env, Path(now_folders["harness:" + n]["real"]), show) for n in names]
+    wirings = [harness.plan(n, h.home, env, Path(os.path.realpath(p)), show) for n, p in homes]
+    skipped = {(n, r["root"]) for n, r in mf.homes(old or {}) if r["status"] == "skipped"}
+    asked = {(n, os.path.realpath(p)) for n, paths in named.items() for p in paths}
+    for w in wirings:
+        if (w.name, str(w.root)) in skipped - asked and not os.path.lexists(w.root):
+            w.skip = (f"skip {w.name}: {show(w.root)} no longer exists, so Mifal keeps it recorded as skipped and "
+                      f"writes nothing there. To serve it, run ./install.sh --home "
+                      f"{shlex.quote(f'{w.name}={w.root}')}; to drop it, run mifal uninstall.")
     guide_text = (source / "guide" / "AGENTS.md").read_text(encoding="utf-8")
+    guide_exact = mf.read_rules(source / "guide" / "AGENTS.md")
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     stash_names = itertools.count()
     files = dict(source_files(h, source))
@@ -311,7 +346,13 @@ def make_plan(h: Home, source: Path, version: str, overwrite_edits: bool = False
             conflict(path, "changed since Mifal wrote it" if entry else "exists and was not installed by Mifal")
         return "update"
 
+    # Homes can share one physical skills folder, so several spellings can reach one leaf: every leaf is
+    # claimed once, while each Home's spelling is still recorded, so coverage and uninstall ownership stay per Home.
+    seen = set()
     for unit in units:
+        if os.path.realpath(unit) in seen:
+            continue
+        seen.add(os.path.realpath(unit))
         if os.path.lexists(unit) and not any(_inside(p, unit) for p in owned):
             # With a stop (a moved folder) the unit paths no longer match the Manifest's, so none can be judged.
             if old is not None and not overwrite_edits and not plan.stops:
@@ -330,20 +371,77 @@ def make_plan(h: Home, source: Path, version: str, overwrite_edits: bool = False
         if verb:
             writes.append(Step({"op": "write", "path": str(target), "sha256": digest}, f"{verb} {show(target)}", src))
         entries.append({"kind": "file", "path": str(target), "sha256": digest})
+    seen = set()
     for path, target in [(h.link, link_target)] + sorted(skill_links.items()):
+        if os.path.realpath(path) in seen:
+            entries.append({"kind": "symlink", "path": str(path), "target": target})
+            continue
         if claim(path, ("link", target)):
+            seen.add(os.path.realpath(path))
             links.append(Step({"op": "link", "path": str(path), "target": target}, f"link {show(path)} -> {target}"))
         entries.append({"kind": "symlink", "path": str(path), "target": target})
 
-    blocks, records = [], {}
+    blocks, records, unwritable_roots = [], {}, set()
     for w in wirings:
-        records[w.name] = {"root": str(w.root), "rules": str(w.rules), "status": "skipped" if w.skip else "wired"}
+        record = {"root": str(w.root), "rules": str(w.rules), "status": "skipped" if w.skip else "wired"}
+        records.setdefault(w.name, []).append(record)
         rec = old_blocks.get(w.rules)
+        config = w.root / "config.toml"
+        via_key = w.name == "codex" and (str(w.root) in via_config
+                                         or str(w.root) in linked and w.rules.is_symlink())
+        if via_key:
+            record.update(delivery="config", config=str(config))
         if w.skip:
             plan.notes.append(w.skip)
-            if rec:
-                entries.append(rec)
-                records[w.name]["status"] = "wired"
+            if rec or config in old_keys:
+                entries.append(rec or old_keys[config])
+                record["status"] = "wired"
+            continue
+        if via_key:
+            if not w.rules.is_symlink():
+                plan.conflicts.append(f"{show(w.rules)}: is no longer a link, and Mifal serves this Home through "
+                                      f"{show(config)}; run mifal uninstall, then install again")
+                plan.held.append(plan.conflicts[-1])
+                if config in old_keys:
+                    entries.append(old_keys[config])
+                continue
+            status, reason, hook_state, _ = cc.hooks(w.root, cc.spellings(h), show)
+            plan.bound.append((str(w.root / "hooks.json"), hook_state))
+            if status != "clear":
+                if config in old_keys:
+                    plan.conflicts.append(f"{show(config)}: holds Mifal's {cc.KEY} key, but {reason}; remove that "
+                                          "hook, or run mifal uninstall to remove the key, then run again")
+                    plan.held.append(plan.conflicts[-1])
+                    entries.append(old_keys[config])
+                else:
+                    record.update(status=status, reason=reason)
+                    plan.notes.append(f"{status} codex: {show(w.root)}: {reason}. Mifal never edits your hook and "
+                                      "checks it again on every install and update")
+                continue
+            k = cc.plan(config, version, guide_exact, old_keys.get(config), show)
+            plan.bound += k.bound
+            if k.conflict:
+                plan.conflicts.append(k.conflict)
+                plan.held.append(k.conflict)
+            if k.keep:
+                entries.append(old_keys[config])
+            if k.text is None:
+                continue
+            entry = dict(old_keys.get(config) or {"kind": "key", "path": str(config), "created": k.created,
+                                                   "backup": None, "backup_sha256": None})
+            if k.before is not None and entry["backup"] is None:
+                dest = h.under(h.engine / "backup" / stamp, config)
+                moves.append(Step({"op": "copy", "from": str(config), "to": str(dest), "why": "backup",
+                                   "private": True}, f"backup {show(config)} -> {show(dest)}"))
+                entry.update(backup=str(dest), backup_sha256=cc.digest(k.before))
+            entry["sha256"] = cc.digest(k.block)
+            copy = str(h.engine / TXN / str(next(stash_names))) if k.before is not None else None
+            blocks.append(Step({"op": "check", "path": str(w.root / "hooks.json"), "state": list(hook_state)}))
+            blocks.append(Step({"op": "key", "path": str(config), "sha256": cc.digest(k.text),
+                                "before": cc.digest(k.before) if k.before is not None else None, "copy": copy},
+                               f"{'update' if config in old_keys else 'key'} {show(config)}: {cc.KEY}",
+                               content=k.text))
+            entries.append(entry)
             continue
         new_block = harness.block(w.name, version, guide_text)
         if os.path.lexists(w.rules) and state(w.rules)[0] != "file":
@@ -358,6 +456,7 @@ def make_plan(h: Home, source: Path, version: str, overwrite_edits: bool = False
                 why = "is not a regular file"
             plan.conflicts.append(where + why)
             plan.unwritable.append((where + why, kind[0], w.name, dest if kind[0] == "link" else None))
+            unwritable_roots.add(w.root)
             continue
         if w.warn:
             if old is None or overwrite_edits:
@@ -390,9 +489,13 @@ def make_plan(h: Home, source: Path, version: str, overwrite_edits: bool = False
                 sep = "" if not text else ("\n" if text.endswith("\n") else "\n\n")
             created = True if text is None else created
             new_text, verb = (text or "") + sep + new_block, "block"
-        if w.name == "codex" and len(new_text.encode("utf-8")) > harness.CODEX_CAP:
-            plan.notes.append(f"warn codex: {show(w.rules)} would be {len(new_text.encode('utf-8'))} bytes with the "
-                              "Guide, past Codex's 32 KiB default cap, so Codex may cut it short.")
+        size = len(new_text.encode("utf-8"))
+        if size > harness.CODEX_CAP:
+            plan.stops.append(f"{show(w.rules)} would be {size} bytes with Mifal's block, past the 32 KiB "
+                              f"({harness.CODEX_CAP} bytes) that Codex reads. Shorten it, then run again.")
+            continue
+        if size >= 0.9 * harness.CODEX_CAP:
+            plan.notes.append(f"warn {w.name}: {show(w.rules)} would be {size} bytes, near Codex's 32 KiB default cap")
         if text is not None:
             copy = str(h.engine / TXN / str(next(stash_names)))
         blocks.append(Step({"op": "block", "path": str(w.rules), "sha256": harness.digest(new_text),
@@ -480,8 +583,13 @@ def make_plan(h: Home, source: Path, version: str, overwrite_edits: bool = False
         "folders": now_folders,
     }
     blocked = {u[2] for u in plan.unwritable}
-    if not blocked & set(was_wired):
-        plan.leave_out = [w.name for w in wirings if w.name not in blocked and not w.skip]
+    if not blocked & was_wired:
+        # A Harness named with --home can leave out just its refused Home; any other is left out whole, as before.
+        kept = [(n, path) for (n, path), w in zip(homes, wirings) if not w.skip and
+                (w.root not in unwritable_roots if n in named else n not in blocked)]
+        for name in dict.fromkeys(n for n, _ in kept):
+            plan.leave_out += ["--harness", name] + [word for n, path in kept if n == name and n in named
+                                                     for word in ("--home", shlex.quote(f"{n}={path}"))]
     return plan
 
 
@@ -504,5 +612,6 @@ def unwritable_advice(plan, can_leave_out: bool) -> list:
     else:
         lines[0] += "."
     if can_leave_out and plan.leave_out:
-        lines.append("Or wire only the other agents: ./install.sh " + " ".join(f"--harness {n}" for n in plan.leave_out))
+        others = "Homes" if "--home" in plan.leave_out else "agents"
+        lines.append(f"Or wire only the other {others}: ./install.sh " + " ".join(plan.leave_out))
     return lines

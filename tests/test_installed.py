@@ -70,7 +70,7 @@ class InstalledLicences(Sandbox):
         self.install()
         engine = self.home / ".agents/mifal"
         source = self.clone / "third_party"
-        self.assertEqual(len(self.tree(source)), 8)
+        self.assertEqual(len(self.tree(source)), 15)
         self.assertEqual(self.tree(engine / "third_party"), self.tree(source))
         self.assertEqual((engine / "NOTICE").read_bytes(), (self.clone / "NOTICE").read_bytes())
         for name in ("IMPECCABLE-LICENSE", "LOTTIEFILES-LICENSE"):

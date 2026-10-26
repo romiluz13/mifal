@@ -543,6 +543,19 @@
       ],
       "licence_file": "third_party/licenses/herdr.txt",
       "copyright": "not stated upstream"
+    },
+    {
+      "name": "tomli",
+      "repo": "hukkin/tomli",
+      "licence": "MIT",
+      "revision": "2.4.1, pip's vendored copy; no upstream commit recorded",
+      "version": "2.4.1",
+      "paths": [
+        "third_party/tomli/*"
+      ],
+      "notes": "The TOML parser the engine reads a Codex Home's config.toml with. Copied unmodified from this machine's pip _vendor, which vendors tomli 2.4.1; no network was used.",
+      "licence_file": "third_party/licenses/tomli.txt",
+      "copyright": "Copyright (c) 2021 Taneli Hukkinen"
     }
   ]
 }

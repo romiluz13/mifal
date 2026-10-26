@@ -3,7 +3,7 @@
 import json
 import unittest
 
-from support import MANIFEST, snapshot
+from support import MANIFEST, changed, snapshot
 from test_update import Update
 
 NEW_SKILL = {"skills/newskill/SKILL.md": "---\nname: newskill\ndescription: x\n---\nBody\n"}
@@ -77,7 +77,7 @@ class Skipped(Recorded):
         return super().install(*args, **kw)
 
     def test_a_skipped_agent_whose_skip_no_longer_holds_is_wired_by_the_update(self):
-        self.assertEqual(self.manifest()["harnesses"]["codex"]["status"], "skipped")
+        self.assertEqual(self.manifest()["harnesses"]["codex"][0]["status"], "skipped")
         self.publish("add a skill", **NEW_SKILL)
         (self.home / ".codex/AGENTS.override.md").unlink()
         result = self.update("--yes")
@@ -85,7 +85,7 @@ class Skipped(Recorded):
         self.assertIn("block ~/.codex/AGENTS.md", result.stdout.splitlines())
         self.assertNotIn("not served", result.stdout)
         self.assertEqual((self.home / ".codex/AGENTS.md").read_text().count("<!-- mifal:begin "), 1)
-        self.assertEqual(self.manifest()["harnesses"]["codex"]["status"], "wired")
+        self.assertEqual(self.manifest()["harnesses"]["codex"][0]["status"], "wired")
 
 
 class Absent(Recorded):
@@ -151,6 +151,94 @@ class Advice(Recorded):
         self.assertEqual(result.returncode, 1, result.stdout)
         self.assertIn("changed since Mifal wrote it", result.stdout)
         self.assertIn("mifal update --overwrite-edits", result.stdout)
+
+
+class ZeroTwo(Recorded):
+    """A Manifest as Mifal 0.2.x wrote it: one record and one folder record per Harness."""
+
+    wire = ("claude", "codex")
+
+    def write_0_2(self):
+        alt, codex = str(self.alt), str(self.home / ".codex")
+        self.homes = {"claude": {"root": alt, "rules": alt + "/CLAUDE.md", "status": "wired"},
+                      "codex": {"root": codex, "rules": codex + "/AGENTS.md", "status": "wired"}}
+        data = self.manifest()
+        data["harnesses"] = self.homes
+        data["folders"] = {k: f for k, f in data["folders"].items() if not k.startswith("harness:")}
+        data["folders"].update({"harness:claude": {"path": alt, "real": alt}, "harness:codex": {"path": codex, "real": codex}})
+        (self.home / MANIFEST).write_text(json.dumps(data, indent=2, sort_keys=True) + "\n")
+
+    def test_an_update_reads_each_record_as_a_one_home_list_and_writes_the_new_shape(self):
+        self.write_0_2()
+        self.publish("add a skill", **NEW_SKILL)
+        self.assert_served(self.update("--yes"))
+        data = self.manifest()
+        self.assertEqual(data["harnesses"], {name: [rec] for name, rec in self.homes.items()})
+        self.assertEqual({k: f for k, f in data["folders"].items() if k.startswith("harness:")},
+                         {f"harness:{name}:{rec['root']}": {"path": rec["root"], "real": rec["root"]}
+                          for name, rec in self.homes.items()})
+
+    def test_an_up_to_date_update_writes_the_migrated_manifest_and_nothing_else(self):
+        self.write_0_2()
+        before = snapshot(self.home)
+        result = self.update("--yes")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("up to date", result.stdout)
+        data = self.manifest()
+        self.assertEqual(data["harnesses"], {name: [rec] for name, rec in self.homes.items()})
+        self.assertEqual({k: f for k, f in data["folders"].items() if k.startswith("harness:")},
+                         {f"harness:{name}:{rec['root']}": {"path": rec["root"], "real": rec["root"]}
+                          for name, rec in self.homes.items()})
+        self.assertEqual(changed(before, snapshot(self.home)), {MANIFEST})
+
+    def test_an_update_that_already_includes_the_newest_release_writes_the_migrated_manifest(self):
+        self.write_0_2()
+        self.publish("add a note", **{"skills/grilling/NOTE.md": "note\n"})
+        self.update("--yes")
+        self.write_0_2()
+        before = snapshot(self.home)
+        self.git(self.work, "tag", "v0.3.0", self.old)
+        self.git(self.work, "push", "-q", "origin", "v0.3.0")
+        result = self.update("--yes")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("the installed revision already includes release v0.3.0", result.stdout)
+        data = self.manifest()
+        self.assertEqual(data["harnesses"], {name: [rec] for name, rec in self.homes.items()})
+        self.assertEqual({k: f for k, f in data["folders"].items() if k.startswith("harness:")},
+                         {f"harness:{name}:{rec['root']}": {"path": rec["root"], "real": rec["root"]}
+                          for name, rec in self.homes.items()})
+        self.assertEqual(changed(before, snapshot(self.home)), {MANIFEST})
+
+    def test_an_install_writes_the_new_shape_back_even_with_nothing_else_to_change(self):
+        self.write_0_2()
+        result = self.install()
+        self.assertIn("update ~/.agents/mifal/install-manifest.json", result.stdout.splitlines())
+        self.assertEqual(self.manifest()["harnesses"], {name: [rec] for name, rec in self.homes.items()})
+
+    def test_uninstall_reads_the_migrated_folder_records(self):
+        self.write_0_2()
+        moved = self.home / "moved-claude"
+        self.alt.rename(moved)
+        self.alt.symlink_to(moved)
+        before = snapshot(self.home)
+        result = self.mifal("uninstall", check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("~/.claude-alt now resolves to ~/moved-claude", result.stdout)
+        self.assertEqual(snapshot(self.home), before)
+
+    def test_a_manifest_that_cannot_be_read_stops_the_update_with_nothing_written(self):
+        data = self.manifest()
+        data["harnesses"] = {"claude": "not a home"}
+        (self.home / MANIFEST).write_text(json.dumps(data, indent=2, sort_keys=True) + "\n")
+        self.publish("add a skill", **NEW_SKILL)
+        before, head = snapshot(self.home), self.head()
+        result = self.update("--yes")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("mifal: the Manifest at ~/.agents/mifal/install-manifest.json cannot be read: harness claude "
+                      "has no usable home record. Nothing was changed.", result.stdout + result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+        self.assertEqual(snapshot(self.home), before)
+        self.assertEqual(self.head(), head)
 
 
 if __name__ == "__main__":

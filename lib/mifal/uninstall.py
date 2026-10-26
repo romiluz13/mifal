@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from . import codex_config as cc
 from . import harness
 from .herdr import removal_hint
 from .install import moved_folders
@@ -37,6 +38,8 @@ def uninstall(h: Home, data: dict, fs: Fs) -> int:
     for e in entries:
         if e["kind"] == "block":
             _remove_block(h, e, fs, kept)
+        elif e["kind"] == "key":
+            _remove_key(h, e, fs, kept)
 
     for e in entries:
         if e["kind"] not in ("file", "symlink"):
@@ -79,6 +82,33 @@ def _remove_empty(h, dirs, fs):
     for path in dirs:
         if fs.state(path) == ("dir",) and fs.empty(path):
             fs.remove(path, f"remove {h.show(path)}")
+
+
+def _remove_key(h, e, fs, kept):
+    """Remove Mifal's developer_instructions block from a Codex config.toml when it is exactly as installed, keeping
+    every other byte, and its backup with it; an edited block stays, and so does the backup."""
+    path, backup = Path(e["path"]), Path(e["backup"]) if e["backup"] else None
+    where = f"the Mifal {cc.KEY} key in {h.show(path)}"
+    yours = f"; your copy from before install is {h.show(backup)}" if backup and fs.exists(backup) else ""
+    if not fs.exists(path):
+        if yours:
+            kept.append(f"kept {h.show(backup)}: {h.show(path)} is gone, and this is your copy from before install")
+        return
+    try:
+        found = cc.split(cc.read(path), e["sha256"]) if state(path)[0] == "file" else None
+    except (cc.Invalid, OSError):
+        found = None
+    if found is None:
+        kept.append(f"kept {where}: changed since install{yours}")
+        return
+    if found[1] == "" and e["created"]:
+        fs.remove(path, f"remove {h.show(path)}")
+    else:
+        fs.out(f"remove {where.replace(' in ', ' from ', 1)}")
+        if not fs.dry_run:
+            write_text(path, found[1])
+    if backup and fs.state(backup) == ("file", e["backup_sha256"]):
+        fs.remove(backup, f"remove {h.show(backup)}")
 
 
 def _remove_block(h, e, fs, kept):

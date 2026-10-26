@@ -34,6 +34,9 @@ def _parser():
                    help="save a copy of each file you changed since Mifal wrote it, then replace it")
     i.add_argument("--harness", action="append", choices=harness.NAMES, metavar="NAME",
                    help="wire only this harness (repeatable): " + ", ".join(harness.NAMES))
+    i.add_argument("--home", action="append", metavar="NAME=PATH",
+                   help="serve this Home of a harness (repeatable); for a harness named here, only its named Homes "
+                        "are served")
     i.add_argument("--allow-root-outside-home", action="store_true",
                    help="write into a folder whose realpath lies outside your home folder")
     u = sub.add_parser("uninstall", help="remove everything the install wrote and restore what it displaced")
@@ -75,7 +78,7 @@ def _interrupted(h, dry_run):
     note = journal.update_note(data)
     if note:
         print(note)
-    return json.loads(data["previous"]) if data["previous"] is not None else None
+    return mf.migrate(h, json.loads(data["previous"])) if data["previous"] is not None else None
 
 
 def _refused(plan) -> bool:
@@ -84,12 +87,12 @@ def _refused(plan) -> bool:
     for line in plan.stops:
         print(line)
     if plan.conflicts:
-        hard = {line for line, *_ in plan.unwritable}
+        hard = {line for line, *_ in plan.unwritable} | set(plan.held)
         held = {line for line, *_ in plan.fallbacks}
         soft = [line for line in plan.conflicts if line not in hard and line not in held]
         if soft or hard:
             print("These paths changed since Mifal wrote them, or are not Mifal's:" if soft else
-                  "Mifal cannot write these rules files:")
+                  "Mifal cannot write these rules files:" if plan.unwritable else "Mifal cannot write these files:")
         for line in plan.conflicts:
             print(f"  {line}" if line not in held else line)
         if plan.unwritable:
@@ -103,10 +106,32 @@ def _refused(plan) -> bool:
     return True
 
 
-def _plan(h, args):
+def _named(h, values):
+    """The Homes given with --home NAME=PATH, by Harness, or None after saying why one cannot be used."""
+    named = {}
+    for value in values or []:
+        name, sep, path = value.partition("=")
+        if path == "~" or path.startswith("~/"):
+            path = str(h.home) + path[1:]
+        if not sep:
+            why = "write it as NAME=PATH, such as codex=$HOME/.codex-work"
+        elif name not in harness.NAMES:
+            why = "NAME must be one of " + ", ".join(harness.NAMES)
+        elif not os.path.isabs(path):
+            why = f"PATH must be absolute, such as {name}=$HOME/.{name}-work"
+        else:
+            named.setdefault(name, []).append(Path(path))
+            continue
+        print(f"mifal: --home {value}: {why}. Nothing was written.")
+        return None
+    return named
+
+
+def _plan(h, args, named):
     try:
         return inst.make_plan(h, ROOT, version(), args.overwrite_edits, args.harness, os.environ,
-                              args.allow_root_outside_home)
+                              args.allow_root_outside_home, named=named,
+                              linked={os.path.realpath(p) for p in named.get("codex", [])})
     except harness.Refused as e:
         print(e)
         return None
@@ -133,8 +158,15 @@ def _summary(h, plan):
     for step in plan.steps:
         if step.op["op"] == "block":
             yield step.line
-    wired = [harness.TITLES[n] for n in harness.NAMES if plan.data["harnesses"].get(n, {}).get("status") == "wired"]
+    wired = [harness.TITLES[n] for n in harness.NAMES
+             if any(r["status"] == "wired" for r in plan.data["harnesses"].get(n, []))]
     yield f"Wired: {', '.join(wired) or 'none'}"
+    for status, label in (("pending", "Pending, not served until their hooks allow it"),
+                          ("unknown", "Unknown, not served (Mifal cannot read their hooks)")):
+        homes = [f"{harness.TITLES[n]} at {h.show(r['root'])}" for n in harness.NAMES
+                 for r in plan.data["harnesses"].get(n, []) if r["status"] == status]
+        if homes:
+            yield f"{label}: " + ", ".join(homes)
 
 
 def main(argv) -> int:
@@ -166,6 +198,9 @@ def main(argv) -> int:
     if not ((ROOT / "skills").is_dir() and (ROOT / "install.sh").is_file()):
         print("mifal: install runs from a Mifal clone; run ./install.sh there.")
         return 1
+    named = _named(h, args.home)
+    if named is None:
+        return 1
     refusal = inst.refuse_older_clone(h, ROOT)
     if refusal:
         print(refusal)
@@ -183,7 +218,7 @@ def main(argv) -> int:
             return 1
         if input("Rolled back. Continue with the install? [y/N] ").strip().lower() not in ("y", "yes"):
             return 1
-    plan = _plan(h, args)
+    plan = _plan(h, args, named)
     if plan is None or _refused(plan):
         return 1
     record = herdr.ensure(args.herdr_script, args.dry_run, _out, _err,
@@ -191,7 +226,7 @@ def main(argv) -> int:
     if record is None:
         return 1
     if not args.dry_run:
-        plan = _plan(h, args)
+        plan = _plan(h, args, named)
         if plan is None or _refused(plan):
             return 1
         plan.data["dependencies"] = dict(plan.data["dependencies"], herdr=record)

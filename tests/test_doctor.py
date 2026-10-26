@@ -1,4 +1,5 @@
 import json
+import os
 import re
 import shutil
 import unittest
@@ -110,13 +111,17 @@ class Elsewhere(Sandbox):
         result = self.doctor()
         self.assertRegex(result.stdout, r"(?m)^WARN guide opencode: found at ~/\.config/opencode, not served$")
         fix = re.search(r"(?m)^     fix: (.+)$", result.stdout.split("WARN guide opencode", 1)[1]).group(1)
-        self.assertIn("./install.sh --overwrite-edits", fix)
+        self.assertIn(" --overwrite-edits in your Mifal clone", fix)
         self.assertIn("OpenCode then reads ~/.config/opencode/AGENTS.md, not ~/.claude/CLAUDE.md", fix)
-        self.assertTrue(fix.startswith("run ./install.sh --overwrite-edits in your Mifal clone; "), fix)
+        self.assertTrue(fix.startswith(f"run ./install.sh --home opencode={root} --overwrite-edits in your Mifal "
+                                       "clone; "), fix)
         self.assertNotIn("OPENCODE_CONFIG_DIR=", fix)
         self.assertNotIn("not wired yet", result.stdout)
         self.install("--overwrite-edits")
-        self.assertEqual(self.manifest()["harnesses"]["opencode"]["status"], "wired")
+        self.assertEqual(self.manifest()["harnesses"]["opencode"][0]["status"], "skipped")
+        self.assertFalse(os.path.lexists(root))
+        self.install("--home", f"opencode={root}", "--overwrite-edits")
+        self.assertEqual(self.manifest()["harnesses"]["opencode"][0]["status"], "wired")
         self.assertRegex(self.doctor().stdout, r"(?m)^PASS guide opencode: block in ~/\.config/opencode/AGENTS\.md$")
 
     def test_the_not_served_fix_for_a_custom_recorded_root_sets_the_variable_to_reach_it(self):
@@ -133,7 +138,7 @@ class Elsewhere(Sandbox):
         self.assertRegex(result.stdout, r"(?m)^WARN guide opencode: found at ~/alt-opencode, not served$")
         fix = re.search(r"(?m)^     fix: (.+)$", result.stdout.split("WARN guide opencode", 1)[1]).group(1)
         self.assertTrue(fix.startswith(
-            "run OPENCODE_CONFIG_DIR=" + root + " ./install.sh --overwrite-edits in your Mifal clone; "), fix)
+            "run ./install.sh --home opencode=" + root + " --overwrite-edits in your Mifal clone; "), fix)
         self.assertIn("OpenCode then reads ~/alt-opencode/AGENTS.md, not ~/.claude/CLAUDE.md", fix)
 
     def test_a_detected_agent_is_listed_when_the_install_served_none(self):
@@ -355,7 +360,7 @@ class Completeness(test_update.Update):
         self.assertEqual(len(self.engine_lines(result)), 1, result.stdout)
         lines = result.stdout.splitlines()
         at = next(i for i, line in enumerate(lines) if line.startswith("WARN engine"))
-        self.assertIn("9 file(s)", lines[at])
+        self.assertIn("16 file(s)", lines[at])
         self.assertEqual(lines[at + 1].strip(), "fix: run mifal update")
         self.assertEqual(snapshot(self.home), before)
 

@@ -92,10 +92,19 @@ def _do(step, tmp: Path) -> None:
     elif kind == "write":
         path = Path(op["path"])
         mf.replace_file(path, Path(step.src).read_bytes(), mf.mode_of(Path(step.src)), tmp)
+    elif kind == "check":
+        if list(state(Path(op["path"]))) != op["state"]:
+            raise RuntimeError(f"{op['path']} changed after Mifal read it")
+    elif kind == "copy" and op.get("private"):
+        fd = os.open(op["to"], os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        with os.fdopen(fd, "wb") as f:
+            f.write(Path(op["from"]).read_bytes())
     elif kind == "copy":
         shutil.copy2(op["from"], op["to"])
-    elif kind == "block":
+    elif kind in ("block", "key"):
         path = Path(op["path"])
+        if kind == "key" and state(path) != (("file", op["before"]) if op["before"] else MISSING):
+            raise RuntimeError(f"{path} changed after Mifal read it")
         if op["copy"]:
             shutil.copy2(path, op["copy"])
         mf.replace_file(path, step.content.encode("utf-8"), mf.mode_of(path), tmp)
@@ -186,6 +195,8 @@ def rollback(h, journal: dict, fs: Fs) -> None:
 
 def _undo(h, op: dict, fs: Fs, through=()) -> None:
     kind = op["op"]
+    if kind == "check":
+        return
     touched = [Path(op[k]) for k in ("path", "from", "to") if k in op]
     link = next((d for d in (mf.diverted(t, through) for t in touched) if d), None)
     if link:
@@ -206,7 +217,7 @@ def _undo(h, op: dict, fs: Fs, through=()) -> None:
             fs.remove(dst)
         return
     path = Path(op["path"])
-    if kind == "block":
+    if kind in ("block", "key"):
         _undo_block(h, op, path, fs)
         return
     if kind == "rmdir":

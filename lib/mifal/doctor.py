@@ -1,18 +1,21 @@
 """mifal doctor: prove an install is healthy. Read-only: it writes nothing, uses no network, runs no harness,
 and opens no settings, token or credential file itself (`herdr status` loads Herdr's own config); it reads
-Mifal's own files and the rules files it wired."""
+Mifal's own files and the rules files it wired, and, in a Codex Home served through config.toml, only that file and
+the Home's hooks.json and its [hooks] table."""
 from __future__ import annotations
 
 import hashlib
 import importlib.util
 import json
 import os
+import re
 import shlex
 import shutil
 import subprocess
 import sys
 from pathlib import Path
 
+from . import codex_config as cc
 from . import harness
 from . import herdr
 from . import manifest as mf
@@ -110,7 +113,11 @@ def doctor(h: mf.Home, env, out) -> int:
     pool_prefix = str(h.pool) + os.sep
     mifal_skills = {e["path"][len(pool_prefix):].split(os.sep, 1)[0] for e in data["entries"]
                     if e["kind"] in ("file", "symlink") and e["path"].startswith(pool_prefix)}
-    for name, rec in sorted(data.get("harnesses", {}).items()):
+    keys = {e["path"]: e for e in data["entries"] if e["kind"] == "key"}
+    for name, rec in sorted(mf.homes(data), key=lambda home: home[0]):
+        if rec.get("delivery") == "config":
+            _key(r, rec, keys.get(rec["config"]), guide_sha, h)
+            continue
         if rec["status"] != "wired":
             w = harness.plan(name, h.home, env, Path(rec["root"]), show)
             if w.skip:
@@ -119,7 +126,9 @@ def doctor(h: mf.Home, env, out) -> int:
             else:
                 # The fix runs in a shell where the variable may be unset, so the command names the recorded root itself.
                 variable = harness.VARIABLES.get(name)
-                if variable and Path(rec["root"]) != harness.roots(
+                if not os.path.lexists(rec["root"]):
+                    run = f"run ./install.sh --home {shlex.quote(name + '=' + rec['root'])}"
+                elif variable and Path(rec["root"]) != harness.roots(
                         h.home, {k: v for k, v in env.items() if k != variable})[name]:
                     run = f"run {variable}={shlex.quote(str(rec['root']))} ./install.sh"
                 else:
@@ -153,6 +162,7 @@ def doctor(h: mf.Home, env, out) -> int:
                        f"linked into {show(root / 'skills')}, so Claude Code does not see them: " + ", ".join(yours[:5]),
                        f"ln -s {show(h.pool)}/{yours[0]} {show(root / 'skills')}/{yours[0]}")
     _elsewhere(r, h, data, shell)
+    _readers(r, h, data, shell)
 
     try:
         path, validator = _validator(h)
@@ -193,8 +203,8 @@ def doctor(h: mf.Home, env, out) -> int:
 
 
 def _elsewhere(r, h, data, shell):
-    """Agents found on this machine that the install does not serve, and a second Claude home that shares the
-    wired one's skills and is not served either."""
+    """Agents found on this machine that the install does not serve, and a Claude home that shares a served one's
+    skills and is not served itself."""
     show = h.show
     try:
         for line in harness.unserved(h.home, data, shell, show, unrecorded_only=True):
@@ -203,14 +213,72 @@ def _elsewhere(r, h, data, shell):
     except harness.Refused as e:
         r.line("WARN", "agents", f"cannot look for agents or Claude homes Mifal does not serve: {e}")
         return
-    rec = (data.get("harnesses") or {}).get("claude")
-    if not rec or rec["status"] != "wired":
+    recs = [r for r in (data.get("harnesses") or {}).get("claude", []) if r["status"] == "wired"]
+    if not recs:
         return
-    skills = os.path.realpath(Path(rec["root"]) / "skills")
+    served = {os.path.realpath(Path(r["root"])) for r in recs}
+    shared = {os.path.realpath(Path(r["root"]) / "skills") for r in recs}
     for other in sorted(homes):
-        if os.path.realpath(other) != os.path.realpath(rec["root"]) and os.path.realpath(other / "skills") == skills:
-            r.out(f"note also seen by {show(other)}: it shares {show(skills)}, but Mifal does not serve "
+        real = os.path.realpath(other / "skills")
+        if os.path.realpath(other) not in served and real in shared:
+            r.out(f"note also seen by {show(other)}: it shares {show(real)}, but Mifal does not serve "
                   f"{show(other)}, so the Guide reaches it only if its own rules file brings it in")
+
+
+def _reads(home: Path, rules: Path) -> set:
+    """The realpaths a rules file brings in: its link target, or each whole `@PATH` line outside a code fence."""
+    if rules.is_symlink():
+        return {os.path.realpath(rules)}
+    try:
+        text = rules.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return set()
+    found, fence = set(), None
+    for line in text.splitlines():
+        if fence:
+            # A fence ends at a line of the same character, at least as long as the opener, and nothing else.
+            if re.fullmatch(" {0,3}" + re.escape(fence[0]) + "{%d,}[ \\t]*" % len(fence), line):
+                fence = None
+        elif opens := re.match(r" {0,3}(`{3,}(?=[^`]*$)|~{3,})", line):
+            fence = opens.group(1)
+        elif line.strip().startswith("@"):
+            path = line.strip()[1:]
+            path = str(home) + path[1:] if path.startswith("~/") else path
+            if os.path.isabs(path):
+                found.add(os.path.realpath(path))
+    return found
+
+
+def _readers(r, h, data, shell):
+    """One note per folder directly under HOME or the XDG config folder, served by no recorded Home, whose rules file
+    reads a shared file a recorded Home reads. Only AGENTS.md and CLAUDE.md files are opened."""
+    recorded = [rec for _, rec in mf.homes(data)]
+    served = {os.path.realpath(rec["root"]) for rec in recorded}
+    shared = set().union(*(_reads(h.home, Path(rec["rules"])) for rec in recorded))
+    shared.discard(os.path.realpath(h.engine / "AGENTS.md"))
+    if not shared:
+        return
+    bases = [h.home]
+    try:
+        bases.append(harness.config_home(h.home, shell))
+    except harness.Refused:
+        pass
+    seen = set()
+    for base in bases:
+        folders = sorted(p for p in base.iterdir() if p.is_dir()) if base.is_dir() else []
+        for folder in folders:
+            if os.path.realpath(folder) in served:
+                continue
+            reads = set()
+            for name in ("AGENTS.md", "CLAUDE.md"):
+                rules = folder / name
+                if rules.is_symlink() or rules.is_file() and os.path.realpath(rules) not in shared:
+                    reads |= _reads(h.home, rules) & shared
+            for path in sorted(reads):
+                if (os.path.realpath(folder), path) in seen:
+                    continue
+                seen.add((os.path.realpath(folder), path))
+                r.out(f"note {h.show(folder)} reads {h.show(path)}, not served by this install")
 
 
 def _guide(r, name, rules: Path, root: Path, entry, guide_sha, h, env):
@@ -235,6 +303,57 @@ def _guide(r, name, rules: Path, root: Path, entry, guide_sha, h, env):
         r.line("WARN", check, f"{show(rules)} is {len(text.encode('utf-8'))} bytes, near Codex's 32 KiB default cap")
         return
     r.line("PASS", check, f"block in {show(rules)}")
+
+
+def _key(r, rec, entry, guide_sha, h):
+    """Option C: the owned block's bytes against the record, never a claim that a session loaded it, and the
+    Home's hooks.json and config.toml [hooks] read again as data. No config value or hook command is printed."""
+    show, check = h.show, "guide codex"
+    root, config = Path(rec["root"]), Path(rec["config"])
+    status, reason, _, source = cc.hooks(root, cc.spellings(h), show)
+    mend = None
+    if status == "unknown":
+        mend = (f"make {show(source)} a regular file in the JSON shape Codex reads" if source.name == "hooks.json"
+                else f"fix the [hooks] table in {show(source)} to the shape Codex reads")
+    if rec["status"] in ("pending", "unknown"):
+        if status == "unknown":
+            r.line("FAIL", check, f"{show(root)} is unknown: {reason}", f"{mend}, then run mifal update")
+        elif status == "pending":
+            r.line("WARN", check, f"{show(root)} is pending: {reason}",
+                   "Mifal never edits your hook; once its SessionStart hooks are gone, run mifal update")
+        else:
+            r.line("WARN", check, f"{show(root)} is {rec['status']}, and nothing in its hooks stops the key now",
+                   "run mifal update to add it")
+        return
+    if state(config) == mf.MISSING:
+        r.line("FAIL", check, f"{show(config)} is missing", f"restore it: {REINSTALL}")
+        return
+    try:
+        text = cc.read(config) if state(config)[0] == "file" else None
+        if text is not None:
+            cc.parse(text)
+    except (cc.Invalid, OSError):
+        r.line("FAIL", check, f"{show(config)} is not UTF-8 TOML any more",
+               f"fix it so Codex can read it, then {REINSTALL}")
+        return
+    found = cc.split(text, entry["sha256"]) if text is not None and entry else None
+    if found is None:
+        r.line("FAIL", check, f"the Mifal {cc.KEY} key in {show(config)} is missing or edited",
+               f"restore it: {REINSTALL}")
+        return
+    if f"guide=sha256:{guide_sha}" not in found[0].splitlines()[0]:
+        r.line("FAIL", check, f"the key in {show(config)} carries another Guide than {show(h.engine / 'AGENTS.md')}",
+               REINSTALL)
+        return
+    if status == "unknown":
+        r.line("FAIL", check, f"{reason}, beside Mifal's {cc.KEY} key in {show(config)}",
+               mend)
+    elif status == "pending":
+        r.line("WARN", check, f"{show(source)} has a SessionStart hook beside Mifal's {cc.KEY} key in "
+               f"{show(config)}", "remove the hook, or run mifal uninstall to remove the key; the next install or "
+               "update holds until one of them goes")
+    else:
+        r.line("PASS", check, f"Mifal's {cc.KEY} key in {show(config)}, as installed")
 
 
 def _herdr(r, h):

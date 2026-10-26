@@ -2,7 +2,7 @@ Mifal
 Copyright (c) 2026 Rom Iluz and the Mifal contributors. Licensed under the MIT
 License (LICENSE).
 
-Mifal vendors skills and guidance from the projects below. Each keeps its own
+Mifal vendors skills, guidance and code from the projects below. Each keeps its own
 licence; the full texts are in third_party/licenses/ and in
 skills/frontend-design/references/interface/licenses/. The exact upstream
 commit, folder tree and the files Mifal changed for every vendored skill are
@@ -26,6 +26,8 @@ recorded in third_party/provenance.json.
   contributors. Its upstream NOTICE.md is kept in third_party/licenses/.
 - LottieFiles motion-design 1.0.0 (github.com/LottieFiles/motion-design-skill):
   guidance adapted into the same appendix. MIT, Copyright (c) 2025 LottieFiles.
+- tomli 2.4.1 (github.com/hukkin/tomli): the TOML parser the engine reads a Codex
+  Home's config.toml with, unmodified. MIT, Copyright (c) 2021 Taneli Hukkinen.
 
 Changes Mifal made to vendored skills: a self-improvement section appended to
 each SKILL.md; invocation blockers removed so every skill is model-invoked;
