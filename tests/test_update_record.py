@@ -3,7 +3,7 @@
 import json
 import unittest
 
-from support import MANIFEST, snapshot
+from support import MANIFEST, changed, snapshot
 from test_update import Update
 
 NEW_SKILL = {"skills/newskill/SKILL.md": "---\nname: newskill\ndescription: x\n---\nBody\n"}
@@ -177,6 +177,37 @@ class ZeroTwo(Recorded):
         self.assertEqual({k: f for k, f in data["folders"].items() if k.startswith("harness:")},
                          {f"harness:{name}:{rec['root']}": {"path": rec["root"], "real": rec["root"]}
                           for name, rec in self.homes.items()})
+
+    def test_an_up_to_date_update_writes_the_migrated_manifest_and_nothing_else(self):
+        self.write_0_2()
+        before = snapshot(self.home)
+        result = self.update("--yes")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("up to date", result.stdout)
+        data = self.manifest()
+        self.assertEqual(data["harnesses"], {name: [rec] for name, rec in self.homes.items()})
+        self.assertEqual({k: f for k, f in data["folders"].items() if k.startswith("harness:")},
+                         {f"harness:{name}:{rec['root']}": {"path": rec["root"], "real": rec["root"]}
+                          for name, rec in self.homes.items()})
+        self.assertEqual(changed(before, snapshot(self.home)), {MANIFEST})
+
+    def test_an_update_that_already_includes_the_newest_release_writes_the_migrated_manifest(self):
+        self.write_0_2()
+        self.publish("add a note", **{"skills/grilling/NOTE.md": "note\n"})
+        self.update("--yes")
+        self.write_0_2()
+        before = snapshot(self.home)
+        self.git(self.work, "tag", "v0.3.0", self.old)
+        self.git(self.work, "push", "-q", "origin", "v0.3.0")
+        result = self.update("--yes")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("the installed revision already includes release v0.3.0", result.stdout)
+        data = self.manifest()
+        self.assertEqual(data["harnesses"], {name: [rec] for name, rec in self.homes.items()})
+        self.assertEqual({k: f for k, f in data["folders"].items() if k.startswith("harness:")},
+                         {f"harness:{name}:{rec['root']}": {"path": rec["root"], "real": rec["root"]}
+                          for name, rec in self.homes.items()})
+        self.assertEqual(changed(before, snapshot(self.home)), {MANIFEST})
 
     def test_an_install_writes_the_new_shape_back_even_with_nothing_else_to_change(self):
         self.write_0_2()

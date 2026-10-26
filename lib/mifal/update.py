@@ -1,6 +1,7 @@
 """mifal update: fetch in the recorded clone, preview the incoming revision, then install exactly that tree."""
 from __future__ import annotations
 
+import json
 import os
 import re
 import subprocess
@@ -178,6 +179,17 @@ def _plan(h, tree, version, args, data, src, clone, head, sha, stamp):
     return plan, notes
 
 
+def _persist_migrated(h, data, out) -> None:
+    """Write the Manifest back in the shape this mifal writes, and nothing else. An up-to-date update that changes
+    nothing else still owes a Mifal 0.2.x Manifest the new shape (plan D1): a list of Homes per Harness and a folder
+    record per Home. A Manifest already in that shape gets no write."""
+    on_disk = json.loads(h.manifest.read_text(encoding="utf-8"))
+    if on_disk == data:
+        return
+    mf.save(h, data)
+    out(f"update {h.show(h.manifest)}")
+
+
 def update(h, data, args, out) -> int:
     source = data.get("source") or {}
     clone = Path(source["path"]) if source.get("path") else None
@@ -190,6 +202,7 @@ def update(h, data, args, out) -> int:
         clone, upstream, sha, head = candidate(source, getattr(args, "branch", False))
     except Current as e:
         out(f"Mifal is up to date: the installed revision already includes {e}.")
+        _persist_migrated(h, data, out)
         return 0
     except Refused as e:
         out(f"mifal: {e}")
@@ -203,6 +216,7 @@ def update(h, data, args, out) -> int:
             pass
         if not missing:
             out(f"Mifal is up to date at {sha[:12]} ({upstream}).")
+            _persist_migrated(h, data, out)
             return 0
     with tempfile.TemporaryDirectory(prefix="mifal-update-") as temp:
         export(clone, sha, Path(temp))
