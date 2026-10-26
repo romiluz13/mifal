@@ -290,6 +290,13 @@ class Readers(Homes):
                          ["note ~/.after-a-fence reads ~/.ai/AGENTS.md, not served by this install",
                           "note ~/.after-a-long-fence reads ~/.ai/AGENTS.md, not served by this install"])
 
+    def test_a_reader_reached_through_two_overlapping_scan_roots_is_named_once(self):
+        self.install(*self.flags())
+        (self.home / ".other").mkdir()
+        (self.home / ".other/AGENTS.md").symlink_to(self.home / ".ai/AGENTS.md")
+        self.assertEqual(self.reader_notes(XDG_CONFIG_HOME=str(self.home)),
+                         ["note ~/.other reads ~/.ai/AGENTS.md, not served by this install"])
+
 
 class Uninstall(Homes):
     def test_uninstall_leaves_every_home_byte_for_byte_as_before_install(self):

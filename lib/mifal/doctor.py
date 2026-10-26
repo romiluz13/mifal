@@ -255,6 +255,7 @@ def _readers(r, h, data, shell):
         bases.append(harness.config_home(h.home, shell))
     except harness.Refused:
         pass
+    seen = set()
     for base in bases:
         folders = sorted(p for p in base.iterdir() if p.is_dir()) if base.is_dir() else []
         for folder in folders:
@@ -266,6 +267,9 @@ def _readers(r, h, data, shell):
                 if rules.is_symlink() or rules.is_file() and os.path.realpath(rules) not in shared:
                     reads |= _reads(h.home, rules) & shared
             for path in sorted(reads):
+                if (os.path.realpath(folder), path) in seen:
+                    continue
+                seen.add((os.path.realpath(folder), path))
                 r.out(f"note {h.show(folder)} reads {h.show(path)}, not served by this install")
 
 
