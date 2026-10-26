@@ -259,6 +259,7 @@ def make_plan(h: Home, source: Path, version: str, overwrite_edits: bool = False
     wirings = [harness.plan(n, h.home, env, Path(os.path.realpath(p)), show) for n, p in homes]
     skipped = {(n, r["root"]) for n, r in mf.homes(old or {}) if r["status"] == "skipped"}
     asked = {(n, os.path.realpath(p)) for n, paths in named.items() for p in paths}
+    asked |= {(n, os.path.realpath(p)) for n, p in found_roots.items()}
     for w in wirings:
         if (w.name, str(w.root)) in skipped - asked and not os.path.lexists(w.root):
             w.skip = (f"skip {w.name}: {show(w.root)} no longer exists, so Mifal keeps it recorded as skipped and "
