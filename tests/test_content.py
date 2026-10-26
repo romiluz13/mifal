@@ -317,6 +317,14 @@ class Closure(unittest.TestCase):
                     found.append(f"{rel}: {name}")
         self.assertEqual(found, [])
 
+    def test_every_shipped_role_names_only_shipped_skills(self):
+        found = []
+        for path in sorted((REPO / "skills/team-lead/roles").glob("*/role.json")):
+            for name in json.loads(path.read_text(encoding="utf-8")).get("skills", []):
+                if name not in SHIPPED:
+                    found.append(f"{path.relative_to(REPO)}: {name}")
+        self.assertEqual(found, [])
+
     def test_every_relative_link_resolves(self):
         broken = []
         for rel in prose():

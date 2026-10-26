@@ -3,7 +3,7 @@
   "summary": "Reviews changes against standards and spec; finds high-confidence, actionable problems and reports them with severity. Does not fix. Typical latitude is look.",
   "defaultLatitude": "look",
   "kind": "review",
-  "skills": ["code-review", "security-review", "receiving-code-review"],
+  "skills": ["code-review", "receiving-code-review"],
   "toolsExpected": ["git diff/log", "file read/search"],
   "toolsCheck": "python3 stewardship/steward.py ledger show",
   "readFirst": [
