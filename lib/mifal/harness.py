@@ -62,25 +62,23 @@ VARIABLES = {"claude": "CLAUDE_CONFIG_DIR", "codex": "CODEX_HOME", "pi": "PI_COD
 
 
 def recorded_env(data: dict, env, show=str):
-    """(env, notes): the environment an update or a doctor run uses, so it serves the homes the install recorded.
-
-    Each wired agent's variable is set to its recorded root and the variables of the other agents are removed. A
-    manifest without a harness record passes env unchanged. A variable the shell set to another home is noted."""
+    """(env, notes): the environment an update or a doctor run uses beside the recorded Homes, which it reaches by
+    their recorded roots. The agents' root variables are removed, so the shell's cannot add or move a Home. A
+    manifest without a harness record passes env unchanged. A variable the shell set to a Home Mifal does not serve
+    is noted."""
     records = data.get("harnesses") or {}
     if not records:
         return env, []
-    out, notes = dict(env), []
+    notes = []
     for name, variable in VARIABLES.items():
-        rec = next((r for r in records.get(name, []) if r["status"] == "wired"), None)
-        if not rec:
-            out.pop(variable, None)
-            continue
+        served = [r["root"] for r in records.get(name, []) if r["status"] == "wired"]
         shell = env.get(variable)
-        if shell and os.path.realpath(shell) != os.path.realpath(rec["root"]):
-            notes.append(f"note {variable} is {show(shell)}, but Mifal serves {show(rec['root'])}; "
+        if served and shell and os.path.realpath(shell) not in {os.path.realpath(r) for r in served}:
+            shown = [show(r) for r in served]
+            listed = shown[0] if len(shown) == 1 else ", ".join(shown[:-1]) + " and " + shown[-1]
+            notes.append(f"note {variable} is {show(shell)}, but Mifal serves {listed}; "
                          "to serve another home, run ./install.sh")
-        out[variable] = rec["root"]
-    return out, notes
+    return {k: v for k, v in env.items() if k not in VARIABLES.values()}, notes
 
 
 def unserved(home: Path, data: dict, env, show=str, unrecorded_only=False) -> list:

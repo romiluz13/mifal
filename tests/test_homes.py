@@ -1,9 +1,11 @@
 """Several Homes per Harness, named with --home NAME=PATH, in a disposable HOME that mirrors a real multi-Home layout."""
 
+import hashlib
 import os
 import unittest
 
 from support import Sandbox, snapshot
+from test_update import Update
 
 SHARED = "my shared rules\n"
 CLAUDE_RULES = "@~/.ai/AGENTS.md\n"
@@ -127,6 +129,57 @@ class Uninstall(Homes):
         self.assertNotEqual(snapshot(self.home), before)
         self.mifal("uninstall")
         self.assertEqual(snapshot(self.home), before)
+
+
+class Updates(Layout, Update):
+    """The four Homes installed from a clone with an origin, so a release can follow."""
+
+    def install(self, *args, **kw):
+        if not hasattr(self, "claude"):
+            self.lay_out()
+        return super().install(*self.flags(), *args, **kw)
+
+    def test_an_update_moves_all_four_homes_to_the_new_release_in_one_run(self):
+        guide = (self.work / "guide/AGENTS.md").read_text() + "A line the next release adds.\n"
+        self.publish("a new Guide and a skill", **{"guide/AGENTS.md": guide,
+                                                   "skills/newskill/SKILL.md": "---\nname: newskill\ndescription: x\n---\n"})
+        result = self.update("--yes", CODEX_HOME=str(self.codex[1]))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        lines = result.stdout.splitlines()
+        stamp = "guide=sha256:" + hashlib.sha256(guide.encode()).hexdigest()
+        for root, rules in [(r, "CLAUDE.md") for r in self.claude] + [(r, "AGENTS.md") for r in self.codex]:
+            with self.subTest(home=root.name):
+                self.assertIn(f"update ~/{root.name}/{rules}", lines)
+                self.assertIn(stamp, (root / rules).read_text())
+        for root in self.claude:
+            self.assertTrue((root / "skills/newskill").is_symlink())
+        self.assertNotIn("note CODEX_HOME", result.stdout)
+        self.assertEqual(self.records(), self.expected_records())
+
+    def test_doctor_prints_one_line_per_home_and_fails_only_the_home_whose_block_was_removed(self):
+        doctor = self.mifal("doctor", check=False)
+        lines = doctor.stdout.splitlines()
+        for root in self.claude:
+            self.assertIn(f"PASS guide claude: block in ~/{root.name}/CLAUDE.md", lines)
+            self.assertTrue(any(l.startswith("PASS skills claude: ") and l.endswith(f" links in ~/{root.name}/skills")
+                                for l in lines), lines)
+        for root in self.codex:
+            self.assertIn(f"PASS guide codex: block in ~/{root.name}/AGENTS.md", lines)
+        (self.codex[1] / "AGENTS.md").write_text(CODEX_RULES)
+        doctor = self.mifal("doctor", check=False)
+        lines = doctor.stdout.splitlines()
+        self.assertEqual(doctor.returncode, 1, doctor.stdout)
+        self.assertEqual([l for l in lines if l.startswith("FAIL")],
+                         ["FAIL guide codex: the Mifal block in ~/.codex-personal/AGENTS.md is missing or edited"])
+        self.assertIn("PASS guide codex: block in ~/.codex-work/AGENTS.md", lines)
+
+    def test_a_shell_variable_names_a_served_home_quietly_and_another_home_with_a_note(self):
+        quiet = self.mifal("doctor", check=False, CODEX_HOME=str(self.codex[1]))
+        self.assertNotIn("note CODEX_HOME", quiet.stdout)
+        (self.home / ".codex").mkdir()
+        noted = self.mifal("doctor", check=False, CODEX_HOME=str(self.home / ".codex"))
+        self.assertIn("note CODEX_HOME is ~/.codex, but Mifal serves ~/.codex-work and ~/.codex-personal; to serve "
+                      "another home, run ./install.sh", noted.stdout.splitlines())
 
 
 if __name__ == "__main__":

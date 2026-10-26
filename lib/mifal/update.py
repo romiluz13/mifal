@@ -155,18 +155,18 @@ def _back_up(plan, path, stamp):
 
 
 def _plan(h, tree, version, args, data, src, clone, head, sha, stamp):
-    """The plan for installing tree into the recorded homes. Every agent the Manifest records, wired or skipped, is
+    """The plan for installing tree into the recorded Homes. Every Home the Manifest records, wired or skipped, is
     planned again at its recorded root, so a skip that no longer holds is wired (or stops on its conflict) and one
     that still holds stays skipped with its note. A git-ignored file in the clone where the release adds a tracked
     file stops the update, or with --overwrite-edits is backed up first."""
     records = data.get("harnesses") or {}
     env, notes = harness.recorded_env(data, os.environ, h.show)
-    for name, rec in mf.homes(data):
-        if rec["status"] != "wired" and name in harness.VARIABLES:
-            env[harness.VARIABLES[name]] = rec["root"]
     notes += harness.unserved(h.home, data, os.environ, h.show, unrecorded_only=bool(records))
+    homes = {}
+    for name, rec in mf.homes(data):
+        homes.setdefault(name, []).append(Path(rec["root"]))
     plan = inst.make_plan(h, tree, version, args.overwrite_edits, list(records) if records else None, env,
-                          source_record=src)
+                          source_record=src, named=homes)
     for name, rec in records.items():
         plan.data["harnesses"].setdefault(name, rec)
     for path in ignored_collisions(clone, head, sha):

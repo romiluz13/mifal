@@ -216,8 +216,8 @@ def linked_folder(h: Home, folder: Path):
 
 def make_plan(h: Home, source: Path, version: str, overwrite_edits: bool = False, selected=None, env=None,
               allow_outside: bool = False, source_record=None, named=None) -> Plan:
-    """named: the Homes given with --home, by Harness; for a Harness named there, they replace the detected root.
-    Every recorded Home of a planned Harness is planned again, so a re-install never drops one."""
+    """named: Homes by Harness, given with --home or taken from an update's records; for a Harness named there, they
+    replace the detected root. Every recorded Home of a planned Harness is planned again, so none is dropped."""
     loaded = mf.load(h)
     old, previous = loaded if loaded else (None, None)
     if old is None and os.path.lexists(h.engine):
