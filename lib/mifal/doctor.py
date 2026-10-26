@@ -310,8 +310,7 @@ def _key(r, rec, entry, guide_sha, h):
     Home's hooks.json read again as data. No config value or hook command is printed."""
     show, check = h.show, "guide codex"
     root, config = Path(rec["root"]), Path(rec["config"])
-    spellings = cc.SPELLED + (str(h.home / mf.ENGINE / "AGENTS.md"), str(h.engine / "AGENTS.md"))
-    status, reason, _ = cc.hooks(root, spellings, show)
+    status, reason, _ = cc.hooks(root, cc.spellings(h), show)
     if rec["status"] == "pending":
         if status == "unknown":
             r.line("FAIL", check, f"{show(root)} is pending: {reason}", f"make {show(root / 'hooks.json')} a "

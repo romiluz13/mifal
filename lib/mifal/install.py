@@ -273,7 +273,6 @@ def make_plan(h: Home, source: Path, version: str, overwrite_edits: bool = False
                       f"{shlex.quote(f'{w.name}={w.root}')}; to drop it, run mifal uninstall.")
     guide_text = (source / "guide" / "AGENTS.md").read_text(encoding="utf-8")
     guide_exact = mf.read_rules(source / "guide" / "AGENTS.md")
-    spellings = cc.SPELLED + (str(h.home / mf.ENGINE / "AGENTS.md"), str(h.engine / "AGENTS.md"))
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     stash_names = itertools.count()
     files = dict(source_files(h, source))
@@ -406,7 +405,7 @@ def make_plan(h: Home, source: Path, version: str, overwrite_edits: bool = False
                 if config in old_keys:
                     entries.append(old_keys[config])
                 continue
-            status, reason, hook_state = cc.hooks(w.root, spellings, show)
+            status, reason, hook_state = cc.hooks(w.root, cc.spellings(h), show)
             plan.bound.append((str(w.root / "hooks.json"), hook_state))
             if status != "clear":
                 if config in old_keys:

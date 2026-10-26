@@ -110,6 +110,11 @@ def split(text: str, recorded: str):
     return text[:cut], text[cut:]
 
 
+def spellings(h) -> tuple:
+    """The ways a hook command can name the installed Guide: through ~ or $HOME, the HOME path, or its realpath."""
+    return SPELLED + (str(h.home / ".agents/mifal/AGENTS.md"), str(h.engine / "AGENTS.md"))
+
+
 def _references(command: str, spellings) -> bool:
     return any(re.search(r"(?<![\w./~${}-])" + re.escape(s) + r"(?![\w./-])", command) for s in spellings)
 
