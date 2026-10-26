@@ -5,6 +5,7 @@ from support import Sandbox
 
 SCRIPTS = ".agents/skills/team-lead/scripts"
 FIXTURES = SCRIPTS + "/fixtures"
+ADAPTER = ".agents/mifal/tools/herdr_adapter"
 
 
 class InstalledValidator(Sandbox):
@@ -40,6 +41,22 @@ class InstalledValidator(Sandbox):
         self.assertNotEqual(refused.returncode, 0)
         self.assertNotIn("Traceback", refused.stderr)
 
+    def imports_installed(self, *modules):
+        """Import the installed adapter modules in a fresh interpreter; import-time wiring only."""
+        return self.run_cmd("python3", "-B", "-c",
+                            "import sys; sys.path.insert(0, sys.argv[1]); import " + ", ".join(modules),
+                            str(self.home / ADAPTER))
+
+    def test_the_installed_adapter_imports_lead_wake_preflight_and_resume(self):
+        result = self.imports_installed("lead", "wake", "preflight", "resume")
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_installed_lead_resolves_the_pool_scripts(self):
+        result = self.run_cmd("python3", "-B", "-c",
+                              "import sys; sys.path.insert(0, sys.argv[1]); import lead; print(lead.SCRIPTS)",
+                              str(self.home / ADAPTER))
+        self.assertEqual(result.stdout.strip(), str(self.home / SCRIPTS))
+
 
 class InstalledLicences(Sandbox):
     """The licences and provenance travel with the install: the clone can go and they stay, byte for byte."""
@@ -62,6 +79,16 @@ class InstalledLicences(Sandbox):
         self.mifal("uninstall")
         self.assertFalse((engine / "NOTICE").exists())
         self.assertFalse((engine / "third_party").exists())
+
+
+class CloneAdapter(Sandbox):
+    """In a clone, lead.py still resolves the repository's own skills folder."""
+
+    def test_clone_lead_resolves_the_repository_scripts(self):
+        result = self.run_cmd("python3", "-B", "-c",
+                              "import sys; sys.path.insert(0, sys.argv[1]); import lead; print(lead.SCRIPTS)",
+                              str(self.clone / "tools/herdr_adapter"))
+        self.assertEqual(result.stdout.strip(), str(self.clone / "skills/team-lead/scripts"))
 
 
 if __name__ == "__main__":

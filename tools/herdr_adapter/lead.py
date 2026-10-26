@@ -25,7 +25,18 @@ from adapter import (Client, Parser, Refusal, dispatch, durable_write, identifie
 from event_loop import watch
 
 
-SCRIPTS = Path(__file__).resolve().parents[2] / "skills/team-lead/scripts"
+def scripts_dir():
+    """Where the team-lead scripts live. In a clone, this file sits at <repo>/tools/herdr_adapter and the
+    scripts are the repository's skills/team-lead/scripts. Installed, it sits at <home>/.agents/mifal/
+    tools/herdr_adapter (the engine), and the scripts live in the Pool the installer writes beside the
+    engine: <home>/.agents/skills (lib/mifal/manifest.py: ENGINE ".agents/mifal", POOL ".agents/skills").
+    Derived from this file's own location; no home is hardcoded."""
+    engine = Path(__file__).resolve().parents[2]
+    cloned = engine / "skills" / "team-lead" / "scripts"
+    return cloned if cloned.is_dir() else engine.parent / "skills" / "team-lead" / "scripts"
+
+
+SCRIPTS = scripts_dir()
 
 
 def load_contract_module(name):
