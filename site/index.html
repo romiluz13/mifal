@@ -76,7 +76,7 @@
         <tr><td>haiku-researcher</td><td>Claude Code. Research, and grilling the plan.</td></tr>
         <tr><td>sol-reviewer</td><td>Codex. Every review.</td></tr>
         <tr><td>mifal-reviewer</td><td>Claude Code. An outside critic, later in the shift.</td></tr>
-        <tr><td class="dim">open booths</td><td class="dim">Droid, Pi and OpenCode are installer targets: successfully wired homes get the Guide and skills. Droid and Pi were observed in a recorded workflow; OpenCode is unverified.</td></tr>
+        <tr><td class="dim">open booths</td><td class="dim">Droid, Pi and OpenCode are installer targets: successfully wired homes get the Guide and skills. The README's support matrix records, on one Mac and the 0.2.4 code, one small team task each of them led, and one each worked on; it is provisional.</td></tr>
       </table>
     </article>
     <article class="beat" data-beat="brief" id="beat-brief">
@@ -173,7 +173,7 @@ F5  Herdr's script writes outside the Manifest,
       <p>macOS, git and Python 3.9 or later. The dry run lists every write and changes nothing. If Herdr is missing, the installer runs <code>brew install herdr</code>, which the dry run shows first; without Homebrew, the installer downloads Herdr's script, shows its sha256 and asks before running it.</p>
       <p>Then start your agents inside Herdr, and tell one of them to lead the team toward your goal.</p>
       <ul class="facts">
-        <li><b>Alpha.</b> The installer, update, uninstall, doctor and validator are covered by tests, run in CI on macOS under the system Python and the current python3. Recorded one-Mac workflows cover Claude Code (personal), Droid and Pi; Codex's product wiring remains open and OpenCode is unverified, as the support matrix in the README says.</li>
+        <li><b>Alpha.</b> The installer, update, uninstall, doctor and validator are covered by tests, run in CI on macOS under the system Python and the current python3. Recorded one-Mac workflows cover Claude Code, Codex (its <code>codex-work</code> home), Droid, Pi and OpenCode at the levels the support matrix in the README gives; it was recorded on the 0.2.4 code, and this release's wiring for Codex and OpenCode has not been rechecked live. The team lead's Herdr loop is experimental: it is tested with fake agents, imports in an installed copy since this release, and has not been run end to end there.</li>
         <li><b>Boundaries.</b> macOS only this release. There is no sandbox or isolation between your agents, and recovery from a wedged worker is one budgeted resume action: the lead, not a watchdog, notices a worker gone quiet.</li>
         <li><b>Reversible.</b> <code>mifal uninstall</code> removes unchanged managed effects and keeps edits and additions; occupied backups and Herdr may remain. It does not restore a home byte for byte.</li>
       </ul>
