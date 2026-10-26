@@ -443,6 +443,49 @@ class Skipped(Update):
         self.assertFalse((self.home / ".codex/AGENTS.md").exists())
         self.assertFalse((alt / "AGENTS.md").exists())
 
+    def skipped_custom_codex(self):
+        """A Claude install and a Codex Home at a custom root, recorded as skipped because of its override file."""
+        self.harness_fakes("claude", "codex")
+        alt = self.home / "alt-codex"
+        alt.mkdir()
+        (alt / "AGENTS.override.md").write_text("my override\n")
+        self.install("--harness", "claude", "--harness", "codex", CODEX_HOME=str(alt))
+        self.assertEqual(self.manifest()["harnesses"]["codex"][0]["status"], "skipped")
+        return alt
+
+    def test_a_skipped_custom_home_whose_folder_is_gone_stays_skipped_and_the_rest_of_the_update_proceeds(self):
+        alt = self.skipped_custom_codex()
+        (alt / "AGENTS.override.md").unlink()
+        alt.rmdir()
+        claude = self.home / ".claude"
+        shutil.rmtree(claude)
+        result = self.update("--yes")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("Mifal is up to date", result.stdout)
+        self.assertFalse(os.path.lexists(alt))
+        self.publish(**{"skills/grilling/NOTE.md": "note\n"})
+        result = self.update("--yes")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertFalse(os.path.lexists(alt))
+        self.assertIn(f"skip codex: ~/alt-codex no longer exists, so Mifal keeps it recorded as skipped and writes "
+                      f"nothing there. To serve it, run ./install.sh --home codex={os.path.realpath(alt)}; to drop "
+                      "it, run mifal uninstall.", result.stdout.splitlines())
+        codex = self.manifest()["harnesses"]["codex"][0]
+        self.assertEqual((codex["root"], codex["status"]), (os.path.realpath(alt), "skipped"))
+        self.assertTrue((self.home / ".agents/skills/grilling/NOTE.md").exists())
+        self.assertEqual(self.head(), self.head(self.work))
+        self.assertEqual((claude / "CLAUDE.md").read_text().count("<!-- mifal:begin "), 1)
+        self.assertEqual(self.manifest()["harnesses"]["claude"][0]["status"], "wired")
+
+    def test_a_skipped_custom_home_whose_folder_remains_and_whose_skip_no_longer_holds_is_wired(self):
+        alt = self.skipped_custom_codex()
+        (alt / "AGENTS.override.md").unlink()
+        self.publish(**{"skills/grilling/NOTE.md": "note\n"})
+        result = self.update("--yes")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual((alt / "AGENTS.md").read_text().count("<!-- mifal:begin "), 1)
+        self.assertEqual(self.manifest()["harnesses"]["codex"][0]["status"], "wired")
+
 
 class Reserved(Update):
     """A release reserves a name that a skill of the person's already uses."""
