@@ -214,6 +214,40 @@ class Shared(Homes):
                       "~/.claude-stray", doctor.stdout)
 
 
+class Readers(Homes):
+    """Homes this install does not serve that read the shared file the served Claude Homes import."""
+
+    def test_doctor_names_each_unrecorded_home_that_links_to_or_imports_the_shared_file_and_nothing_else(self):
+        self.install(*self.flags())
+        shared = self.home / ".ai/AGENTS.md"
+        readers = {".codex": ("AGENTS.md", None), ".claude-grove": ("CLAUDE.md", "intro\n  @~/.ai/AGENTS.md  \n"),
+                   ".config/agentx": ("AGENTS.md", f"@{shared}\n"),
+                   ".prose": ("CLAUDE.md", "Read ~/.ai/AGENTS.md at session start.\n"),
+                   ".fenced": ("CLAUDE.md", "```\n@~/.ai/AGENTS.md\n```\n"),
+                   ".other": ("CLAUDE.md", "@~/.ai/OTHER.md\n"),
+                   "Dev/project": ("CLAUDE.md", "@~/.ai/AGENTS.md\n")}
+        for rel, (name, text) in readers.items():
+            (self.home / rel).mkdir(parents=True)
+            if text is None:
+                (self.home / rel / name).symlink_to(shared)
+            else:
+                (self.home / rel / name).write_text(text)
+        (self.home / ".ai/OTHER.md").write_text("other rules\n")
+        hooked = self.home / ".hooked"
+        hooked.mkdir()
+        for name in ("settings.json", "hooks.json"):
+            (hooked / name).write_text('{"import": "@~/.ai/AGENTS.md"}\n')
+            (hooked / name).chmod(0)
+            (self.claude[0] / name).write_text("{}\n")
+            (self.claude[0] / name).chmod(0)
+        doctor = self.mifal("doctor", check=False)
+        self.assertNotIn("Traceback", doctor.stdout + doctor.stderr)
+        self.assertEqual([l for l in doctor.stdout.splitlines() if "not served by this install" in l],
+                         ["note ~/.claude-grove reads ~/.ai/AGENTS.md, not served by this install",
+                          "note ~/.codex reads ~/.ai/AGENTS.md, not served by this install",
+                          "note ~/.config/agentx reads ~/.ai/AGENTS.md, not served by this install"])
+
+
 class Uninstall(Homes):
     def test_uninstall_leaves_every_home_byte_for_byte_as_before_install(self):
         before = snapshot(self.home)

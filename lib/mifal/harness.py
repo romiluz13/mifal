@@ -46,9 +46,13 @@ def _root(env, variable, default: Path, empty_is_unset=False) -> Path:
     return Path(value)
 
 
+def config_home(home: Path, env) -> Path:
+    return _root(env, "XDG_CONFIG_HOME", home / ".config", empty_is_unset=True)
+
+
 def roots(home: Path, env) -> dict:
     """Each harness's root folder, as the harness itself finds it, before realpath resolution."""
-    xdg = _root(env, "XDG_CONFIG_HOME", home / ".config", empty_is_unset=True)
+    xdg = config_home(home, env)
     return {
         "claude": _root(env, "CLAUDE_CONFIG_DIR", home / ".claude"),
         "codex": _root(env, "CODEX_HOME", home / ".codex"),

@@ -153,6 +153,7 @@ def doctor(h: mf.Home, env, out) -> int:
                        f"linked into {show(root / 'skills')}, so Claude Code does not see them: " + ", ".join(yours[:5]),
                        f"ln -s {show(h.pool)}/{yours[0]} {show(root / 'skills')}/{yours[0]}")
     _elsewhere(r, h, data, shell)
+    _readers(r, h, data, shell)
 
     try:
         path, validator = _validator(h)
@@ -213,6 +214,54 @@ def _elsewhere(r, h, data, shell):
         if os.path.realpath(other) not in served and real in shared:
             r.out(f"note also seen by {show(other)}: it shares {show(real)}, but Mifal does not serve "
                   f"{show(other)}, so the Guide reaches it only if its own rules file brings it in")
+
+
+def _reads(home: Path, rules: Path) -> set:
+    """The realpaths a rules file brings in: its link target, or each whole `@PATH` line outside a code fence."""
+    if rules.is_symlink():
+        return {os.path.realpath(rules)}
+    try:
+        text = rules.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return set()
+    found, fenced = set(), False
+    for line in text.splitlines():
+        if harness.FENCE.match(line):
+            fenced = not fenced
+        elif not fenced and line.strip().startswith("@"):
+            path = line.strip()[1:]
+            path = str(home) + path[1:] if path.startswith("~/") else path
+            if os.path.isabs(path):
+                found.add(os.path.realpath(path))
+    return found
+
+
+def _readers(r, h, data, shell):
+    """One note per folder directly under HOME or the XDG config folder, served by no recorded Home, whose rules file
+    reads a shared file a recorded Home reads. Only AGENTS.md and CLAUDE.md files are opened."""
+    recorded = [rec for _, rec in mf.homes(data)]
+    served = {os.path.realpath(rec["root"]) for rec in recorded}
+    shared = set().union(*(_reads(h.home, Path(rec["rules"])) for rec in recorded))
+    shared.discard(os.path.realpath(h.engine / "AGENTS.md"))
+    if not shared:
+        return
+    bases = [h.home]
+    try:
+        bases.append(harness.config_home(h.home, shell))
+    except harness.Refused:
+        pass
+    for base in bases:
+        folders = sorted(p for p in base.iterdir() if p.is_dir()) if base.is_dir() else []
+        for folder in folders:
+            if os.path.realpath(folder) in served:
+                continue
+            reads = set()
+            for name in ("AGENTS.md", "CLAUDE.md"):
+                rules = folder / name
+                if rules.is_symlink() or rules.is_file() and os.path.realpath(rules) not in shared:
+                    reads |= _reads(h.home, rules) & shared
+            for path in sorted(reads):
+                r.out(f"note {h.show(folder)} reads {h.show(path)}, not served by this install")
 
 
 def _guide(r, name, rules: Path, root: Path, entry, guide_sha, h, env):
