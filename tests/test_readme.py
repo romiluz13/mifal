@@ -97,6 +97,24 @@ class Readme(Sandbox):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, section)
 
+    def test_the_support_section_keeps_the_recorded_rows_and_levels(self):
+        # The recorded check's per-version, per-model rows and levels, restored after the
+        # table-to-prose rewrite: an upgrade drops these only by editing this pin on purpose.
+        section = support_section(text())
+        for row in ("Claude Code 2.1.310 with Sonnet 5.5 and with Opus 5.5",
+                    "Codex 0.164.0 with GPT-6.1-Sol",
+                    "Droid 0.249.0 with GLM 5.3",
+                    "Pi 1.4.0 with Claude Sonnet 5 via GitHub Copilot",
+                    "OpenCode 1.19.4 with GLM-5.3-Flash Free and DeepSeek V4.1 Flash Free"):
+            with self.subTest(row=row):
+                self.assertIn(row, section)
+        for level in ("**L1**", "**L2**", "**L3**", "**L4**"):
+            with self.subTest(level=level):
+                self.assertIn(level, section)
+        self.assertIn("except the Claude Code 2.1.310, Opus 5.5 row, which was not run", section)
+        self.assertIn("L1 was partial on every row", section)
+        self.assertIn("failed on Pi and OpenCode", section)
+
     def test_the_readme_says_herdr_stays_and_how_to_remove_it(self):
         self.assertRegex(text(INSTALL), r"Herdr stays installed")
         self.assertIn("brew uninstall herdr", text(INSTALL))
