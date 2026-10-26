@@ -2,6 +2,7 @@
 
 import hashlib
 import os
+import shutil
 import unittest
 
 from support import Sandbox, snapshot
@@ -134,6 +135,28 @@ class Reinstall(Homes):
                 self.assertIn("Nothing to change: Mifal is installed and current.", result.stdout)
                 self.assertEqual(snapshot(self.home), before)
                 self.assertEqual(self.records(), self.expected_records())
+
+    def test_a_reinstall_keeps_a_skipped_home_whose_folder_is_gone_skipped_and_writes_nothing_there(self):
+        gone = self.home / ".codex-gone"
+        gone.mkdir()
+        (gone / "AGENTS.override.md").write_text("my override\n")
+        self.install("--home", f"codex={gone}")
+        record = (str(gone), str(gone / "AGENTS.md"), "skipped")
+        self.assertEqual(self.records()["codex"], [record])
+        (gone / "AGENTS.override.md").unlink()
+        gone.rmdir()
+        wired = self.claude[0]
+        self.assertEqual(self.records()["claude"], [(str(wired), str(wired / "CLAUDE.md"), "wired")])
+        (wired / "CLAUDE.md").unlink()
+        shutil.rmtree(wired)
+        result = self.install()
+        self.assertFalse(os.path.lexists(gone))
+        self.assertEqual(self.records()["codex"], [record])
+        self.assertEqual((wired / "CLAUDE.md").read_text().count("<!-- mifal:begin "), 1)
+        self.assertEqual(self.records()["claude"], [(str(wired), str(wired / "CLAUDE.md"), "wired")])
+        self.assertIn(f"skip codex: ~/.codex-gone no longer exists, so Mifal keeps it recorded as skipped and writes "
+                      f"nothing there. To serve it, run ./install.sh --home codex={gone}; to drop it, run mifal "
+                      "uninstall.", result.stdout.splitlines())
 
     def test_a_fresh_install_without_home_serves_the_one_detected_home(self):
         self.install()

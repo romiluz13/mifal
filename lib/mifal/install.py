@@ -257,6 +257,13 @@ def make_plan(h: Home, source: Path, version: str, overwrite_edits: bool = False
             plan.stops.append(f"{show(f['path'])} resolves to {f['real']}, outside your home folder. "
                               "Run with --allow-root-outside-home to write there.")
     wirings = [harness.plan(n, h.home, env, Path(os.path.realpath(p)), show) for n, p in homes]
+    skipped = {(n, r["root"]) for n, r in mf.homes(old or {}) if r["status"] == "skipped"}
+    asked = {(n, os.path.realpath(p)) for n, paths in named.items() for p in paths}
+    for w in wirings:
+        if (w.name, str(w.root)) in skipped - asked and not os.path.lexists(w.root):
+            w.skip = (f"skip {w.name}: {show(w.root)} no longer exists, so Mifal keeps it recorded as skipped and "
+                      f"writes nothing there. To serve it, run ./install.sh --home "
+                      f"{shlex.quote(f'{w.name}={w.root}')}; to drop it, run mifal uninstall.")
     guide_text = (source / "guide" / "AGENTS.md").read_text(encoding="utf-8")
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     stash_names = itertools.count()
