@@ -87,12 +87,12 @@ def _refused(plan) -> bool:
     for line in plan.stops:
         print(line)
     if plan.conflicts:
-        hard = {line for line, *_ in plan.unwritable}
+        hard = {line for line, *_ in plan.unwritable} | set(plan.held)
         held = {line for line, *_ in plan.fallbacks}
         soft = [line for line in plan.conflicts if line not in hard and line not in held]
         if soft or hard:
             print("These paths changed since Mifal wrote them, or are not Mifal's:" if soft else
-                  "Mifal cannot write these rules files:")
+                  "Mifal cannot write these rules files:" if plan.unwritable else "Mifal cannot write these files:")
         for line in plan.conflicts:
             print(f"  {line}" if line not in held else line)
         if plan.unwritable:
@@ -130,7 +130,8 @@ def _named(h, values):
 def _plan(h, args, named):
     try:
         return inst.make_plan(h, ROOT, version(), args.overwrite_edits, args.harness, os.environ,
-                              args.allow_root_outside_home, named=named)
+                              args.allow_root_outside_home, named=named,
+                              linked={os.path.realpath(p) for p in named.get("codex", [])})
     except harness.Refused as e:
         print(e)
         return None
@@ -160,6 +161,10 @@ def _summary(h, plan):
     wired = [harness.TITLES[n] for n in harness.NAMES
              if any(r["status"] == "wired" for r in plan.data["harnesses"].get(n, []))]
     yield f"Wired: {', '.join(wired) or 'none'}"
+    pending = [f"{harness.TITLES[n]} at {h.show(r['root'])}" for n in harness.NAMES
+               for r in plan.data["harnesses"].get(n, []) if r["status"] == "pending"]
+    if pending:
+        yield "Pending, not served until their hooks allow it: " + ", ".join(pending)
 
 
 def main(argv) -> int:

@@ -100,17 +100,17 @@ class Install(Homes):
         self.assertEqual(self.records()["codex"], [(str(self.codex[0]), str(self.codex[0] / "AGENTS.md"), "wired")])
 
     def test_a_stop_in_one_home_stops_the_whole_run_with_nothing_written(self):
-        linked = self.codex[1] / "AGENTS.md"
+        linked = self.claude[1] / "CLAUDE.md"
         linked.unlink()
         linked.symlink_to(self.home / ".ai/AGENTS.md")
         before = snapshot(self.home)
         result = self.install(*self.flags(), check=False)
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
-        self.assertIn("~/.codex-personal/AGENTS.md: is a symbolic link to ~/.ai/AGENTS.md, and Mifal does not write "
+        self.assertIn("~/.claude-personal/CLAUDE.md: is a symbolic link to ~/.ai/AGENTS.md, and Mifal does not write "
                       "through a link", result.stdout)
         self.assertIn("Nothing was written.", result.stdout)
         self.assertIn("Or wire only the other Homes: ./install.sh --harness claude --home claude=" + str(self.claude[0])
-                      + " --home claude=" + str(self.claude[1]) + " --harness codex --home codex=" + str(self.codex[0]),
+                      + " --harness codex --home codex=" + str(self.codex[0]) + " --home codex=" + str(self.codex[1]),
                       result.stdout.splitlines())
         self.assertEqual(snapshot(self.home), before)
 
