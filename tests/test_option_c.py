@@ -8,6 +8,7 @@ import unittest
 
 from support import Sandbox, snapshot
 from test_tomli import vendored
+from test_update import Update
 
 SHARED = "my shared rules\n"
 SECRET = "sentinel-value-never-printed"
@@ -280,6 +281,175 @@ class Hooks(OptionC):
         self.assertIn("Wired: Codex", result.stdout)
         self.assertIn("Pending, not served until their hooks allow it: Codex at ~/.codex-personal", result.stdout)
         self.assertFalse((self.personal / "config.toml").exists())
+
+
+class Lifecycle(Update, OptionC):
+    """Update and uninstall of an installed key, against a local origin."""
+
+    def setUp(self):
+        super().setUp()
+        self.config = self.workhome / "config.toml"
+        self.config.write_text(CONFIG)
+        self.install_c()
+        self.keyed = self.config.read_text()
+        self.backup = self.home / next(e for e in self.manifest()["entries"] if e["kind"] == "key")["backup"]
+
+    def new_release(self):
+        self.publish("a new release", VERSION="9.9.9\n", **{"guide/AGENTS.md": self.guide() + "One more rule.\n"})
+
+    def edit_outside(self):
+        self.config.write_text(self.config.read_text() + 'approval_policy = "never"\n')
+        return CONFIG + 'approval_policy = "never"\n'
+
+    def edit_inside(self):
+        self.config.write_text(self.config.read_text().replace("Mifal Guide", "Mifal  Guide", 1))
+
+    def checked(self, result, code=0):
+        text = result.stdout + result.stderr
+        self.assertEqual(result.returncode, code, text)
+        self.assertNotIn(SECRET, text)
+        return text
+
+    def during_preview(self, script):
+        """Run script while update shows its preview, after it planned."""
+        hook = self.root / "during.sh"
+        hook.write_text("#!/bin/bash\n" + script + "\n")
+        hook.chmod(0o755)
+        self.fake("git", f'if [ "$1 $2 $3" = "-C {self.clone} log" ]; then "{hook}"; fi\nexec /usr/bin/git "$@"')
+
+    def test_a_same_revision_update_changes_nothing(self):
+        before = snapshot(self.home)
+        text = self.checked(self.update("--yes"))
+        self.assertIn("up to date", text)
+        self.assertEqual(snapshot(self.home), before)
+
+    def test_a_newer_release_refreshes_a_clean_block_and_keeps_an_outside_edit(self):
+        rest = self.edit_outside()
+        self.new_release()
+        self.checked(self.update("--yes"))
+        written = self.config.read_text()
+        self.assertTrue(written.endswith(rest))
+        self.assertIn("version=9.9.9", written.splitlines()[0])
+        self.assertTrue(self.parsed(self.workhome)["developer_instructions"].endswith("One more rule.\n"))
+        self.assertEqual(self.backup.read_text(), CONFIG)
+
+    def test_an_inside_edit_holds_update_and_reinstall_with_nothing_changed(self):
+        self.edit_inside()
+        self.new_release()
+        before = snapshot(self.home)
+        for run in (lambda: self.update("--yes"), lambda: self.install(*self.flags(), check=False)):
+            text = self.checked(run(), 1)
+            self.assertIn("~/.codex-work/config.toml: its Mifal developer_instructions block changed since install",
+                          text)
+            self.assertNotIn("--overwrite-edits", text)
+            self.assertEqual(snapshot(self.home), before)
+
+    def test_uninstall_removes_a_clean_block_keeps_outside_edits_and_the_link(self):
+        rest = self.edit_outside()
+        text = self.checked(self.mifal("uninstall"))
+        self.assertIn("remove the Mifal developer_instructions key from ~/.codex-work/config.toml", text)
+        self.assertEqual(self.config.read_text(), rest)
+        self.assertFalse(self.backup.exists())
+        self.assertEqual(os.readlink(self.workhome / "AGENTS.md"), str(self.shared))
+        self.assertEqual(self.shared.read_text(), SHARED)
+
+    def test_uninstall_restores_the_untouched_original_and_removes_a_config_it_created(self):
+        self.install_c(self.personal)
+        self.checked(self.mifal("uninstall"))
+        self.assertEqual(self.config.read_text(), CONFIG)
+        self.assertFalse((self.personal / "config.toml").exists())
+        self.assertFalse((self.home / ".agents/mifal").exists())
+
+    def test_uninstall_keeps_an_edited_block_and_its_backup(self):
+        self.edit_inside()
+        edited = self.config.read_bytes()
+        text = self.checked(self.mifal("uninstall"))
+        self.assertIn("kept the Mifal developer_instructions key in ~/.codex-work/config.toml: changed since install; "
+                      "your copy from before install is ~/" + str(self.backup.relative_to(self.home)), text)
+        self.assertEqual(self.config.read_bytes(), edited)
+        self.assertEqual(self.backup.read_text(), CONFIG)
+
+    def test_a_change_during_approval_stops_the_update(self):
+        self.new_release()
+        self.during_preview(f"printf 'x = 1\\n' >> '{self.config}'")
+        result = self.run_in_terminal("/bin/bash", self.home / ".local/bin/mifal", "update", answer="y\n")
+        text = self.checked(result, 1)
+        self.assertIn("Your files changed while the update waited for approval", text)
+        self.assertEqual(self.config.read_text(), self.keyed + "x = 1\n")
+
+    def test_a_change_after_the_plan_under_yes_is_rolled_back_and_kept(self):
+        self.new_release()
+        self.during_preview(f"printf 'x = 1\\n' >> '{self.config}'")
+        text = self.checked(self.update("--yes"), 1)
+        self.assertIn("rolled back", text)
+        self.assertEqual(self.config.read_text(), self.keyed + "x = 1\n")
+
+    def test_a_failed_update_restores_the_config_byte_for_byte(self):
+        self.new_release()
+        before = snapshot(self.home)
+        text = self.checked(self.update("--yes", MIFAL_TEST_FAIL_AT="before-publication"), 1)
+        self.assertIn("rolled back", text)
+        self.assertEqual(self.config.read_text(), self.keyed)
+        self.assertEqual(snapshot(self.home), before)
+
+
+class PendingLifecycle(Update, OptionC):
+    def setUp(self):
+        super().setUp()
+        self.hook = self.personal / "hooks.json"
+        self.hook.write_text(hooks("cat ~/.agents/mifal/AGENTS.md"))
+
+    def status(self, root):
+        return self.record(root)["status"]
+
+    def test_pending_survives_a_reinstall_with_or_without_home(self):
+        self.install_c(self.personal)
+        for args in ((), self.flags(self.personal)):
+            with self.subTest(args=args):
+                result = self.install(*args)
+                self.assertIn(f"pending codex: ~/.codex-personal: {REFERENCES}", result.stdout)
+                self.assertEqual(self.status(self.personal), "pending")
+                self.assertFalse((self.personal / "config.toml").exists())
+
+    def test_removing_the_hook_then_a_same_revision_update_writes_the_key(self):
+        self.install_c(self.personal)
+        self.hook.unlink()
+        result = self.update("--yes")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.parsed(self.personal)["developer_instructions"], self.guide())
+        self.assertEqual(self.status(self.personal), "wired")
+
+    def test_a_pending_same_revision_update_says_so_and_writes_nothing(self):
+        self.install_c(self.personal)
+        before = snapshot(self.home)
+        result = self.update("--yes")
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertIn(f"pending codex: ~/.codex-personal: {REFERENCES}", result.stdout)
+        self.assertEqual(snapshot(self.home), before)
+
+    def test_a_hook_added_beside_an_owned_key_holds_the_plan(self):
+        self.install_c(self.workhome)
+        (self.workhome / "hooks.json").write_text(hooks("cat ~/.agents/mifal/AGENTS.md"))
+        before = snapshot(self.home)
+        for run in (lambda: self.update("--yes"), lambda: self.install(check=False)):
+            result = run()
+            text = result.stdout + result.stderr
+            self.assertEqual(result.returncode, 1, text)
+            self.assertIn("~/.codex-work/config.toml: holds Mifal's developer_instructions key, but "
+                          f"{REFERENCES}; remove that hook", text)
+            self.assertEqual(snapshot(self.home), before)
+
+    def test_a_hook_change_during_approval_stops_the_update(self):
+        self.install_c(self.workhome, self.personal)
+        self.publish("a new release", VERSION="9.9.9\n")
+        hook = self.root / "during.sh"
+        hook.write_text(f"#!/bin/bash\necho '{hooks('cat ~/.agents/mifal/AGENTS.md; true')}' > '{self.hook}'\n")
+        hook.chmod(0o755)
+        self.fake("git", f'if [ "$1 $2 $3" = "-C {self.clone} log" ]; then "{hook}"; fi\nexec /usr/bin/git "$@"')
+        result = self.run_in_terminal("/bin/bash", self.home / ".local/bin/mifal", "update", answer="y\n")
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("Your files changed while the update waited for approval", result.stdout)
+        self.assertEqual(self.manifest()["version"], "0.3.0")
 
 
 if __name__ == "__main__":

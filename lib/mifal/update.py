@@ -200,26 +200,32 @@ def update(h, data, args, out) -> int:
         for line in manual_commands(source):
             out(f"  {line}")
         return 1
+    installed = source.get("revision")
+    # A Codex Home served through config.toml is re-checked on every run, so its hooks.json can make it pending,
+    # hold it, or let a pending Home get the key, even when there is no new release.
+    recheck = bool(installed) and any(r.get("delivery") == "config" for _, r in mf.homes(data))
     try:
         clone, upstream, sha, head = candidate(source, getattr(args, "branch", False))
     except Current as e:
-        out(f"Mifal is up to date: the installed revision already includes {e}.")
-        _persist_migrated(h, data, out)
-        return 0
+        if not recheck:
+            out(f"Mifal is up to date: the installed revision already includes {e}.")
+            _persist_migrated(h, data, out)
+            return 0
+        upstream, sha, head = str(e), installed, _git(clone, "rev-parse", "HEAD").stdout.strip()
     except Refused as e:
         out(f"mifal: {e}")
         return 1
-    installed = source.get("revision")
     missing = []
     if sha == installed:
         try:
             missing = inst.engine_missing(h, data)
         except inst.Unreadable:
             pass
-        if not missing:
+        if not missing and not recheck:
             out(f"Mifal is up to date at {sha[:12]} ({upstream}).")
             _persist_migrated(h, data, out)
             return 0
+    recheck = recheck and sha == installed and not missing
     with tempfile.TemporaryDirectory(prefix="mifal-update-") as temp:
         export(clone, sha, Path(temp))
         tree = Path(temp) / "tree"
@@ -228,7 +234,15 @@ def update(h, data, args, out) -> int:
         stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         plan, notes = _plan(h, tree, version, args, data, src, clone, head, sha, stamp)
         known = installed and _git(clone, "cat-file", "-e", installed + "^{commit}", check=False).returncode == 0
-        if missing:
+        if recheck and not (plan.conflicts or plan.stops or plan.steps or plan.changes_manifest):
+            for line in notes + plan.notes:
+                out(line)
+            out(f"Mifal is up to date at {sha[:12]} ({upstream}).")
+            _persist_migrated(h, data, out)
+            return 0
+        if recheck:
+            out(f"Mifal {version} at {sha[:12]} is installed; a Codex Home it serves through config.toml changed:")
+        elif missing:
             out(f"Mifal {version} at {sha[:12]}: this install is missing {len(missing)} file(s) this version installs:")
         else:
             log = _git(clone, "log", "--oneline", f"{installed}..{sha}" if known else sha, "-n", "50").stdout
@@ -240,7 +254,8 @@ def update(h, data, args, out) -> int:
         if plan.conflicts or plan.stops:
             for line in plan.stops + plan.conflicts:
                 out(line)
-            unsaved = {line for line, *_ in plan.unwritable} | {line for line, *_ in plan.fallbacks}
+            unsaved = ({line for line, *_ in plan.unwritable} | {line for line, *_ in plan.fallbacks}
+                       | set(plan.held))
             if plan.unwritable:
                 for line in inst.unwritable_advice(plan, False):
                     out(line)
@@ -261,8 +276,9 @@ def update(h, data, args, out) -> int:
             if input(f"Apply {len(lines)} change(s)? [y/N] ").strip().lower() not in ("y", "yes"):
                 out("Not applied.")
                 return 1
+            bound = plan.bound
             plan, _ = _plan(h, tree, version, args, data, src, clone, head, sha, stamp)
-            if plan.conflicts or plan.stops or list(plan.lines()) != lines:
+            if plan.conflicts or plan.stops or list(plan.lines()) != lines or plan.bound != bound:
                 for line in plan.stops + plan.conflicts:
                     out(line)
                 out("Your files changed while the update waited for approval, so nothing was changed. "
@@ -273,7 +289,10 @@ def update(h, data, args, out) -> int:
             _git(clone, "merge", "--quiet", "--ff-only", sha)
 
         try:
-            journal.run(plan, out, last=fast_forward, update={"clone": str(clone), "from": head, "to": sha})
+            if recheck:
+                journal.run(plan, out)
+            else:
+                journal.run(plan, out, last=fast_forward, update={"clone": str(clone), "from": head, "to": sha})
         except Exception as e:
             out(f"mifal: update failed ({e}); rolled back. The clone is at "
                 f"{_git(clone, 'rev-parse', 'HEAD').stdout.strip()[:12]}.")
