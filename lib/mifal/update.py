@@ -159,7 +159,7 @@ def _plan(h, tree, version, args, data, src, clone, head, sha, stamp):
     """The plan for installing tree into the recorded Homes. Every Home the Manifest records, wired or skipped, is
     planned again at its recorded root, so a skip that no longer holds is wired (or stops on its conflict) and one
     that still holds stays skipped with its note. A skipped Home whose folder is gone is not named, so install's
-    rule keeps it skipped unless the Harness reads from that root now. A git-ignored file in the clone where the release adds a tracked
+    rule keeps it skipped until the person names it with --home. A git-ignored file in the clone where the release adds a tracked
     file stops the update, or with --overwrite-edits is backed up first."""
     records = data.get("harnesses") or {}
     env, notes = harness.recorded_env(data, os.environ, h.show)

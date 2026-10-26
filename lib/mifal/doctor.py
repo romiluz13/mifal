@@ -120,7 +120,9 @@ def doctor(h: mf.Home, env, out) -> int:
             else:
                 # The fix runs in a shell where the variable may be unset, so the command names the recorded root itself.
                 variable = harness.VARIABLES.get(name)
-                if variable and Path(rec["root"]) != harness.roots(
+                if not os.path.lexists(rec["root"]):
+                    run = f"run ./install.sh --home {shlex.quote(name + '=' + rec['root'])}"
+                elif variable and Path(rec["root"]) != harness.roots(
                         h.home, {k: v for k, v in env.items() if k != variable})[name]:
                     run = f"run {variable}={shlex.quote(str(rec['root']))} ./install.sh"
                 else:

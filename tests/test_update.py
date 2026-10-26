@@ -383,6 +383,7 @@ class Skipped(Update):
         fallback.parent.mkdir(parents=True)
         fallback.write_text("my claude rules\n")
         self.install("--harness", "claude")
+        (self.home / ".config/opencode").mkdir(parents=True)
         self.record_skipped("opencode", self.home / ".config/opencode", "AGENTS.md")
         self.publish(**{"skills/grilling/NOTE.md": "note\n"})
         return fallback
@@ -476,6 +477,28 @@ class Skipped(Update):
         self.assertEqual(self.head(), self.head(self.work))
         self.assertEqual((claude / "CLAUDE.md").read_text().count("<!-- mifal:begin "), 1)
         self.assertEqual(self.manifest()["harnesses"]["claude"][0]["status"], "wired")
+
+    def test_a_skipped_home_at_its_default_root_whose_folder_is_gone_stays_skipped_until_named_with_home(self):
+        self.harness_fakes("claude", "codex")
+        codex = self.home / ".codex"
+        codex.mkdir()
+        (codex / "AGENTS.override.md").write_text("my override\n")
+        self.install("--harness", "claude", "--harness", "codex")
+        self.assertEqual(self.manifest()["harnesses"]["codex"][0]["status"], "skipped")
+        (codex / "AGENTS.override.md").unlink()
+        codex.rmdir()
+        note = (f"skip codex: ~/.codex no longer exists, so Mifal keeps it recorded as skipped and writes nothing "
+                f"there. To serve it, run ./install.sh --home codex={os.path.realpath(codex)}; to drop it, run mifal "
+                "uninstall.")
+        for run in (self.install, lambda: (self.publish(**{"skills/grilling/NOTE.md": "note\n"}), self.update("--yes"))[1]):
+            result = run()
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(os.path.lexists(codex))
+            self.assertIn(note, result.stdout.splitlines())
+            self.assertEqual(self.manifest()["harnesses"]["codex"][0]["status"], "skipped")
+        self.install("--home", f"codex={codex}")
+        self.assertEqual((codex / "AGENTS.md").read_text().count("<!-- mifal:begin "), 1)
+        self.assertEqual(self.manifest()["harnesses"]["codex"][0]["status"], "wired")
 
     def test_a_skipped_custom_home_whose_folder_remains_and_whose_skip_no_longer_holds_is_wired(self):
         alt = self.skipped_custom_codex()
