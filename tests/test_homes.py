@@ -248,6 +248,20 @@ class Updates(Layout, Update):
         self.assertNotIn("note CODEX_HOME", result.stdout)
         self.assertEqual(self.records(), self.expected_records())
 
+    def test_an_update_whose_guide_would_take_a_rules_file_past_32_kib_stops_with_nothing_changed(self):
+        before = snapshot(self.home)
+        guide = (self.work / "guide/AGENTS.md").read_text() + "x" * 30000 + "\n"
+        self.publish("a Guide too long for Codex", **{"guide/AGENTS.md": guide})
+        result = self.update("--yes")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        lines = result.stdout.splitlines()
+        for root in self.codex:
+            self.assertTrue(any(l.startswith(f"~/{root.name}/AGENTS.md would be ") and "past the 32 KiB" in l
+                                for l in lines), result.stdout)
+        self.assertIn("Nothing was changed.", lines)
+        self.assertEqual(snapshot(self.home), before)
+        self.assertEqual(self.head(), self.old)
+
     def test_doctor_prints_one_line_per_home_and_fails_only_the_home_whose_block_was_removed(self):
         doctor = self.mifal("doctor", check=False)
         lines = doctor.stdout.splitlines()

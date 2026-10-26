@@ -423,9 +423,13 @@ def make_plan(h: Home, source: Path, version: str, overwrite_edits: bool = False
                 sep = "" if not text else ("\n" if text.endswith("\n") else "\n\n")
             created = True if text is None else created
             new_text, verb = (text or "") + sep + new_block, "block"
-        if w.name == "codex" and len(new_text.encode("utf-8")) > harness.CODEX_CAP:
-            plan.notes.append(f"warn codex: {show(w.rules)} would be {len(new_text.encode('utf-8'))} bytes with the "
-                              "Guide, past Codex's 32 KiB default cap, so Codex may cut it short.")
+        size = len(new_text.encode("utf-8"))
+        if size > harness.CODEX_CAP:
+            plan.stops.append(f"{show(w.rules)} would be {size} bytes with Mifal's block, past the 32 KiB "
+                              f"({harness.CODEX_CAP} bytes) that Codex reads. Shorten it, then run again.")
+            continue
+        if size >= 0.9 * harness.CODEX_CAP:
+            plan.notes.append(f"warn {w.name}: {show(w.rules)} would be {size} bytes, near Codex's 32 KiB default cap")
         if text is not None:
             copy = str(h.engine / TXN / str(next(stash_names)))
         blocks.append(Step({"op": "block", "path": str(w.rules), "sha256": harness.digest(new_text),

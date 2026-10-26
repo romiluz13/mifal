@@ -377,11 +377,38 @@ class Selection(Wiring):
 
 
 class Limits(Wiring):
-    def test_a_codex_file_that_would_pass_32_kib_warns(self):
-        self.harness_fakes("codex")
-        (self.home / ".codex").mkdir()
-        (self.home / ".codex/AGENTS.md").write_text("x" * 32000 + "\n")
-        self.assertIn("32 KiB", self.install().stdout)
+    def test_a_rules_file_that_would_pass_32_kib_with_the_block_stops_the_run_with_nothing_written(self):
+        for name in ("codex", "claude"):
+            with self.subTest(harness=name):
+                self.setUp()
+                self.harness_fakes(name)
+                rules = self.home / RULES[name]
+                rules.parent.mkdir()
+                rules.write_text("x" * 32700 + "\n")
+                before = snapshot(self.home)
+                result = self.install(check=False)
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                lines = result.stdout.splitlines()
+                self.assertTrue(any(l.startswith(f"~/{RULES[name]} would be ") and l.endswith(
+                    " bytes with Mifal's block, past the 32 KiB (32768 bytes) that Codex reads. Shorten it, then "
+                    "run again.") for l in lines), result.stdout)
+                self.assertIn("Nothing was written.", lines)
+                self.assertEqual(snapshot(self.home), before)
+
+    def test_a_rules_file_at_nine_tenths_of_32_kib_installs_and_prints_the_near_limit_warning(self):
+        for name, mine in (("codex", 22000), ("claude", 30000)):
+            with self.subTest(harness=name):
+                self.setUp()
+                self.harness_fakes(name)
+                rules = self.home / RULES[name]
+                rules.parent.mkdir()
+                rules.write_text("x" * mine + "\n")
+                result = self.install()
+                size = len(rules.read_bytes())
+                self.assertTrue(29492 <= size <= 32768, size)
+                self.assertEqual(len(self.blocks(RULES[name])), 1)
+                self.assertIn(f"warn {name}: ~/{RULES[name]} would be {size} bytes, near Codex's 32 KiB default cap",
+                              result.stdout.splitlines())
 
     def test_the_claude_block_is_never_inside_a_fence(self):
         self.harness_fakes("claude")
