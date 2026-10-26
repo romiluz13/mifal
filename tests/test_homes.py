@@ -174,6 +174,31 @@ class Skipped(Homes):
                           for r in roots})
 
 
+class Shared(Homes):
+    """A second Claude Home whose skills folder is a link to the first's, as docs/INSTALL.md supports."""
+
+    def test_both_homes_get_every_skill_link_from_one_link_per_leaf_and_uninstall_leaves_the_folder_as_it_was(self):
+        (self.claude[0] / "skills").mkdir()
+        (self.claude[1] / "skills").symlink_to(self.claude[0] / "skills")
+        before = snapshot(self.home)
+        self.install(*self.flags(claude=self.claude, codex=[]))
+        pool = (self.home / ".agents/skills").resolve()
+        leaf = self.claude[0] / "skills/grilling"
+        self.assertTrue(leaf.is_symlink(), "the shared folder holds one Mifal link, not two")
+        self.assertEqual(os.readlink(leaf), str(pool / "grilling"))
+        for root in self.claude:
+            self.assertEqual(os.readlink(root / "skills" / "grilling"), str(pool / "grilling"))
+        spellings = {e["path"] for e in self.manifest()["entries"]
+                     if e["kind"] == "symlink" and e["path"].endswith("/skills/grilling")}
+        self.assertEqual(spellings, {str(r / "skills/grilling") for r in self.claude})
+        after = snapshot(self.home)
+        result = self.install(*self.flags(claude=self.claude, codex=[]))
+        self.assertIn("Nothing to change: Mifal is installed and current.", result.stdout)
+        self.assertEqual(snapshot(self.home), after)
+        self.mifal("uninstall")
+        self.assertEqual(snapshot(self.home), before)
+
+
 class Uninstall(Homes):
     def test_uninstall_leaves_every_home_byte_for_byte_as_before_install(self):
         before = snapshot(self.home)

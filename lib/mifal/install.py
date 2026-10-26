@@ -331,7 +331,13 @@ def make_plan(h: Home, source: Path, version: str, overwrite_edits: bool = False
             conflict(path, "changed since Mifal wrote it" if entry else "exists and was not installed by Mifal")
         return "update"
 
+    # Homes can share one physical skills folder, so several spellings can reach one leaf: every leaf is
+    # claimed once, while each Home's spelling is still recorded, so coverage and uninstall ownership stay per Home.
+    seen = set()
     for unit in units:
+        if os.path.realpath(unit) in seen:
+            continue
+        seen.add(os.path.realpath(unit))
         if os.path.lexists(unit) and not any(_inside(p, unit) for p in owned):
             # With a stop (a moved folder) the unit paths no longer match the Manifest's, so none can be judged.
             if old is not None and not overwrite_edits and not plan.stops:
@@ -350,8 +356,13 @@ def make_plan(h: Home, source: Path, version: str, overwrite_edits: bool = False
         if verb:
             writes.append(Step({"op": "write", "path": str(target), "sha256": digest}, f"{verb} {show(target)}", src))
         entries.append({"kind": "file", "path": str(target), "sha256": digest})
+    seen = set()
     for path, target in [(h.link, link_target)] + sorted(skill_links.items()):
+        if os.path.realpath(path) in seen:
+            entries.append({"kind": "symlink", "path": str(path), "target": target})
+            continue
         if claim(path, ("link", target)):
+            seen.add(os.path.realpath(path))
             links.append(Step({"op": "link", "path": str(path), "target": target}, f"link {show(path)} -> {target}"))
         entries.append({"kind": "symlink", "path": str(path), "target": target})
 
