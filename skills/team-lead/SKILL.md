@@ -235,8 +235,9 @@ catalog visibility alone does not establish use.
 
 **Record:** the task line in `state.md` (owner, latitude, return path)
 before the prompt goes out; for several teammates, prepare every brief, then
-dispatch. A correction gets its own attempt id (`7.2`) in the brief, the
-doorbell, and its own return section, so a late `DONE 7` can't close it.
+dispatch. A correction keeps its task id and gets its own attempt id: the
+brief's frontmatter says `task: 7` and `attempt: 7.2`, and the doorbell and
+its own return section say `7.2`, so a late `DONE 7` can't close it.
 
 ### M3. Waiting well
 
