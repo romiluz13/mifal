@@ -555,6 +555,40 @@ class SkillFilters(Wiring):
         self.assertIn("cannot be read; exclusions unknown", result.warnings[0][0])
         self.assertIn("restore read access", result.warnings[0][1])
 
+    def test_codex_home_and_dotfiles_folder_names_never_identify_credentials(self):
+        for folder in ('auth', 'token'):
+            with self.subTest(folder=folder):
+                root = self.home / folder / '.codex'
+                root.mkdir(parents=True)
+                target = self.home / 'dotfiles' / folder / 'settings.toml'
+                target.parent.mkdir(parents=True)
+                (root / 'config.toml').symlink_to(target)
+                for text, count in (('', 0), ('[[skills.config]]\nname = "tdd"\nenabled = false\n', 1)):
+                    target.write_text(text)
+                    result = self.audit(root=root)
+                    self.assertEqual(len(result.warnings), count)
+                    self.assertNotIn('credential', repr(result))
+                    if count:
+                        self.assertIn('tdd: configured exclusion detected', result.warnings[0][0])
+
+    def test_codex_nonregular_config_needs_regular_toml_not_read_access(self):
+        for kind in ('fifo', 'directory', 'device'):
+            with self.subTest(kind=kind):
+                root = self.home / kind
+                root.mkdir()
+                config = root / 'config.toml'
+                if kind == 'fifo':
+                    os.mkfifo(config)
+                elif kind == 'directory':
+                    config.mkdir()
+                else:
+                    config.symlink_to(os.devnull)
+                result = self.audit(root=root)
+                self.assertTrue(result.unreadable)
+                self.assertIn('exclusions unknown', result.warnings[0][0])
+                self.assertIn('regular TOML file', result.warnings[0][1])
+                self.assertNotIn('restore read access', result.warnings[0][1])
+
     def test_other_harnesses_do_not_audit_codex_settings(self):
         for name in ("claude", "droid", "pi", "opencode"):
             with self.subTest(name=name):

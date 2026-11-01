@@ -157,23 +157,31 @@ def skill_filters(name, home: Path, root: Path, pool: Path, skills, show=str) ->
     result = SkillFilters(f"reads {where} skill keys only ({schema})")
     try:
         real = os.path.realpath(config)
-        if (any(part.lower() in ("auth", "auth.json", "token", "tokens.json", "credentials.json",
-                                 ".credentials.json") for path in (str(config), real) for part in Path(path).parts)
-                or any(real.endswith('/' + rel) for rel in ('.claude/settings.json', '.factory/settings.json',
-                                                            '.config/opencode/opencode.json'))):
+        if config.is_symlink():
+            Path(real).stat()
+        if Path(real).name.lower() in ("auth", "auth.json", "token", "tokens.json", "credentials.json",
+                                      ".credentials.json", "settings.json", "opencode.json"):
             result.warnings.append((f"{where} resolves to a credential, token or auth path; exclusions unknown",
                                     f"point {where} at a Codex settings file; doctor never reads credential files"))
             return result
+        if config.is_symlink() and (not config.is_file() or not Path(real).name.endswith('.toml')):
+            result.unreadable = True
+            result.warnings.append((f"{where} does not point to a regular TOML file; exclusions unknown",
+                                    f"make {where} point to a regular TOML file, then run mifal doctor again"))
+            return result
         if config.exists() and not config.is_file():
-            raise OSError
+            result.unreadable = True
+            result.warnings.append((f"{where} is not a regular TOML file; exclusions unknown",
+                                    f"make {where} a regular TOML file, then run mifal doctor again"))
+            return result
         table = cc.parse(cc.read(config)).get("skills", {})
     except FileNotFoundError:
         if not config.is_symlink():
             result.note = f"no exclusion found in {where}; reads skill keys only ({schema})"
             return result
         result.unreadable = True
-        result.warnings.append((f"{where} cannot be read; exclusions unknown",
-                                f"restore the linked settings file for {where}, then run mifal doctor again"))
+        result.warnings.append((f"{where} points to a missing file; Codex 0.166.0 reads no settings from it; exclusions unknown",
+                                f"point {where} at an existing regular TOML file, then run mifal doctor again"))
         return result
     except cc.Invalid:
         result.warnings.append((f"{where} is not valid UTF-8 TOML; exclusions unknown",

@@ -424,6 +424,39 @@ class CodexSkillFilters(Doctor):
         self.assertNotIn('open ' + str(target), log.read_text())
         self.assertNotIn('open ' + str(self.home / '.codex/config.toml'), log.read_text())
 
+    def test_linked_non_toml_targets_stay_unopened_under_the_independent_auditor(self):
+        config = self.home / '.codex/config.toml'
+        for rel in ('.aws/credentials', '.claude.json', '.netrc', '.config/gh/hosts.yml',
+                    '.ssh/id_ed25519', 'dotfiles/settings.txt'):
+            with self.subTest(path=rel):
+                target = self.home / rel
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text('[[skills.config]]\nname = "tdd"\nenabled = false\n')
+                config.symlink_to(target)
+                try:
+                    log = self.root / 'non-toml-audit.log'
+                    result = self.run_cmd(PYTHON, '-B', '-I', self.clone / 'tests/helpers/audited_doctor.py',
+                                          log, self.home / '.agents/mifal/lib', config, check=False)
+                    lines = self.filter_lines(result)
+                    self.assertTrue(any('exclusions unknown' in line for line in lines), result.stdout)
+                    self.assertNotIn('configured exclusion detected', '\n'.join(lines))
+                    self.assertNotIn('open ' + str(config), log.read_text())
+                    self.assertNotIn('open ' + str(target), log.read_text())
+                finally:
+                    config.unlink()
+
+    def test_dangling_config_link_says_codex_reads_no_settings_without_opening_it(self):
+        config = self.home / '.codex/config.toml'
+        config.symlink_to(self.home / 'missing.toml')
+        log = self.root / 'dangling-audit.log'
+        result = self.run_cmd(PYTHON, '-B', '-I', self.clone / 'tests/helpers/audited_doctor.py', log,
+                              self.home / '.agents/mifal/lib', config, check=False)
+        self.filter_lines(result)
+        self.assertIn('points to a missing file; Codex 0.166.0 reads no settings from it; exclusions unknown',
+                      result.stdout)
+        self.assertNotIn('open ' + str(config), log.read_text())
+        self.assertRegex(result.stdout, r'Codex 0.166.0 reads no settings from it[^\n]*\n     fix: ')
+
     def test_relative_tilde_and_link_alias_select_the_document_not_the_folder(self):
         alias = self.home / 'pool-alias'
         alias.symlink_to(self.home / '.agents/skills')
@@ -505,6 +538,14 @@ class CodexSkillFilters(Doctor):
 
 
 class AuditGuards(Doctor):
+    def test_audit_independently_refuses_review_306_credential_fixtures(self):
+        for rel in ('.aws/credentials', '.claude.json', '.netrc', '.config/gh/hosts.yml', '.ssh/id_ed25519'):
+            with self.subTest(path=rel):
+                path = self.home / rel
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text('placeholder\n')
+                self.probe('open(' + repr(str(path)) + ').read()')
+
     def probe(self, operation):
         helper = str(self.clone / 'tests/helpers/audited_doctor.py')
         log = self.root / 'probe-audit.log'

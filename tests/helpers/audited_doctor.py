@@ -10,7 +10,11 @@ log = open(sys.argv[1], "w")
 engine = Path(sys.argv[2]).parent
 settings = {os.path.abspath(path) for path in sys.argv[3:]}
 resolved_settings = {os.path.realpath(path) for path in settings}
-private = (".claude/settings.json", ".factory/settings.json", ".config/opencode/opencode.json")
+private = (".claude/settings.json", ".claude/.credentials.json", ".codex/auth.json",
+           ".factory/settings.json", ".pi/agent/auth.json", ".config/opencode/opencode.json",
+           ".local/share/opencode/auth.json", ".config/herdr/token", ".aws/credentials",
+           ".claude.json", ".netrc", ".config/gh/hosts.yml", ".ssh/id_ed25519")
+private_paths = {str(Path(os.environ["HOME"]) / path) for path in private}
 herdr = shutil.which("herdr")
 allowed_processes = {
     (sys.executable, "-B", "-I", str(engine.parent / "skills/team-lead/scripts/validate_contracts.py"), "selfcheck"),
@@ -27,10 +31,7 @@ def hook(event, args):
         if path != os.devnull and flags & (os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_TRUNC | os.O_APPEND):
             raise RuntimeError("forbidden write")
         absolute, real = os.path.abspath(path), os.path.realpath(path)
-        parts = Path(absolute).parts + Path(real).parts
-        if (any(part.lower() in ("auth", "auth.json", "token", "tokens.json", "credentials.json",
-                                 ".credentials.json") for part in parts)
-                or any(value.endswith("/" + rel) for value in (absolute, real) for rel in private)
+        if (absolute in private_paths or real in private_paths
                 or (Path(absolute).name in ("config.toml", "settings.json", "opencode.json")
                     or Path(real).name in ("config.toml", "settings.json", "opencode.json"))
                 and absolute not in settings | resolved_settings):
