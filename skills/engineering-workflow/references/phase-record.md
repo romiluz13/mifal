@@ -463,6 +463,18 @@ behaves as before. The pin ends at the first `## Return` line, so the brief's ow
 return instructions and the worker's returns are not pinned; it shows that the
 text above is the text you stamped, not that the worker followed it.
 
+A `Loaded:` line is the worker's own word. For a worker running in Claude Code,
+check it against the harness's record before acceptance:
+`validate_contracts.py loads-proof <brief> --log <the worker's session .jsonl>`.
+The log must have received the brief (a prompt naming its file before the
+first start Check), and each selected body must be loaded completely there
+after the last compaction before that Check and no later than it: a Skill call,
+a Read of every line, `validate_contracts.py read`, or shell output holding the
+whole body. A `Loaded:` time before that load is refused. Locate the log
+yourself from the worker's pane or session id; a worker that can write files
+could write a log too, so this raises the cost of a false claim rather than
+authenticating one. Other harnesses have no adapter yet.
+
 Before review dispatch, add `Snapshot: <absolute review JSON path>` from
 `~/.agents/mifal/tools/review-snapshot.py --repo <repo> --base <fixed point>`
 with explicit owned `--path` scope, including owned untracked files.

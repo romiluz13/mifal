@@ -14,6 +14,8 @@ Usage:
   validate_contracts.py brief-digest path/to/task.md
   validate_contracts.py workflow path/to/state.md --gate entry
   validate_contracts.py read path/to/SKILL.md
+  validate_contracts.py stamp path/to/task.md "start implement | passed | brief exit 0"
+  validate_contracts.py loads-proof path/to/task.md --log path/to/session.jsonl
   validate_contracts.py selfcheck
 
 Exit codes: 0 valid, 1 invalid, 2 usage error.
@@ -1219,6 +1221,153 @@ def stamp_check(path, value):
     return line
 
 
+def log_time(value):
+    """A Claude Code log timestamp (`2026-10-31T21:25:10.917Z`, UTC) to the second, or None."""
+    try:
+        return datetime.strptime(str(value)[:19], "%Y-%m-%dT%H:%M:%S")
+    except ValueError:
+        return None
+
+
+def log_text(content):
+    if isinstance(content, str):
+        return content
+    return "\n".join(b.get("text", "") for b in content or [] if isinstance(b, dict) and isinstance(b.get("text"), str))
+
+
+def session_loads(log, bodies):
+    """({resolved body: [(time, how)]}, [compaction time], [(time, prompt text)]) from a Claude Code session log, for
+    its own agent. A load is a complete body load.
+    A Skill call counts when the harness injected the body under the skill's folder, a Read when its result covers
+    every line from the first, `validate_contracts.py read` when its printed footer names the body, and any other
+    shell output when it holds the whole current text of one of `bodies` ({path: text}). Events of a subagent
+    (`isSidechain`) are that subagent's, not the agent's."""
+    rows = []
+    for line in log.splitlines():
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(row, dict) and not row.get("isSidechain"):
+            rows.append(row)
+    uses = {}
+    for row in rows:
+        if row.get("type") == "assistant":
+            for block in (row.get("message") or {}).get("content") or []:
+                if isinstance(block, dict) and block.get("type") == "tool_use":
+                    uses[block.get("id")] = (log_time(row.get("timestamp")), block.get("name"))
+    if not uses:
+        raise ValueError("the log records no tool calls, so it is not a Claude Code session log (.jsonl)")
+    loads, compactions, prompts = {}, [], []
+    for row in rows:
+        if row.get("type") == "system" and row.get("subtype") == "compact_boundary":
+            compactions.append(log_time(row.get("timestamp")))
+        if row.get("type") != "user":
+            continue
+        content = (row.get("message") or {}).get("content")
+        if not row.get("isMeta") and not row.get("isCompactSummary") and (isinstance(content, str) or (
+                isinstance(content, list) and all(isinstance(b, dict) and b.get("type") == "text" for b in content))):
+            prompts.append((log_time(row.get("timestamp")), log_text(content), row.get("cwd") or "."))
+        use = uses.get(row.get("sourceToolUseID"))
+        if row.get("isMeta") and use and use[1] == "Skill":
+            folder = re.match(r"Base directory for this skill: (.+)", log_text(content))
+            if folder:
+                loads.setdefault((Path(folder.group(1).strip()) / "SKILL.md").resolve(), []).append((use[0], "Skill"))
+        for block in content if isinstance(content, list) else []:
+            if not isinstance(block, dict) or block.get("type") != "tool_result" or block.get("is_error"):
+                continue
+            use = uses.get(block.get("tool_use_id"))
+            if not use:
+                continue
+            result = row.get("toolUseResult")
+            file = result.get("file") if use[1] == "Read" and isinstance(result, dict) else None
+            if (isinstance(file, dict) and file.get("filePath") and file.get("startLine") == 1
+                    and file.get("numLines") == file.get("totalLines")):
+                loads.setdefault(Path(file["filePath"]).resolve(), []).append((use[0], "Read"))
+            elif use[1] == "Bash":
+                output = log_text(block.get("content"))
+                for target, digest in re.findall(r"-- end of body (.+?) \| sha256:([0-9a-f]{64}) bytes:[0-9]+ --", output):
+                    body = Path(target).resolve()
+                    if body in bodies and digest == hashlib.sha256(bodies[body].encode("utf-8")).hexdigest():
+                        loads.setdefault(body, []).append((use[0], "the read command"))
+                for body, whole in bodies.items():
+                    if whole.strip() and whole.strip() in output:
+                        loads.setdefault(body, []).append((use[0], "shell output"))
+    return loads, [c for c in compactions if c], [p for p in prompts if p[0]]
+
+
+def names_brief(prompt, cwd, brief):
+    """Whether `prompt` names the file `brief` (resolved), by an absolute path or one relative to `cwd`."""
+    for token in re.findall(rf"(?<![\w./~-])([\w./~-]*{re.escape(brief.name)})(?![\w-])", prompt):
+        path = Path(token).expanduser()
+        if (path if path.is_absolute() else Path(cwd) / path).resolve() == brief:
+            return True
+    return False
+
+
+def load_proof(text, record, log):
+    """(errors, proofs). The log must be the session that received the brief: a prompt there names the brief's file.
+    Each body the brief selects must be loaded completely in it after the last compaction before the first start
+    Check and before that Check, so the body was in context when the work began; and no `Loaded:` line of the latest
+    return may claim a time before that load."""
+    selected = sorted(workflow_procedure_paths(text, record))
+    if not selected:
+        return ["the brief selects no body (no Procedure: line), so there is nothing to prove"], []
+    bodies = {}
+    for body in selected:
+        try:
+            bodies[body] = regular_text(body)
+        except (OSError, UnicodeError):
+            continue
+    loads, compactions, prompts = session_loads(log, bodies)
+    _, portion = split_returns(text)[-1]
+    claims = {}
+    for value in re.findall(r"(?mi)^\s*(?:- )?Loaded:\s*(.+)$", workflow_text(portion)):
+        claims.setdefault(workflow_path(value.partition("|")[0].strip(), record).resolve(), []).append(value)
+    starts = start_times(re.findall(r"(?mi)^\s*(?:- )?Check:\s*(.+)$", workflow_text(text)))[0]
+    work = min((when for times in starts.values() for when in times), default=None)
+    if not work:
+        return ["the brief has no stamped start Check ('Check: start <step> | passed | ... at:<UTC>'), so the time "
+                "the work began, which every load must precede, is unknown"], []
+    brief = Path(record).resolve()
+    if not any(when <= work and names_brief(prompt, cwd, brief) for when, prompt, cwd in prompts):
+        return [f"this log never received {brief.name}: no prompt in it names the brief before the work began, so it "
+                "is not the worker's session"], []
+    cutoff = max((c for c in compactions if c <= work), default=None)
+    errors, proofs = [], []
+    for body in selected:
+        events = sorted(event for event in loads.get(body, []) if event[0])
+        if not events:
+            errors.append(f"{body}: the session log records no complete load of it (a Skill call, a Read of every "
+                          "line, `validate_contracts.py read`, or shell output holding the whole body)")
+            continue
+        held = [event for event in events if (not cutoff or event[0] >= cutoff) and event[0] <= work]
+        if not held:
+            before = [event for event in events if event[0] <= work]
+            if before:
+                errors.append(f"{body}: its last load before the work, {before[-1][0]:%Y-%m-%dT%H:%M:%SZ}, came before "
+                              f"the {cutoff:%Y-%m-%dT%H:%M:%SZ} compaction, so it was out of context when the work began")
+            else:
+                errors.append(f"{body}: first loaded {events[0][0]:%Y-%m-%dT%H:%M:%SZ} by {events[0][1]}, after the "
+                              f"{work:%Y-%m-%dT%H:%M:%SZ} start Check: the read came after the work began")
+            continue
+        first = events[0][0]
+        claim_errors = []
+        for value in claims.get(body, []):
+            stamp = STAMP_RE.search(value.partition("|")[2])
+            state, when = read_stamp(value.partition("|")[2])
+            if state != "ok":
+                claim_errors.append(f"{body}: its Loaded line has no readable at: time, so it cannot be held to the "
+                                    "log")
+            elif when < (first.replace(second=0) if stamp.group(1).count(":") == 1 else first):
+                claim_errors.append(f"{body}: its Loaded line claims at:{stamp.group(1)}, before the log's first load "
+                                    f"at {first:%Y-%m-%dT%H:%M:%SZ}: the stamp was not taken from the read")
+        errors += claim_errors
+        if not claim_errors:
+            proofs.append(f"proven: {body} by {held[0][1]} at {held[0][0]:%Y-%m-%dT%H:%M:%SZ}")
+    return errors, proofs
+
+
 def read_identity(target, record):
     """The body a `Loaded:` path names: the path resolved from the record's folder, as the load check resolves it."""
     path = workflow_path(target, record)
@@ -2005,9 +2154,26 @@ def main(argv) -> int:
     p_stamp.add_argument("path", type=Path)
     p_stamp.add_argument("value", help="'<step or claim> | passed | <evidence>', without an at: time")
 
+    p_proof = sub.add_parser("loads-proof", help="check the bodies a brief selects against the worker's Claude Code "
+                                                 "session log")
+    p_proof.add_argument("path", type=Path)
+    p_proof.add_argument("--log", type=Path, required=True, help="the worker's session log (.jsonl), located by the lead")
+
     sub.add_parser("selfcheck", help="run the validator against its fixtures")
 
     args = parser.parse_args(argv)
+
+    if args.cmd == "loads-proof":
+        try:
+            errors, proofs = load_proof(regular_text(args.path), args.path, regular_text(args.log.expanduser()))
+        except (OSError, UnicodeError, ValueError) as e:
+            print(f"error: {e}", file=sys.stderr)
+            return 2
+        for proof in proofs:
+            print(proof)
+        for e in errors:
+            print(f"error: {args.path}: {e}", file=sys.stderr)
+        return 1 if errors else 0
 
     if args.cmd == "stamp":
         try:

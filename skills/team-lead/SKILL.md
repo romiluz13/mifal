@@ -284,7 +284,9 @@ claim, and was it checked at the revision named? How much checking does this
 deserve, given latitude, consequence, and track record?
 
 For Matt, run the accept gate, log its pass as a `Check:` line, and check
-the receipt before acceptance. Compare the
+the receipt before acceptance. For a Claude Code worker, also run
+`validate_contracts.py loads-proof <brief> --log <its session log>`: it holds
+the worker's loads to the harness's own record, not to its word. Compare the
 affected behavior with the selected procedures; investigate omissions and
 request a missing check or an evidenced equivalent. A read declaration is
 not proof of application, and a late read cannot repair earlier timing.
