@@ -85,10 +85,12 @@ The command receives literal argv, without a shell. Shell metacharacters stay
 arguments; invoke a shell explicitly if the check itself requires one. The
 child runs in the caller's cwd. The measured repository is the Git root of
 that cwd, or the root selected by `--repo`; the record keeps repo and cwd
-separately. An unresolved index is refused before launch.
+separately. An unresolved index is refused before launch. An explicitly named
+symlink loop, or a path through one, is refused with wrapper status 125 on both
+supported Pythons; dangling links remain recordable by their link text.
 
 The default scope includes tracked, staged, unstaged and nonignored untracked
-files. Identity uses `review-snapshot.py`'s raw bytes, symlink target text,
+files. Identity uses `review-snapshot.py`'s raw bytes, symlink link text,
 executable bits and filter-disabled Git reads. `--path` adds inputs to that
 scope; it never narrows the default scope. Paths are relative to the repository
 root, or absolute for external inputs. A named directory includes its files,
@@ -97,6 +99,10 @@ named directory is refused rather than silently omitted. Ignored and
 external inputs are otherwise outside scope. Submodule worktrees are not
 inspected, and collection is not atomic. Claims must state any additional
 limit in what the command checked; the default input limits are in the record.
+
+Every symlink, tracked or explicitly named, is measured by its link text.
+Its target's contents are not opened. This also applies to links inside a
+named directory. Name the target directly with `--path` to measure its contents.
 
 `--out`, `<out>.stdout` and `<out>.stderr` must lie outside the measured scope.
 An ignored output location inside the repository is allowed when it is not
@@ -151,11 +157,88 @@ A launch failure supplies no complete record. A matching failed record can
 support a `failed` claim; whether that failure was an expected negative control
 is decided by the enclosing check. A claim without `run:` still passes the
 existing checks, with a `note:` naming each passed claim lacking a record.
+Each agreeing `run:` claim also gets a `note:` labelling it historical. These
+notes say only that the claim and record agree; they imply nothing about the
+current checkout and start no command.
+
+## Checking the current candidate
+
+Before reusing a run for acceptance, check it against the checkout being
+accepted:
+
+```sh
+validate_contracts.py run --check /evidence/tests.json
+validate_contracts.py run --check /evidence/tests.json --repo /checkout
+```
+
+The checked repository is the Git root of the caller's cwd, or the root
+selected by `--repo`. Both roots are resolved and must equal the record's
+repository root. A sibling worktree is a different root even when its HEAD
+and files match; check a worktree's record in that worktree. Merging changes
+the candidate, so the integration checkout needs its own run.
+
+The checker reads the saved explicit paths and before/after identities,
+including recorded untracked paths. It uses the same raw-byte collector as
+`run`, checks the current nonignored untracked set too, and compares both
+recorded identities with current HEAD, file bytes, executable bits, symlink
+link text and index identity. Changing current ignore settings cannot hide
+a previously recorded untracked input. `--path` and command argv are refused
+with `--check`; its scope comes from the record. The recorded argv is never
+executed, and neither the record nor the checkout is written.
+
+If the candidate matches, stdout contains:
+
+```text
+ok: candidate matches run record /evidence/tests.json
+```
+
+Exit status is 0. A mismatch prints `stale:` lines naming the repository,
+HEAD, each changed file identity, index or remaining scope identity, and
+exits 1. Missing, malformed, truncated, inconsistent or unreadable records
+and inputs are refused with `stale:` and exit 1, without a traceback. A run
+that drifted must match both snapshots and cannot pass by matching only its
+after snapshot.
+
+Every displayed path uses the same quoting rule: printable names, including
+spaces, stay readable; names containing nonprintable characters use `ascii()`
+quoting and escapes. Error details are escaped too, so names cannot inject
+status lines or terminal controls.
+
+Named external inputs and ignored inputs (including children of a named
+directory) are remeasured. A `note:` names each such input and states that
+file bytes or symlink link text are checked, without vouching for dependencies.
+Each named symlink gets its own `note:`, including links inside a named
+directory. The note names the link, says its target contents are not checked
+through this path (the target may also be measured separately),
+and explains that naming the target directly with `--path` covers its contents.
+Unreadable inputs are refused. An unnamed ignored input remains outside the
+record's scope and does not change this result.
+
+When notes are printed, the final line includes their count and the limit:
+
+```text
+ok: candidate matches run record /evidence/tests.json; notes: 2; named inputs were not fully checked
+```
+
+With no notes, the original final line above is unchanged. Both forms exit 0.
+
+`ok` covers only the record's scope. It does not prove the command passed or
+tests the claim, authenticate execution, inspect submodule worktrees, or
+detect an edit reverted between collections. Collection remains non-atomic.
+The command's outcome and the enclosing claim still need their own checks.
+
+On a case-insensitive volume, a case-only tracked rename can leave the
+measured identity unchanged and return `ok`, even when case-sensitive imports
+or build rules behave differently. Exact directory-entry spelling is not
+proved. A probe on a normalization-insensitive volume with Git
+`core.precomposeunicode=true` and `core.ignorecase=true` also returned `ok`
+after an NFC-to-NFD-only tracked rename: the entry spelling changed while the
+original spelling still opened the same file. Unicode-normalization spelling
+is likewise outside this proof; other filesystem or Git settings can differ.
 
 A record is editable JSON, not an authenticated attestation. Internal agreement
 does not prove who ran the command, that its input scope contains every relevant
 dependency, or that the command tests the claim. Receipt validation reads the
 record; it starts no command, does not rehash stream sidecars and does not check
 the current checkout. An old record and matching tokens can still agree after
-source changes. Current-candidate checking and historical labelling belong to
-the separate `run --check` slice; this slice makes no current-code claim.
+source changes; the separate `run --check` command measures the current candidate.

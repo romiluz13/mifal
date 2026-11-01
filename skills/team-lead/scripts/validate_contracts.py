@@ -1962,21 +1962,35 @@ def stream_record(path):
             "tail": tail.decode("utf-8", errors="replace")}
 
 
-def run_output_scope(tool, repo, outputs, paths):
+def run_ignore_checker(tool, repo):
+    env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+
+    def ignored(path):
+        result = subprocess.run(["git", "-C", str(repo), *tool.SAFE, "check-ignore", "-q", "--", str(path)],
+                                capture_output=True, env=env, input=b"")
+        if result.returncode not in (0, 1):
+            raise ValueError(result.stderr.decode(errors="replace").strip())
+        return result.returncode == 0
+
+    return ignored
+
+
+def run_output_scope(tool, repo, outputs, paths, ignored):
     for path in outputs:
         resolved = path.resolve()
-        if any(resolved == selected.resolve() or
-               (selected.is_dir() and not selected.is_symlink() and selected.resolve() in resolved.parents)
-               for selected in paths):
-            raise ValueError(f"output must lie outside measured scope: {path}")
+        for selected in paths:
+            try:
+                input_path = selected.resolve(strict=True)
+            except FileNotFoundError:
+                input_path = selected.resolve()
+            if resolved == input_path or (selected.is_dir() and not selected.is_symlink() and
+                                          input_path in resolved.parents):
+                raise ValueError(f"output must lie outside measured scope: {path}")
         if repo == resolved or repo in resolved.parents:
             name = str(resolved.relative_to(repo))
             if name == ".git" or name.startswith(".git/") or tool.names(repo, "ls-files", "-z", "--", name):
                 raise ValueError(f"output must lie outside measured scope: {path}")
-            env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
-            ignored = subprocess.run(["git", "-C", str(repo), *tool.SAFE, "check-ignore", "-q", "--", name],
-                                     capture_output=True, env=env, input=b"")
-            if ignored.returncode != 0:
+            if not ignored(name):
                 raise ValueError(f"output must lie outside measured scope: {path}")
 
 
@@ -1991,10 +2005,11 @@ def execute_run(args):
         cwd = Path.cwd().resolve()
         repo = Path(os.fsdecode(tool.git(Path(args.repo or cwd).resolve(), "rev-parse", "--show-toplevel")).strip())
         paths = sorted({(repo / path).parent.resolve() / (repo / path).name for path in args.path})
+        ignored = run_ignore_checker(tool, repo)
         before = run_identity(tool, repo, paths)
         output = args.out.expanduser().parent.resolve() / args.out.name
         stdout, stderr = (output.with_name(output.name + suffix) for suffix in (".stdout", ".stderr"))
-        run_output_scope(tool, repo, (output, stdout, stderr), paths)
+        run_output_scope(tool, repo, (output, stdout, stderr), paths, ignored)
         for path in (output, stdout, stderr):
             reserved.append((path, path.open("xb")))
         started = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
@@ -2003,7 +2018,7 @@ def execute_run(args):
         for _, source in reserved:
             source.close()
         after = run_identity(tool, repo, paths)
-        run_output_scope(tool, repo, (output, stdout, stderr), paths)
+        run_output_scope(tool, repo, (output, stdout, stderr), paths, ignored)
         status = child.returncode
         record = {
             "schemaVersion": 1, "argv": argv, "repo": str(repo), "cwd": str(cwd),
@@ -2031,7 +2046,7 @@ def execute_run(args):
         temporary = None
         print(f"ok: run record {output}")
         return status if status >= 0 else 128 - status
-    except (OSError, ValueError) as error:
+    except (OSError, RuntimeError, ValueError) as error:
         print(f"error: run wrapper: {error}", file=sys.stderr)
         return RUN_WRAPPER_ERROR
     finally:
@@ -2093,6 +2108,7 @@ def complete_run_record(path):
                 state["schemaVersion"] != 2 or state["repo"] != record["repo"] or
                 state["paths"] != ["."] or state["explicitPaths"] != scope["paths"] or
                 state["omittedUntrackedPaths"] != [] or
+                not isinstance(state["files"], dict) or not isinstance(state["explicitFiles"], dict) or
                 not isinstance(state.get("snapshotSha256"), str) or
                 not re.fullmatch(r"[0-9a-f]{64}", state["snapshotSha256"]) or
                 not isinstance(state["head"], str) or not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", state["head"])):
@@ -2126,6 +2142,77 @@ def complete_run_record(path):
     return record
 
 
+def run_display_path(path):
+    value = str(path)
+    return value if value.isprintable() else ascii(value)
+
+
+def check_run_record(args):
+    sys.dont_write_bytecode = True
+    try:
+        if args.path or args.argv:
+            raise ValueError("--check uses the recorded scope and starts no command; do not pass --path or argv")
+        record = complete_run_record(args.check)
+        tool = run_snapshot_tool()
+        repo = Path(os.fsdecode(tool.git(Path(args.repo or Path.cwd()).resolve(),
+                                        "rev-parse", "--show-toplevel")).strip()).resolve()
+        if repo != Path(record["repo"]).resolve():
+            print(f"stale: repository differs from run record: {run_display_path(repo)} != {run_display_path(record['repo'])}")
+            return 1
+        notes = 0
+        paths = [Path(path) for path in record["scope"]["paths"]]
+        ignored = run_ignore_checker(tool, repo)
+        for path in paths:
+            if repo != path and repo not in path.parents:
+                print(f"note: external input {run_display_path(path)}; file bytes or symlink link text are checked, dependencies are not vouched for")
+                notes += 1
+            else:
+                ignored_paths = {repo / name for name in tool.names(
+                    repo, "ls-files", "--others", "--ignored", "--exclude-standard", "-z", "--", str(path))}
+                if ignored(path):
+                    ignored_paths.add(path)
+                for name in sorted(ignored_paths):
+                    print(f"note: ignored input {run_display_path(name)}; file bytes or symlink link text are checked, dependencies are not vouched for")
+                    notes += 1
+        current = run_identity(tool, repo, paths)
+        symlinks = set()
+        for name, identity in current["explicitFiles"].items():
+            if identity["kind"] == "symlink":
+                symlinks.add(name)
+            elif identity["kind"] == "directory":
+                symlinks.update(str(Path(name) / nested) for nested, value in identity["files"].items()
+                                if value["kind"] == "symlink")
+        for name in sorted(symlinks):
+            print(f"note: symlink input {run_display_path(name)}; link text is checked, target contents are not checked through this path; "
+                  "name the target directly with --path to check its contents")
+            notes += 1
+        stale = False
+        if any(current["head"] != record[key]["head"] for key in ("before", "after")):
+            print("stale: HEAD differs from run record")
+            stale = True
+        for field in ("files", "explicitFiles"):
+            names = set(current[field]) | set(record["before"][field]) | set(record["after"][field])
+            for name in sorted(names):
+                if any(current[field].get(name) != record[phase][field].get(name) for phase in ("before", "after")):
+                    print(f"stale: file identity differs from run record: {run_display_path(name)}")
+                    stale = True
+        if any(current["indexSha256"] != record[phase]["indexSha256"] for phase in ("before", "after")):
+            print("stale: index identity differs from run record")
+            stale = True
+        if not stale and any(current["snapshotSha256"] != record[key]["snapshotSha256"]
+                             for key in ("before", "after")):
+            print("stale: identity differs from run record")
+            stale = True
+        if stale:
+            return 1
+        limit = f"; notes: {notes}; named inputs were not fully checked" if notes else ""
+        print(f"ok: candidate matches run record {run_display_path(args.check)}{limit}")
+        return 0
+    except (OSError, UnicodeError, ValueError, TypeError, KeyError, RuntimeError, RecursionError) as error:
+        print(f"stale: run record {run_display_path(args.check)}: {run_display_path(error)}")
+        return 1
+
+
 def validate_run_citations(claims, task):
     errors = []
     for line in claims.splitlines():
@@ -2156,6 +2243,7 @@ def validate_run_citations(claims, task):
                 raise ValueError("run record HEAD differs from claim")
             if record["before"]["snapshotSha256"] != citation["identity"].lower():
                 raise ValueError("run record identity differs from claim")
+            READ_NOTES.append(f"claim '{name}' run record {target} is historical; use run --check for the current candidate")
         except (OSError, UnicodeError, ValueError, TypeError, KeyError) as error:
             errors.append(f"claim '{name}' run record {target}: {error}")
     return errors
@@ -2416,8 +2504,10 @@ def main(argv) -> int:
 
     sub.add_parser("selfcheck", help="run the validator against its fixtures")
 
-    p_run = sub.add_parser("run", help="run literal argv and publish a command record")
-    p_run.add_argument("--out", type=Path, required=True)
+    p_run = sub.add_parser("run", help="publish a command record or check its current candidate")
+    run_mode = p_run.add_mutually_exclusive_group(required=True)
+    run_mode.add_argument("--out", type=Path)
+    run_mode.add_argument("--check", type=Path)
     p_run.add_argument("--repo", type=Path)
     p_run.add_argument("--path", action="append", default=[])
     p_run.add_argument("argv", nargs=argparse.REMAINDER)
@@ -2425,7 +2515,7 @@ def main(argv) -> int:
     args = parser.parse_args(argv)
 
     if args.cmd == "run":
-        return execute_run(args)
+        return check_run_record(args) if args.check is not None else execute_run(args)
 
     if args.cmd == "loads-proof":
         try:
