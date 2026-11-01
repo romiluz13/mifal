@@ -449,6 +449,13 @@ class CodexSkillFilters(Doctor):
         lines = self.filter_lines(result)
         self.assertTrue(any('tdd: configured exclusion detected in ~/codex-linked/config.toml' in line
                             for line in lines), result.stdout)
+        config.chmod(0)
+        self.addCleanup(config.chmod, 0o600)
+        result = self.doctor()
+        self.assertIn('~/codex-linked/config.toml cannot be read; exclusions unknown', result.stdout)
+        self.assertNotIn('Traceback', result.stdout + result.stderr)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn('integrity unknown: cannot read ~/codex-linked/config.toml', result.stdout)
 
 
 class AuditGuards(Doctor):

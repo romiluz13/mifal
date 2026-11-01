@@ -20,4 +20,6 @@ The supported schema is Codex **0.166.0**, from [its versioned skill configurati
 
 Doctor does not start Codex to determine its installed version. Version compatibility and the session's effective scope remain **unknown**, even when this file has no exclusions. In this source version, the skill-rule resolver reads user and session-flag layers, and session flags can override a user rule; doctor does not inspect them or prove that any skill loads.
 
+When an unreadable `config.toml` also delivers the Guide, doctor warns that the Guide's integrity is unknown and suggests restoring read access. Malformed or edited owned Guide blocks fail their integrity checks.
+
 This audit adds no process, socket or write. Doctor retains its existing validator Python selfcheck, Herdr checks and local `git ls-tree` completeness check. The audited fixtures allow only the declared Codex settings paths and those exact process arguments, refuse credential reads, filesystem writes and sockets, and compare process lists with and without an exclusion. Their audit hook observes the doctor interpreter; it does not trace the allowed child processes. Read/write access to `/dev/null` for subprocess standard input remains allowed.

@@ -389,16 +389,21 @@ def _key(r, rec, entry, guide_sha, h):
             r.line("WARN", check, f"{show(root)} is {rec['status']}, and nothing in its hooks stops the key now",
                    "run mifal update to add it")
         return
-    if state(config) == mf.MISSING:
-        r.line("FAIL", check, f"{show(config)} is missing", f"restore it: {REINSTALL}")
-        return
     try:
-        text = cc.read(config) if state(config)[0] == "file" else None
+        now = state(config)
+        if now == mf.MISSING:
+            r.line("FAIL", check, f"{show(config)} is missing", f"restore it: {REINSTALL}")
+            return
+        text = cc.read(config) if now[0] == "file" else None
         if text is not None:
             cc.parse(text)
-    except (cc.Invalid, OSError):
+    except cc.Invalid:
         r.line("FAIL", check, f"{show(config)} is not UTF-8 TOML any more",
                f"fix it so Codex can read it, then {REINSTALL}")
+        return
+    except OSError:
+        r.line("WARN", check, f"integrity unknown: cannot read {show(config)}",
+               f"restore read access to {show(config)}, then run mifal doctor again")
         return
     found = cc.split(text, entry["sha256"]) if text is not None and entry else None
     if found is None:
