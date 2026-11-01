@@ -14,6 +14,9 @@
 set -euo pipefail
 [ $# -eq 2 ] || { echo "usage: $0 REPO FROM_TAG" >&2; exit 2; }
 repo="$1" from="$2"
+# A 0.2.x release predates OpenCode's rules file and the update guards: its install records OpenCode as skipped, and
+# its own update moves a skill of mine under a newly reserved name instead of stopping. From 0.3.0 on, neither holds.
+case "$from" in v0.[0-2].*) legacy=1 ;; *) legacy=0 ;; esac
 home="$(mktemp -d)"
 trap 'rm -rf "${home:?}"' EXIT
 home="$(cd -P "$home" && pwd)"
@@ -151,11 +154,16 @@ fi
 audit main --complete || fail "after the update the install is not the candidate, file for file"
 run /bin/bash "$mifal" update --yes | grep -q "up to date" || fail "an update after the repair was not a no-op"
 opencode="$home/.config/opencode/AGENTS.md"
-# 0.3.0: a recorded skipped Home whose folder is gone stays skipped on update, nothing created; naming it serves it.
-[ ! -e "$opencode" ] || problem "$opencode was created, but a skipped Home whose folder is gone stays skipped on update"
-grep -q "skip opencode: ~/.config/opencode no longer exists, so Mifal keeps it recorded as skipped and writes " \
-  <<<"$update_out" || problem "the update does not keep the gone skipped OpenCode Home skipped, with its note"
-verdict b "the update repairs the files $from's update left out and keeps the gone skipped OpenCode Home skipped until it is named" "$update_codes"
+if [ "$legacy" = 1 ]; then
+  # 0.3.0: a recorded skipped Home whose folder is gone stays skipped on update, nothing created; naming it serves it.
+  [ ! -e "$opencode" ] || problem "$opencode was created, but a skipped Home whose folder is gone stays skipped on update"
+  grep -q "skip opencode: ~/.config/opencode no longer exists, so Mifal keeps it recorded as skipped and writes " \
+    <<<"$update_out" || problem "the update does not keep the gone skipped OpenCode Home skipped, with its note"
+  verdict b "the update repairs the files $from's update left out and keeps the gone skipped OpenCode Home skipped until it is named" "$update_codes"
+else
+  [ "$(blocks "$opencode")" = 1 ] || problem "$opencode does not hold exactly one Mifal block after the update"
+  verdict b "the update repairs the files $from's update left out and keeps OpenCode served" "$update_codes"
+fi
 
 echo "-- a synthetic next release that reserves one more skill name, and an unreleased commit, then an update by the new code"
 git clone -q "$home/origin.git" "$home/work"
@@ -220,9 +228,13 @@ done
 verdict a "each served agent's rules file holds exactly one Mifal block and my own line" "$applied_rc"
 
 ! grep -h '^PASS .*natively' "$home/doctor-gap.txt" "$home/doctor-final.txt" || problem "doctor passes a native-reading claim it did not check"
-grep -i opencode "$home/doctor-gap.txt" | grep -qi 'not served' || problem "doctor does not list OpenCode as detected but not served while it is"
 [ "$doctor_rc" -eq 0 ] || problem "doctor exited $doctor_rc after the update"
-verdict c "doctor claims no unchecked native reading, lists the agent it does not serve, and is clean after the update" "$doctor_rc"
+if [ "$legacy" = 1 ]; then
+  grep -i opencode "$home/doctor-gap.txt" | grep -qi 'not served' || problem "doctor does not list OpenCode as detected but not served while it is"
+  verdict c "doctor claims no unchecked native reading, lists the agent it does not serve, and is clean after the update" "$doctor_rc"
+else
+  verdict c "doctor claims no unchecked native reading and is clean after the update" "$doctor_rc"
+fi
 
 echo "-- uninstall"
 rc=0; run /bin/bash "$mifal" uninstall >"$home/uninstall.log" 2>&1 || rc=$?
@@ -275,11 +287,19 @@ verdict f "rollback to $from by uninstall and install from its clone leaves doct
 echo "-- an update from $from's single-Home records: every default Home keeps its Guide"
 rc=0; out="$(run /bin/bash "$mifal" update --yes 2>&1)" || rc=$?
 echo "$out"
+update_codes="$rc"
+if [ "$rc" -ne 0 ] && [ "$legacy" = 0 ]; then
+  grep -q "^~/.agents/skills/$reserved: exists and was not installed by Mifal" <<<"$out" \
+    || problem "the update run by $from's own code stopped, and not on $reserved, the name v99.0.0 reserves"
+  rc=0; out="$(run /bin/bash "$mifal" update --yes --overwrite-edits 2>&1)" || rc=$?
+  echo "$out"
+  update_codes="$update_codes on $reserved, then $rc with --overwrite-edits"
+fi
 [ "$rc" -eq 0 ] || problem "the update run by $from's own code exited $rc"
 [ "$(cat "$home/.agents/mifal/VERSION")" = "99.0.0" ] || problem "the update run by $from's own code did not land on v99.0.0"
 rc2=0; out2="$(run /bin/bash "$mifal" update --yes 2>&1)" || rc2=$?
 echo "$out2"
-update_codes="$rc, then $rc2"
+update_codes="$update_codes, then $rc2"
 if [ "$rc2" -ne 0 ]; then
   opencode_named <(echo "$out2") || problem "the second update stopped, and not on OpenCode's CLAUDE.md fallback"
   rc2=0; out3="$(run /bin/bash "$mifal" update --yes --overwrite-edits 2>&1)" || rc2=$?

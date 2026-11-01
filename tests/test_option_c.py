@@ -6,7 +6,7 @@ import os
 import stat
 import unittest
 
-from support import Sandbox, snapshot
+from support import REPO, Sandbox, snapshot
 from test_tomli import vendored
 from test_update import Update
 
@@ -586,7 +586,7 @@ class PendingLifecycle(Update, OptionC):
         result = self.run_in_terminal("/bin/bash", self.home / ".local/bin/mifal", "update", answer="y\n")
         self.assertEqual(result.returncode, 1, result.stdout)
         self.assertIn("Your files changed while the update waited for approval", result.stdout)
-        self.assertEqual(self.manifest()["version"], "0.3.0")
+        self.assertEqual(self.manifest()["version"], (REPO / "VERSION").read_text().strip())
 
 
 class Doctor(OptionC):
