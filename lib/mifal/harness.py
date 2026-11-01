@@ -6,8 +6,10 @@ import os
 import re
 import shlex
 import shutil
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
+
+from . import codex_config as cc
 
 NAMES = ("claude", "codex", "droid", "pi", "opencode")
 TITLES = {"claude": "Claude Code", "codex": "Codex", "droid": "Droid", "pi": "Pi", "opencode": "OpenCode"}
@@ -135,6 +137,89 @@ def reads_now(name, home: Path, env, root: Path | None = None):
         fallback = Path(env.get("OPENCODE_TEST_HOME") or env.get("HOME") or home) / ".claude" / "CLAUDE.md"
         return fallback if fallback.is_file() else None
     return None
+
+
+@dataclass
+class SkillFilters:
+    note: str
+    warnings: list[tuple[str, str]] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
+    unreadable: bool = False
+
+
+def skill_filters(name, home: Path, root: Path, pool: Path, skills, show=str) -> SkillFilters | None:
+    if name != "codex":
+        return None
+    config = root / "config.toml"
+    where = show(config)
+    schema = ("supports Codex 0.166.0 [[skills.config]] (path or name, enabled); "
+              "Codex version and session -c overrides: unknown")
+    result = SkillFilters(f"reads {where} skill keys only ({schema})")
+    try:
+        real = os.path.realpath(config)
+        if (any(part.lower() in ("auth", "auth.json", "token", "tokens.json", "credentials.json",
+                                 ".credentials.json") for path in (str(config), real) for part in Path(path).parts)
+                or any(real.endswith('/' + rel) for rel in ('.claude/settings.json', '.factory/settings.json',
+                                                            '.config/opencode/opencode.json'))):
+            result.warnings.append((f"{where} resolves to a credential, token or auth path; exclusions unknown",
+                                    f"point {where} at a Codex settings file; doctor never reads credential files"))
+            return result
+        if config.exists() and not config.is_file():
+            raise OSError
+        table = cc.parse(cc.read(config)).get("skills", {})
+    except FileNotFoundError:
+        if not config.is_symlink():
+            result.note = f"no exclusion found in {where}; reads skill keys only ({schema})"
+            return result
+        result.unreadable = True
+        result.warnings.append((f"{where} cannot be read; exclusions unknown",
+                                f"restore the linked settings file for {where}, then run mifal doctor again"))
+        return result
+    except cc.Invalid:
+        result.warnings.append((f"{where} is not valid UTF-8 TOML; exclusions unknown",
+                                f"repair the TOML in {where}, then run mifal doctor again"))
+        return result
+    except OSError:
+        result.unreadable = True
+        result.warnings.append((f"{where} cannot be read; exclusions unknown",
+                                f"restore read access to {where}, then run mifal doctor again"))
+        return result
+    entries = table.get("config", []) if isinstance(table, dict) else None
+    if not isinstance(entries, list) or any(
+            not isinstance(entry, dict) or type(entry.get("enabled")) is not bool
+            or "path" in entry and not isinstance(entry["path"], str)
+            or "name" in entry and not isinstance(entry["name"], str)
+            for entry in entries):
+        result.warnings.append((f"{where} has invalid skills.config; exclusions unknown",
+                                f"use [[skills.config]] entries with one path or name selector and boolean enabled in {where}"))
+        return result
+    documents = {os.path.realpath(pool / skill / "SKILL.md"): skill for skill in skills}
+    disabled = set()
+    for index, entry in enumerate(entries, 1):
+        if ("path" in entry) == ("name" in entry) or "name" in entry and not entry["name"].strip():
+            result.notes.append(f"skipped [[skills.config]] entry {index} in {where}: "
+                                "needs one path or nonblank name selector; other entries are still checked")
+            continue
+        if "path" in entry:
+            path = entry["path"]
+            if "\0" in path:
+                continue
+            if path == "~" or path.startswith("~/"):
+                path = home / path[2:].lstrip("/")
+            skill = documents.get(os.path.realpath(os.path.normpath(root / path)))
+        else:
+            skill = entry["name"].strip()
+        if skill in skills:
+            if entry["enabled"]:
+                disabled.discard(skill)
+            else:
+                disabled.add(skill)
+    if not disabled:
+        result.note = f"no exclusion found in {where}; reads skill keys only ({schema})"
+    for skill in sorted(disabled):
+        result.warnings.append((f"{skill}: configured exclusion detected in {where} at [[skills.config]]",
+                                f"set enabled = true or remove the matching entry in {where}; restart Codex"))
+    return result
 
 
 def _open_fence(text: str) -> bool:

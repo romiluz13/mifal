@@ -9,6 +9,7 @@ from pathlib import Path
 log = open(sys.argv[1], "w")
 engine = Path(sys.argv[2]).parent
 settings = {os.path.abspath(path) for path in sys.argv[3:]}
+resolved_settings = {os.path.realpath(path) for path in settings}
 private = (".claude/settings.json", ".factory/settings.json", ".config/opencode/opencode.json")
 herdr = shutil.which("herdr")
 allowed_processes = {
@@ -26,12 +27,13 @@ def hook(event, args):
         if path != os.devnull and flags & (os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_TRUNC | os.O_APPEND):
             raise RuntimeError("forbidden write")
         absolute, real = os.path.abspath(path), os.path.realpath(path)
-        parts = Path(real).parts
+        parts = Path(absolute).parts + Path(real).parts
         if (any(part.lower() in ("auth", "auth.json", "token", "tokens.json", "credentials.json",
                                  ".credentials.json") for part in parts)
-                or any(real.endswith("/" + rel) for rel in private)
-                or Path(real).name in ("config.toml", "settings.json", "opencode.json")
-                and (absolute not in settings or absolute != real)):
+                or any(value.endswith("/" + rel) for value in (absolute, real) for rel in private)
+                or (Path(absolute).name in ("config.toml", "settings.json", "opencode.json")
+                    or Path(real).name in ("config.toml", "settings.json", "opencode.json"))
+                and absolute not in settings | resolved_settings):
             raise RuntimeError("forbidden settings or credential read")
     elif event == "subprocess.Popen":
         log.write(f"exec {args[1]}\n")

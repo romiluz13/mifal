@@ -290,6 +290,17 @@ class Broken(Doctor):
 
 
 class CodexSkillFilters(Doctor):
+    def test_plain_homes_with_no_config_or_no_skill_setting_add_no_warning(self):
+        for text in (None, '', 'model = "placeholder"\n'):
+            with self.subTest(text=text):
+                if text is not None:
+                    self.config(text)
+                result = self.doctor()
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertNotRegex(result.stdout, r'(?m)^WARN skill filters codex:')
+                self.assertRegex(result.stdout, r'note skill filters codex:.*no exclusion found.*config.toml')
+                self.assertIn('Codex version and session -c overrides: unknown', result.stdout)
+
     def config(self, text, root=None):
         path = (root or self.home / ".codex") / "config.toml"
         path.write_text(text)
@@ -298,7 +309,7 @@ class CodexSkillFilters(Doctor):
     def filter_lines(self, result):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("supports Codex 0.166.0", result.stdout)
-        self.assertIn("compatibility and effective scope unknown", result.stdout)
+        self.assertIn("Codex version and session -c overrides: unknown", result.stdout)
         return [line for line in result.stdout.splitlines() if "skill filters codex" in line]
 
     def test_disabled_mifal_document_warns_with_file_key_and_fix(self):
@@ -327,12 +338,8 @@ class CodexSkillFilters(Doctor):
         for text in ('skills = "bad"', '[skills]\nconfig = "bad"', '[skills]\nconfig = [1]',
                      '[[skills.config]]\nname = "tdd"\nenabled = "false"',
                      '[[skills.config]]\npath = 1\nenabled = false',
-                     '[[skills.config]]\npath = "\\u0000"\nenabled = false',
                      '[[skills.config]]\nname = 1\nenabled = false',
-                     '[[skills.config]]\nname = "tdd"',
-                     '[[skills.config]]\nenabled = false',
-                     '[[skills.config]]\nname = ""\nenabled = false',
-                     '[[skills.config]]\nname = "tdd"\npath = "/other/SKILL.md"\nenabled = false'):
+                     '[[skills.config]]\nname = "tdd"'):
             with self.subTest(text=text):
                 self.config(text)
                 result = self.doctor()
@@ -342,6 +349,17 @@ class CodexSkillFilters(Doctor):
                 self.assertNotIn("configured exclusion detected", "\n".join(lines))
                 self.assertRegex(result.stdout, r"invalid skills.config[^\n]*\n     fix: ")
                 self.assertNotIn("Traceback", result.stderr)
+
+    def test_codex_0166_skills_config_rs_205_212_216_skips_only_that_entry(self):
+        for skipped in ('name = " "', 'name = "team-lead"\npath = "/other/SKILL.md"', ''):
+            with self.subTest(skipped=skipped):
+                self.config('[[skills.config]]\nname = "tdd"\nenabled = false\n'
+                            '[[skills.config]]\n' + skipped + '\nenabled = false\n')
+                result = self.doctor()
+                lines = self.filter_lines(result)
+                self.assertIn('tdd: configured exclusion detected', result.stdout)
+                self.assertTrue(any(line.startswith('note') and 'skipped' in line for line in lines), result.stdout)
+                self.assertNotIn('invalid skills.config', result.stdout)
 
     def test_removed_exclusion_and_enabled_skill_report_no_exclusion(self):
         self.config('[[skills.config]]\nname = "tdd"\nenabled = false\n')
@@ -376,7 +394,23 @@ class CodexSkillFilters(Doctor):
         self.assertNotIn("configured exclusion detected", "\n".join(lines))
         self.assertRegex(result.stdout, r"cannot be read; exclusions unknown\n     fix: restore read access")
 
-    def test_linked_config_is_unknown_without_reading_its_target(self):
+    def test_linked_dotfiles_config_is_read_with_no_warning_merely_for_the_link(self):
+        target = self.home / 'dotfiles/config.toml'
+        target.parent.mkdir()
+        config = self.home / '.codex/config.toml'
+        config.symlink_to(target)
+        for text, warnings in (('[[skills.config]]\nname = "tdd"\nenabled = false\n', 1), ('', 0)):
+            with self.subTest(text=text):
+                target.write_text(text)
+                log = self.root / 'dotfiles-audit.log'
+                result = self.run_cmd(PYTHON, '-B', '-I', self.clone / 'tests/helpers/audited_doctor.py', log,
+                                      self.home / '.agents/mifal/lib', config, check=False)
+                lines = self.filter_lines(result)
+                self.assertEqual(sum(line.startswith('WARN') for line in lines), warnings, result.stdout)
+                self.assertEqual('tdd: configured exclusion detected' in result.stdout, bool(warnings))
+                self.assertIn('open ' + str(config), log.read_text())
+
+    def test_linked_config_to_credentials_is_unknown_without_reading_its_target(self):
         target = self.home / '.codex/auth.json'
         target.write_text('[[skills.config]]\nname = "tdd"\nenabled = false\n')
         (self.home / '.codex/config.toml').symlink_to(target)
@@ -384,7 +418,7 @@ class CodexSkillFilters(Doctor):
         result = self.run_cmd(PYTHON, '-B', '-I', self.clone / 'tests/helpers/audited_doctor.py', log,
                               self.home / '.agents/mifal/lib', self.home / '.codex/config.toml', check=False)
         lines = self.filter_lines(result)
-        self.assertTrue(any("not a regular unlinked file; exclusions unknown" in line for line in lines),
+        self.assertTrue(any("credential, token or auth path; exclusions unknown" in line for line in lines),
                         result.stdout)
         self.assertNotIn("configured exclusion detected", "\n".join(lines))
         self.assertNotIn('open ' + str(target), log.read_text())
@@ -449,13 +483,25 @@ class CodexSkillFilters(Doctor):
         lines = self.filter_lines(result)
         self.assertTrue(any('tdd: configured exclusion detected in ~/codex-linked/config.toml' in line
                             for line in lines), result.stdout)
+
+    def test_unreadable_config_delivered_guide_fails_with_one_restore_access_fix(self):
+        root = self.home / 'codex-linked'
+        root.mkdir()
+        shared = self.home / 'shared-rules.md'
+        shared.write_text('Personal rules\n')
+        (root / 'AGENTS.md').symlink_to(shared)
+        self.install('--home', 'codex=' + str(root))
+        config = root / 'config.toml'
         config.chmod(0)
         self.addCleanup(config.chmod, 0o600)
         result = self.doctor()
         self.assertIn('~/codex-linked/config.toml cannot be read; exclusions unknown', result.stdout)
         self.assertNotIn('Traceback', result.stdout + result.stderr)
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn('integrity unknown: cannot read ~/codex-linked/config.toml', result.stdout)
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn('FAIL guide codex: cannot read ~/codex-linked/config.toml; Guide is not delivered',
+                      result.stdout)
+        self.assertEqual(result.stdout.count('fix: restore read access to ~/codex-linked/config.toml'), 1,
+                         result.stdout)
 
 
 class AuditGuards(Doctor):
@@ -470,6 +516,26 @@ class AuditGuards(Doctor):
         result = self.run_cmd(PYTHON, '-B', '-I', '-c', script, check=False)
         self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn('RuntimeError: forbidden', result.stderr)
+        return result
+
+    def test_audit_refuses_credential_names_even_when_they_link_to_public_data(self):
+        target = self.home / 'public.txt'
+        target.write_text('placeholder\n')
+        credential = self.home / '.codex/auth.json'
+        credential.symlink_to(target)
+        self.probe('open(' + repr(str(credential)) + ').read()')
+
+    def test_declared_link_target_is_allowed_but_another_settings_file_is_refused(self):
+        target = self.home / 'dotfiles/config.toml'
+        target.parent.mkdir()
+        target.write_text('model = "placeholder"\n')
+        (self.home / '.codex/config.toml').symlink_to(target)
+        other = self.home / 'other/config.toml'
+        other.parent.mkdir()
+        other.write_text('model = "placeholder"\n')
+        result = self.probe('open(' + repr(str(target)) + ').read()\nprint("resolved target read")\n'
+                            'open(' + repr(str(other)) + ').read()')
+        self.assertIn('resolved target read', result.stdout)
 
     def test_audit_refuses_credentials_and_undeclared_settings_even_through_a_link(self):
         for rel in PRIVATE:
