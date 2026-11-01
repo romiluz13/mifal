@@ -495,8 +495,8 @@
       "name": "impeccable",
       "repo": "pbakaus/impeccable",
       "licence": "Apache-2.0",
-      "revision": "bbcb29d9dee6c94915d760bcfc36818ad5be66ad",
-      "version": "4.5.0",
+      "revision": "4f956490f0056ae1ff5ea80372cf56e83c001d3c",
+      "version": "4.8.0",
       "paths": [
         "skills/frontend-design/references/interface/design.md",
         "skills/frontend-design/references/interface/motion.md",

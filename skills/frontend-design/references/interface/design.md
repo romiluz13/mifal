@@ -1,7 +1,7 @@
 # Design and UX
 
 Read for the affected surface; scale the work to the task. This is the primary
-Matt interface guidance, adapted from reviewed Impeccable 4.5.0 material.
+Matt interface guidance, adapted from reviewed Impeccable 4.8.0 material.
 
 ## Ground the direction
 
@@ -21,7 +21,10 @@ Identify the surface's purpose:
 - **Experience an artifact:** galleries/portfolios; let the work lead.
 
 A product's marketing page and dashboard can have different purposes. Brand
-expression must fit the current surface rather than replacing its task.
+expression must fit the current surface rather than replacing its task. Scale
+ambition to the purpose: decide-and-act and artifact surfaces get a committed
+point of view; on task and reading surfaces ambition shows as precision and
+restraint, and patterns people already know earn their place.
 
 ## Define UX before decoration
 
@@ -55,9 +58,12 @@ Preserve a usable default when optional media is unavailable.
 ## Validate what was built
 
 Inspect real content at relevant viewports. Check hierarchy, spacing, overflow,
-contrast, focus and control states; follow the UX acceptance reference for
-actual completion, keyboard and recovery evidence. Screenshots alone cannot
-establish gesture quality, screen-reader use or task completion.
+contrast, focus and control states. On interactive surfaces, drive each
+reachable state (open, closed, hover, focus, error, empty, overlong content)
+and check it for overlap and clipping, not only the resting screen. Follow the
+UX acceptance reference for actual completion, keyboard and recovery evidence.
+Screenshots alone cannot establish gesture quality, screen-reader use or task
+completion.
 
 The full upstream package's launcher, hooks, mandatory context files, separate
 confirmation lifecycle and categorical visual bans are intentionally excluded.
