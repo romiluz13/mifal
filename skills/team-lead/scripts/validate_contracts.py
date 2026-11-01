@@ -2093,6 +2093,7 @@ def complete_run_record(path):
                 state["schemaVersion"] != 2 or state["repo"] != record["repo"] or
                 state["paths"] != ["."] or state["explicitPaths"] != scope["paths"] or
                 state["omittedUntrackedPaths"] != [] or
+                not isinstance(state["files"], dict) or not isinstance(state["explicitFiles"], dict) or
                 not isinstance(state.get("snapshotSha256"), str) or
                 not re.fullmatch(r"[0-9a-f]{64}", state["snapshotSha256"]) or
                 not isinstance(state["head"], str) or not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", state["head"])):
@@ -2126,6 +2127,61 @@ def complete_run_record(path):
     return record
 
 
+def check_run_record(args):
+    sys.dont_write_bytecode = True
+    try:
+        if args.path or args.argv:
+            raise ValueError("--check uses the recorded scope and starts no command; do not pass --path or argv")
+        record = complete_run_record(args.check)
+        tool = run_snapshot_tool()
+        repo = Path(os.fsdecode(tool.git(Path(args.repo or Path.cwd()).resolve(),
+                                        "rev-parse", "--show-toplevel")).strip()).resolve()
+        if repo != Path(record["repo"]).resolve():
+            print(f"stale: repository differs from run record: {repo} != {record['repo']}")
+            return 1
+        paths = [Path(path) for path in record["scope"]["paths"]]
+        for path in paths:
+            if repo != path and repo not in path.parents:
+                print(f"note: external input {path}; only named raw bytes are checked, dependencies are not vouched for")
+            else:
+                ignored = {repo / name for name in tool.names(
+                    repo, "ls-files", "--others", "--ignored", "--exclude-standard", "-z", "--", str(path))}
+                env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+                selected = subprocess.run(["git", "-C", str(repo), *tool.SAFE, "check-ignore", "-q", "--", str(path)],
+                                          capture_output=True, env=env, input=b"")
+                if selected.returncode not in (0, 1):
+                    raise ValueError(selected.stderr.decode(errors="replace").strip())
+                if selected.returncode == 0:
+                    ignored.add(path)
+                for name in sorted(ignored):
+                    print(f"note: ignored input {name}; only named raw bytes are checked, dependencies are not vouched for")
+        current = run_identity(tool, repo, paths)
+        stale = False
+        if any(current["head"] != record[key]["head"] for key in ("before", "after")):
+            print("stale: HEAD differs from run record")
+            stale = True
+        for field in ("files", "explicitFiles"):
+            names = set(current[field]) | set(record["before"][field]) | set(record["after"][field])
+            for name in sorted(names):
+                if any(current[field].get(name) != record[phase][field].get(name) for phase in ("before", "after")):
+                    print(f"stale: file identity differs from run record: {name}")
+                    stale = True
+        if any(current["indexSha256"] != record[phase]["indexSha256"] for phase in ("before", "after")):
+            print("stale: index identity differs from run record")
+            stale = True
+        if not stale and any(current["snapshotSha256"] != record[key]["snapshotSha256"]
+                             for key in ("before", "after")):
+            print("stale: identity differs from run record")
+            stale = True
+        if stale:
+            return 1
+        print(f"ok: candidate matches run record {args.check}")
+        return 0
+    except (OSError, UnicodeError, ValueError, TypeError, KeyError, RecursionError) as error:
+        print(f"stale: run record {args.check}: {error}")
+        return 1
+
+
 def validate_run_citations(claims, task):
     errors = []
     for line in claims.splitlines():
@@ -2156,6 +2212,7 @@ def validate_run_citations(claims, task):
                 raise ValueError("run record HEAD differs from claim")
             if record["before"]["snapshotSha256"] != citation["identity"].lower():
                 raise ValueError("run record identity differs from claim")
+            READ_NOTES.append(f"claim '{name}' run record {target} is historical; use run --check for the current candidate")
         except (OSError, UnicodeError, ValueError, TypeError, KeyError) as error:
             errors.append(f"claim '{name}' run record {target}: {error}")
     return errors
@@ -2416,8 +2473,10 @@ def main(argv) -> int:
 
     sub.add_parser("selfcheck", help="run the validator against its fixtures")
 
-    p_run = sub.add_parser("run", help="run literal argv and publish a command record")
-    p_run.add_argument("--out", type=Path, required=True)
+    p_run = sub.add_parser("run", help="publish a command record or check its current candidate")
+    run_mode = p_run.add_mutually_exclusive_group(required=True)
+    run_mode.add_argument("--out", type=Path)
+    run_mode.add_argument("--check", type=Path)
     p_run.add_argument("--repo", type=Path)
     p_run.add_argument("--path", action="append", default=[])
     p_run.add_argument("argv", nargs=argparse.REMAINDER)
@@ -2425,7 +2484,7 @@ def main(argv) -> int:
     args = parser.parse_args(argv)
 
     if args.cmd == "run":
-        return execute_run(args)
+        return check_run_record(args) if args.check is not None else execute_run(args)
 
     if args.cmd == "loads-proof":
         try:

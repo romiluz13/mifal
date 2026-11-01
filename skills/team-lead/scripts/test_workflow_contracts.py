@@ -2297,5 +2297,265 @@ class RunRecordTests(unittest.TestCase):
             directory.chmod(0o755)
 
 
+class RunCheckTests(unittest.TestCase):
+    setUp = RunRecordTests.setUp
+    git = RunRecordTests.git
+    run_command = RunRecordTests.run_command
+    run_ok = RunRecordTests.run_ok
+    receipt = RunRecordTests.receipt
+
+    def check_run(self, path, repo=None, cwd=None, extra=()):
+        command = [sys.executable, "-B", str(SCRIPT), "run", "--check", str(path)]
+        if repo is not None:
+            command += ["--repo", str(repo)]
+        return subprocess.run(command + list(extra), cwd=cwd or self.repo, capture_output=True, text=True)
+
+    def test_old_record_and_token_remain_historical_after_tracked_edit_but_check_is_stale(self):
+        path, record = self.run_ok()
+        (self.repo / "source").write_text("changed after run\n")
+        receipt = self.receipt(path, record)
+        self.assertEqual(receipt.returncode, 0, receipt.stderr)
+        result = self.check_run(path)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertRegex(result.stdout, r"stale:.*(source|identity)")
+        self.assertNotIn("ok:", result.stdout)
+
+    def test_unchanged_record_matches_immediately(self):
+        path, _ = self.run_ok()
+        result = self.check_run(path)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, f"ok: candidate matches run record {path}\n")
+
+    def test_head_move_with_identical_bytes_is_stale(self):
+        path, _ = self.run_ok()
+        self.git("commit", "--allow-empty", "-qm", "new HEAD, same bytes")
+        result = self.check_run(path)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertRegex(result.stdout, r"stale:.*HEAD")
+        self.assertNotIn("ok:", result.stdout)
+
+    def test_new_untracked_input_is_stale(self):
+        path, _ = self.run_ok()
+        (self.repo / "new-input").write_text("new dependency")
+        result = self.check_run(path)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("stale:", result.stdout)
+
+    def test_unnamed_ignored_input_does_not_change_record_scope(self):
+        path, _ = self.run_ok()
+        (self.repo / "ignored-new").write_text("outside the recorded scope")
+        result = self.check_run(path)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, f"ok: candidate matches run record {path}\n")
+
+    def test_recorded_untracked_input_cannot_be_hidden_by_current_ignore_settings(self):
+        (self.repo / "dependency").write_text("before")
+        path, _ = self.run_ok()
+        ignore = self.root / "exclude"
+        ignore.write_text("dependency\n")
+        self.git("config", "core.excludesFile", str(ignore))
+        (self.repo / "dependency").write_text("after")
+        result = self.check_run(path)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("stale:", result.stdout)
+
+    def test_same_bytes_in_another_repository_are_stale(self):
+        path, _ = self.run_ok()
+        other = self.root / "other"
+        subprocess.run(["git", "clone", "-q", "--no-hardlinks", str(self.repo), str(other)],
+                       check=True, capture_output=True)
+        result = self.check_run(path, repo=other)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertRegex(result.stdout, r"stale:.*repository")
+        self.assertNotIn("ok:", result.stdout)
+
+    def test_sibling_worktree_is_stale_but_resolved_root_alias_matches(self):
+        path, _ = self.run_ok()
+        other = self.root / "sibling"
+        self.git("worktree", "add", "--detach", "-q", str(other), "HEAD")
+        result = self.check_run(path, repo=other)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertRegex(result.stdout, r"stale:.*repository")
+        alias = self.root / "alias"
+        alias.symlink_to(self.repo, target_is_directory=True)
+        matched = self.check_run(path, repo=alias, cwd=self.root)
+        self.assertEqual(matched.returncode, 0, matched.stderr)
+        self.assertEqual(matched.stdout, f"ok: candidate matches run record {path}\n")
+
+    def test_named_external_and_ignored_inputs_are_remeasured_and_limits_are_visible(self):
+        external = self.root / "external-input"
+        ignored = self.repo / "ignored-input"
+        external.write_text("original")
+        ignored.write_text("original")
+        path, _ = self.run_ok(paths=[external, ignored])
+        result = self.check_run(path)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for selected in (external, ignored):
+            self.assertTrue(any(line.startswith("note:") and str(selected) in line
+                                for line in result.stdout.splitlines()), result.stdout)
+        external.write_text("changed")
+        result = self.check_run(path)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("stale:", result.stdout)
+        external.write_text("original")
+        ignored.write_text("changed")
+        result = self.check_run(path)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("stale:", result.stdout)
+
+    def test_truncated_malformed_missing_and_incomplete_records_are_refused_without_traceback(self):
+        path, _ = self.run_ok()
+        for content in (None, b'{"schemaVersion":1,', b"{not-json", b"{}", b"\xff",
+                        b"[" * 2000 + b"]" * 2000):
+            with self.subTest(content=content):
+                path.unlink(missing_ok=True)
+                if content is not None:
+                    path.write_bytes(content)
+                result = self.check_run(path)
+                self.assertEqual(result.returncode, 1, result.stderr)
+                self.assertIn("stale:", result.stdout)
+                self.assertNotIn("Traceback", result.stdout + result.stderr)
+                self.assertNotIn("ok:", result.stdout)
+
+    def test_malformed_identity_maps_are_refused_without_traceback(self):
+        path, record = self.run_ok()
+        for phase in ("before", "after"):
+            record[phase]["files"] = ["source"]
+            canonical = {key: value for key, value in record[phase].items()
+                         if key not in ("snapshotSha256", "reviewCommands", "limits")}
+            record[phase]["snapshotSha256"] = hashlib.sha256(
+                json.dumps(canonical, sort_keys=True, ensure_ascii=True).encode()).hexdigest()
+        record["candidate"]["identity"] = "sha256:" + record["before"]["snapshotSha256"]
+        path.write_text(json.dumps(record))
+        result = self.check_run(path)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("stale:", result.stdout)
+        self.assertNotIn("Traceback", result.stdout + result.stderr)
+
+    def test_check_does_not_execute_recorded_argv_or_change_record_and_checkout(self):
+        path, record = self.run_ok()
+        marker = self.root / "replayed"
+        record["argv"] = [sys.executable, "-c", "from pathlib import Path; Path(" + repr(str(marker)) + ").touch()"]
+        path.write_text(json.dumps(record))
+        saved = path.read_bytes()
+        before = self.git("status", "--porcelain=v1", "--untracked-files=all").stdout
+        result = self.check_run(path)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, f"ok: candidate matches run record {path}\n")
+        self.assertFalse(marker.exists())
+        self.assertEqual(path.read_bytes(), saved)
+        self.assertEqual(self.git("status", "--porcelain=v1", "--untracked-files=all").stdout, before)
+
+    def test_each_agreeing_receipt_claim_is_historical_and_receipt_does_not_replay_argv(self):
+        path, record = self.run_ok()
+        marker = self.root / "receipt-replayed"
+        record["argv"] = [sys.executable, "-c", "from pathlib import Path; Path(" + repr(str(marker)) + ").touch()"]
+        path.write_text(json.dumps(record))
+        fixture = WorkflowTests()
+        fixture.setUp()
+        self.addCleanup(fixture.temp.cleanup)
+        brief = fixture.brief().replace("- behavior: check the artifact.",
+                                        "- first: check one\n- second: check two")
+        citation = f"run:{path} head:{record['candidate']['head']} identity:{record['candidate']['identity']}"
+        text = (brief + fixture.workflow() + "\n## Return\nCloses: 1\n### Result\nChecked.\n### Claims\n" +
+                f"- first: passed | {citation}\n- second: passed | {citation}\n### Evidence\n" + fixture.load_lines())
+        result = fixture.run_check("receipt", text, "--matt")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for claim in ("first", "second"):
+            self.assertTrue(any(line.startswith("note:") and f"claim '{claim}'" in line and "historical" in line
+                                for line in result.stderr.splitlines()), result.stderr)
+        self.assertFalse(marker.exists())
+
+    def test_check_refuses_scope_override_and_supplied_command(self):
+        path, _ = self.run_ok()
+        marker = self.root / "supplied-command"
+        code = "from pathlib import Path; Path(" + repr(str(marker)) + ").touch()"
+        for extra in (("--path", "source"), ("--", sys.executable, "-c", code)):
+            with self.subTest(extra=extra):
+                result = self.check_run(path, extra=extra)
+                self.assertEqual(result.returncode, 1, result.stderr)
+                self.assertIn("stale:", result.stdout)
+                self.assertNotIn("ok:", result.stdout)
+        self.assertFalse(marker.exists())
+
+    def test_current_after_snapshot_cannot_hide_before_snapshot_drift(self):
+        path, _ = self.run_ok(sys.executable, "-c", "from pathlib import Path; Path('source').write_text('during')")
+        result = self.check_run(path)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("stale:", result.stdout)
+        self.assertNotIn("ok:", result.stdout)
+
+    def test_copied_scope_in_record_is_refused(self):
+        path, record = self.run_ok()
+        record["scope"]["paths"] = [str(self.repo / "source")]
+        path.write_text(json.dumps(record))
+        result = self.check_run(path)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("stale:", result.stdout)
+        self.assertNotIn("ok:", result.stdout)
+
+    def test_each_changed_file_has_a_stale_line(self):
+        (self.repo / "second").write_text("original")
+        self.git("add", "second")
+        self.git("commit", "-qm", "second input")
+        path, _ = self.run_ok()
+        (self.repo / "source").write_text("changed")
+        (self.repo / "second").write_text("changed")
+        result = self.check_run(path)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        for name in ("source", "second"):
+            self.assertTrue(any(line.startswith("stale:") and name in line
+                                for line in result.stdout.splitlines()), result.stdout)
+
+    def test_named_directory_reports_ignored_children_and_refuses_unreadable_scope(self):
+        directory = self.repo / "inputs"
+        directory.mkdir()
+        ignored = directory / "ignored-child"
+        ignored.write_text("original")
+        path, _ = self.run_ok(paths=[directory])
+        result = self.check_run(path)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(any(line.startswith("note:") and str(ignored) in line
+                            for line in result.stdout.splitlines()), result.stdout)
+        directory.chmod(0)
+        try:
+            result = self.check_run(path)
+            self.assertEqual(result.returncode, 1, result.stderr)
+            self.assertIn("stale:", result.stdout)
+            self.assertIn(str(directory), result.stdout)
+            self.assertNotIn("ok:", result.stdout)
+            self.assertNotIn("Traceback", result.stdout + result.stderr)
+        finally:
+            directory.chmod(0o755)
+
+    def test_absent_named_ignored_input_still_reports_its_limit(self):
+        ignored = self.repo / "ignored-absent"
+        path, _ = self.run_ok(paths=[ignored])
+        result = self.check_run(path)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(any(line.startswith("note:") and str(ignored) in line
+                            for line in result.stdout.splitlines()), result.stdout)
+
+    def test_check_without_python_B_does_not_write_bytecode_into_checkout(self):
+        scripts = self.repo / "skills" / "team-lead" / "scripts"
+        scripts.mkdir(parents=True)
+        copied = scripts / "validate_contracts.py"
+        copied.write_bytes(SCRIPT.read_bytes())
+        tools = self.repo / "tools"
+        tools.mkdir()
+        snapshot = Path(__file__).resolve().parents[3] / "tools" / "review-snapshot.py"
+        (tools / "review-snapshot.py").write_bytes(snapshot.read_bytes())
+        self.git("add", ".")
+        self.git("commit", "-qm", "local collector")
+        path, _ = self.run_ok()
+        env = dict(os.environ)
+        env.pop("PYTHONDONTWRITEBYTECODE", None)
+        result = subprocess.run([sys.executable, str(copied), "run", "--check", str(path)],
+                                cwd=self.repo, capture_output=True, text=True, env=env)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(result.stdout, f"ok: candidate matches run record {path}\n")
+        self.assertEqual(list(self.repo.rglob("__pycache__")), [])
+
+
 if __name__ == "__main__":
     unittest.main()

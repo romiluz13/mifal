@@ -151,11 +151,62 @@ A launch failure supplies no complete record. A matching failed record can
 support a `failed` claim; whether that failure was an expected negative control
 is decided by the enclosing check. A claim without `run:` still passes the
 existing checks, with a `note:` naming each passed claim lacking a record.
+Each agreeing `run:` claim also gets a `note:` labelling it historical. These
+notes say only that the claim and record agree; they imply nothing about the
+current checkout and start no command.
+
+## Checking the current candidate
+
+Before reusing a run for acceptance, check it against the checkout being
+accepted:
+
+```sh
+validate_contracts.py run --check /evidence/tests.json
+validate_contracts.py run --check /evidence/tests.json --repo /checkout
+```
+
+The checked repository is the Git root of the caller's cwd, or the root
+selected by `--repo`. Both roots are resolved and must equal the record's
+repository root. A sibling worktree is a different root even when its HEAD
+and files match; check a worktree's record in that worktree. Merging changes
+the candidate, so the integration checkout needs its own run.
+
+The checker reads the saved explicit paths and before/after identities,
+including recorded untracked paths. It uses the same raw-byte collector as
+`run`, checks the current nonignored untracked set too, and compares both
+recorded identities with current HEAD, file bytes, executable bits, symlink
+target text and index identity. Changing current ignore settings cannot hide
+a previously recorded untracked input. `--path` and command argv are refused
+with `--check`; its scope comes from the record. The recorded argv is never
+executed, and neither the record nor the checkout is written.
+
+If the candidate matches, stdout contains:
+
+```text
+ok: candidate matches run record /evidence/tests.json
+```
+
+Exit status is 0. A mismatch prints `stale:` lines naming the repository,
+HEAD, each changed file identity, index or remaining scope identity, and
+exits 1. Missing, malformed, truncated, inconsistent or unreadable records
+and inputs are refused with `stale:` and exit 1, without a traceback. A run
+that drifted must match both snapshots and cannot pass by matching only its
+after snapshot.
+
+Named external inputs and ignored inputs (including children of a named
+directory) are remeasured. A `note:` names each such input and states that
+only its named raw bytes are checked, without vouching for its dependencies.
+Unreadable inputs are refused. An unnamed ignored input remains outside the
+record's scope and does not change this result.
+
+`ok` covers only the record's scope. It does not prove the command passed or
+tests the claim, authenticate execution, inspect submodule worktrees, or
+detect an edit reverted between collections. Collection remains non-atomic.
+The command's outcome and the enclosing claim still need their own checks.
 
 A record is editable JSON, not an authenticated attestation. Internal agreement
 does not prove who ran the command, that its input scope contains every relevant
 dependency, or that the command tests the claim. Receipt validation reads the
 record; it starts no command, does not rehash stream sidecars and does not check
 the current checkout. An old record and matching tokens can still agree after
-source changes. Current-candidate checking and historical labelling belong to
-the separate `run --check` slice; this slice makes no current-code claim.
+source changes; the separate `run --check` command measures the current candidate.
