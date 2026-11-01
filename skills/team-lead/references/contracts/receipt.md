@@ -85,10 +85,12 @@ The command receives literal argv, without a shell. Shell metacharacters stay
 arguments; invoke a shell explicitly if the check itself requires one. The
 child runs in the caller's cwd. The measured repository is the Git root of
 that cwd, or the root selected by `--repo`; the record keeps repo and cwd
-separately. An unresolved index is refused before launch.
+separately. An unresolved index is refused before launch. An explicitly named
+symlink loop, or a path through one, is refused with wrapper status 125 on both
+supported Pythons; dangling links remain recordable by their link text.
 
 The default scope includes tracked, staged, unstaged and nonignored untracked
-files. Identity uses `review-snapshot.py`'s raw bytes, symlink target text,
+files. Identity uses `review-snapshot.py`'s raw bytes, symlink link text,
 executable bits and filter-disabled Git reads. `--path` adds inputs to that
 scope; it never narrows the default scope. Paths are relative to the repository
 root, or absolute for external inputs. A named directory includes its files,
@@ -179,7 +181,7 @@ The checker reads the saved explicit paths and before/after identities,
 including recorded untracked paths. It uses the same raw-byte collector as
 `run`, checks the current nonignored untracked set too, and compares both
 recorded identities with current HEAD, file bytes, executable bits, symlink
-target text and index identity. Changing current ignore settings cannot hide
+link text and index identity. Changing current ignore settings cannot hide
 a previously recorded untracked input. `--path` and command argv are refused
 with `--check`; its scope comes from the record. The recorded argv is never
 executed, and neither the record nor the checkout is written.
@@ -197,14 +199,28 @@ and inputs are refused with `stale:` and exit 1, without a traceback. A run
 that drifted must match both snapshots and cannot pass by matching only its
 after snapshot.
 
+Every displayed path uses the same quoting rule: printable names, including
+spaces, stay readable; names containing nonprintable characters use `ascii()`
+quoting and escapes. Error details are escaped too, so names cannot inject
+status lines or terminal controls.
+
 Named external inputs and ignored inputs (including children of a named
 directory) are remeasured. A `note:` names each such input and states that
 file bytes or symlink link text are checked, without vouching for dependencies.
 Each named symlink gets its own `note:`, including links inside a named
-directory. The note names the link, says its target contents are not checked,
+directory. The note names the link, says its target contents are not checked
+through this path (the target may also be measured separately),
 and explains that naming the target directly with `--path` covers its contents.
 Unreadable inputs are refused. An unnamed ignored input remains outside the
 record's scope and does not change this result.
+
+When notes are printed, the final line includes their count and the limit:
+
+```text
+ok: candidate matches run record /evidence/tests.json; notes: 2; named inputs were not fully checked
+```
+
+With no notes, the original final line above is unchanged. Both forms exit 0.
 
 `ok` covers only the record's scope. It does not prove the command passed or
 tests the claim, authenticate execution, inspect submodule worktrees, or

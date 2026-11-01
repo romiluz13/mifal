@@ -1978,10 +1978,14 @@ def run_ignore_checker(tool, repo):
 def run_output_scope(tool, repo, outputs, paths, ignored):
     for path in outputs:
         resolved = path.resolve()
-        if any(resolved == selected.resolve() or
-               (selected.is_dir() and not selected.is_symlink() and selected.resolve() in resolved.parents)
-               for selected in paths):
-            raise ValueError(f"output must lie outside measured scope: {path}")
+        for selected in paths:
+            try:
+                input_path = selected.resolve(strict=True)
+            except FileNotFoundError:
+                input_path = selected.resolve()
+            if resolved == input_path or (selected.is_dir() and not selected.is_symlink() and
+                                          input_path in resolved.parents):
+                raise ValueError(f"output must lie outside measured scope: {path}")
         if repo == resolved or repo in resolved.parents:
             name = str(resolved.relative_to(repo))
             if name == ".git" or name.startswith(".git/") or tool.names(repo, "ls-files", "-z", "--", name):
@@ -2042,7 +2046,7 @@ def execute_run(args):
         temporary = None
         print(f"ok: run record {output}")
         return status if status >= 0 else 128 - status
-    except (OSError, ValueError) as error:
+    except (OSError, RuntimeError, ValueError) as error:
         print(f"error: run wrapper: {error}", file=sys.stderr)
         return RUN_WRAPPER_ERROR
     finally:
@@ -2138,6 +2142,11 @@ def complete_run_record(path):
     return record
 
 
+def run_display_path(path):
+    value = str(path)
+    return value if value.isprintable() else ascii(value)
+
+
 def check_run_record(args):
     sys.dont_write_bytecode = True
     try:
@@ -2148,20 +2157,23 @@ def check_run_record(args):
         repo = Path(os.fsdecode(tool.git(Path(args.repo or Path.cwd()).resolve(),
                                         "rev-parse", "--show-toplevel")).strip()).resolve()
         if repo != Path(record["repo"]).resolve():
-            print(f"stale: repository differs from run record: {repo} != {record['repo']}")
+            print(f"stale: repository differs from run record: {run_display_path(repo)} != {run_display_path(record['repo'])}")
             return 1
+        notes = 0
         paths = [Path(path) for path in record["scope"]["paths"]]
         ignored = run_ignore_checker(tool, repo)
         for path in paths:
             if repo != path and repo not in path.parents:
-                print(f"note: external input {path}; file bytes or symlink link text are checked, dependencies are not vouched for")
+                print(f"note: external input {run_display_path(path)}; file bytes or symlink link text are checked, dependencies are not vouched for")
+                notes += 1
             else:
                 ignored_paths = {repo / name for name in tool.names(
                     repo, "ls-files", "--others", "--ignored", "--exclude-standard", "-z", "--", str(path))}
                 if ignored(path):
                     ignored_paths.add(path)
                 for name in sorted(ignored_paths):
-                    print(f"note: ignored input {name}; file bytes or symlink link text are checked, dependencies are not vouched for")
+                    print(f"note: ignored input {run_display_path(name)}; file bytes or symlink link text are checked, dependencies are not vouched for")
+                    notes += 1
         current = run_identity(tool, repo, paths)
         symlinks = set()
         for name, identity in current["explicitFiles"].items():
@@ -2171,8 +2183,9 @@ def check_run_record(args):
                 symlinks.update(str(Path(name) / nested) for nested, value in identity["files"].items()
                                 if value["kind"] == "symlink")
         for name in sorted(symlinks):
-            print(f"note: symlink input {name}; link text is checked, target contents are not checked; "
+            print(f"note: symlink input {run_display_path(name)}; link text is checked, target contents are not checked through this path; "
                   "name the target directly with --path to check its contents")
+            notes += 1
         stale = False
         if any(current["head"] != record[key]["head"] for key in ("before", "after")):
             print("stale: HEAD differs from run record")
@@ -2181,7 +2194,7 @@ def check_run_record(args):
             names = set(current[field]) | set(record["before"][field]) | set(record["after"][field])
             for name in sorted(names):
                 if any(current[field].get(name) != record[phase][field].get(name) for phase in ("before", "after")):
-                    print(f"stale: file identity differs from run record: {name}")
+                    print(f"stale: file identity differs from run record: {run_display_path(name)}")
                     stale = True
         if any(current["indexSha256"] != record[phase]["indexSha256"] for phase in ("before", "after")):
             print("stale: index identity differs from run record")
@@ -2192,10 +2205,11 @@ def check_run_record(args):
             stale = True
         if stale:
             return 1
-        print(f"ok: candidate matches run record {args.check}")
+        limit = f"; notes: {notes}; named inputs were not fully checked" if notes else ""
+        print(f"ok: candidate matches run record {run_display_path(args.check)}{limit}")
         return 0
-    except (OSError, UnicodeError, ValueError, TypeError, KeyError, RecursionError) as error:
-        print(f"stale: run record {args.check}: {error}")
+    except (OSError, UnicodeError, ValueError, TypeError, KeyError, RuntimeError, RecursionError) as error:
+        print(f"stale: run record {run_display_path(args.check)}: {run_display_path(error)}")
         return 1
 
 

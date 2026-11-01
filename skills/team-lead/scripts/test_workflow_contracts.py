@@ -2625,5 +2625,105 @@ class RunSymlinkCheckTests(unittest.TestCase):
             credential.chmod(0o600)
 
 
+class RunDisplayTests(unittest.TestCase):
+    setUp = RunRecordTests.setUp
+    git = RunRecordTests.git
+    run_command = RunRecordTests.run_command
+    run_ok = RunRecordTests.run_ok
+    check_run = RunCheckTests.check_run
+
+    def test_stale_names_cannot_forge_status_lines_or_terminal_controls(self):
+        for index, (name, escaped) in enumerate((
+                ("zz\nok: FORGED", "zz\\nok:"),
+                ("zz\r\x1b[2Kok: FORGED", "zz\\r\\x1b[2Kok:"),
+                ("zz\u2028ok: FORGED", "zz\\u2028ok:"))):
+            with self.subTest(name=repr(name)):
+                path, _ = self.run_ok(name=f"stale-{index}.json")
+                (self.repo / name).write_text("new input")
+                result = self.check_run(path)
+                self.assertEqual(result.returncode, 1, result.stderr)
+                self.assertTrue(all(line.startswith("stale:") for line in result.stdout.splitlines()), result.stdout)
+                self.assertIn(escaped, result.stdout)
+                self.assertNotIn("\r", result.stdout)
+                self.assertNotIn("\x1b", result.stdout)
+
+    def test_named_paths_are_quoted_and_final_line_counts_notes(self):
+        directory = self.repo / "ignored-directory with spaces"
+        directory.mkdir()
+        target = self.root / "target"
+        target.write_text("contents")
+        ordinary = directory / "link with spaces"
+        ordinary.symlink_to(target)
+        hostile = directory / "link\nok: FORGED\r\x1b[2K"
+        hostile.symlink_to(target)
+        path, _ = self.run_ok(paths=[directory], name="record\nok: FORGED.json")
+        result = self.check_run(path)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = result.stdout.splitlines()
+        self.assertEqual(sum(line.startswith("note:") for line in lines), 5)
+        self.assertEqual(sum(line.startswith("ok:") for line in lines), 1)
+        self.assertTrue(lines[-1].endswith("; notes: 5; named inputs were not fully checked"), lines[-1])
+        self.assertIn("record\\nok: FORGED.json", lines[-1])
+        self.assertIn("symlink input " + str(ordinary) + ";", result.stdout)
+        self.assertIn("link\\nok: FORGED\\r\\x1b[2K", result.stdout)
+        self.assertNotIn("\r", result.stdout)
+        self.assertNotIn("\x1b", result.stdout)
+
+    def test_repository_and_error_paths_cannot_forge_status_lines(self):
+        path, _ = self.run_ok()
+        other = self.root / "other\nok: FORGED"
+        subprocess.run(["git", "clone", "-q", "--no-hardlinks", str(self.repo), str(other)],
+                       check=True, capture_output=True)
+        for record, repo in ((path, other), (self.root / "missing\nok: FORGED", None),
+                             (path, self.root / "absent\nok: FORGED")):
+            with self.subTest(record=str(record), repo=str(repo)):
+                result = self.check_run(record, repo=repo)
+                self.assertEqual(result.returncode, 1, result.stderr)
+                self.assertTrue(all(line.startswith("stale:") for line in result.stdout.splitlines()), result.stdout)
+                self.assertIn("\\nok: FORGED", result.stdout)
+                self.assertNotIn("Traceback", result.stdout + result.stderr)
+
+    def test_target_note_states_the_limit_through_the_link_path(self):
+        link = self.repo / "alias"
+        link.symlink_to("source")
+        self.git("add", "alias")
+        self.git("commit", "-qm", "tracked alias")
+        path, _ = self.run_ok(paths=[link, self.repo / "source"])
+        result = self.check_run(path)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("target contents are not checked through this path", result.stdout)
+        (self.repo / "source").write_text("changed")
+        result = self.check_run(path)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertTrue(any(line.startswith("stale:") and "source" in line
+                            for line in result.stdout.splitlines()), result.stdout)
+
+    def test_direct_and_parent_symlink_loops_are_refused_and_dangling_links_are_recorded(self):
+        first = self.repo / "ignored-first"
+        second = self.repo / "ignored-second"
+        first.symlink_to(second)
+        second.symlink_to(first)
+        dangling = self.repo / "ignored-dangling"
+        dangling.symlink_to(self.root / "absent")
+        marker = self.root / "unexpected-launch"
+        for paths, status, name in (([first], 125, "direct.json"),
+                                    ([first / "child"], 125, "parent.json"),
+                                    ([dangling], 0, "dangling.json")):
+            with self.subTest(paths=[str(path) for path in paths]):
+                code = "pass" if status == 0 else "from pathlib import Path; Path(" + repr(str(marker)) + ").touch()"
+                result, record = self.run_command(sys.executable, "-c", code, paths=paths, name=name)
+                self.assertEqual(result.returncode, status, result.stderr)
+                self.assertNotIn(b"Traceback", result.stdout + result.stderr)
+                if status == 0:
+                    data = json.loads(record.read_text())
+                    self.assertEqual(data["before"]["explicitFiles"][str(dangling)]["kind"], "symlink")
+                    checked = self.check_run(record)
+                    self.assertEqual(checked.returncode, 0, checked.stderr)
+                    self.assertIn("target contents are not checked through this path", checked.stdout)
+                else:
+                    self.assertIn(b"run wrapper", result.stderr)
+                    self.assertFalse(marker.exists())
+
+
 if __name__ == "__main__":
     unittest.main()
