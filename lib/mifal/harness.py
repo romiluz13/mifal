@@ -159,20 +159,20 @@ def skill_filters(name, home: Path, root: Path, pool: Path, skills, show=str) ->
         real = os.path.realpath(config)
         if config.is_symlink():
             Path(real).stat()
-        if Path(real).name.lower() in ("auth", "auth.json", "token", "tokens.json", "credentials.json",
-                                      ".credentials.json", "settings.json", "opencode.json"):
-            result.warnings.append((f"{where} resolves to a credential, token or auth path; exclusions unknown",
-                                    f"point {where} at a Codex settings file; doctor never reads credential files"))
-            return result
-        if config.is_symlink() and (not config.is_file() or not Path(real).name.endswith('.toml')):
-            result.unreadable = True
-            result.warnings.append((f"{where} does not point to a regular TOML file; exclusions unknown",
-                                    f"make {where} point to a regular TOML file, then run mifal doctor again"))
-            return result
         if config.exists() and not config.is_file():
             result.unreadable = True
             result.warnings.append((f"{where} is not a regular TOML file; exclusions unknown",
                                     f"make {where} a regular TOML file, then run mifal doctor again"))
+            return result
+        if Path(real).name.lower() in ("auth", "auth.json", "token", "tokens.json", "credentials.json",
+                                      ".credentials.json", "settings.json", "opencode.json"):
+            result.warnings.append((f"{where} resolves to a credential, token or auth path; exclusions unknown",
+                                    f"point {where} at a regular TOML file for Codex settings; doctor never reads credential files"))
+            return result
+        if config.is_symlink() and not Path(real).name.endswith('.toml'):
+            result.unreadable = True
+            result.warnings.append((f"{where} does not point to a regular TOML file; exclusions unknown",
+                                    f"make {where} point to a regular TOML file, then run mifal doctor again"))
             return result
         table = cc.parse(cc.read(config)).get("skills", {})
     except FileNotFoundError:

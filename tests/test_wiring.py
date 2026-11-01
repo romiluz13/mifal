@@ -589,6 +589,25 @@ class SkillFilters(Wiring):
                 self.assertIn('regular TOML file', result.warnings[0][1])
                 self.assertNotIn('restore read access', result.warnings[0][1])
 
+    def test_codex_nonregular_target_names_are_never_credential_file_names(self):
+        for kind in ('directory', 'fifo'):
+            for filename in ('auth', 'token'):
+                with self.subTest(kind=kind, name=filename):
+                    root = self.home / (kind + '-' + filename)
+                    root.mkdir()
+                    target = self.home / (kind + '-targets') / filename
+                    target.parent.mkdir(exist_ok=True)
+                    if kind == 'directory':
+                        target.mkdir()
+                    else:
+                        os.mkfifo(target)
+                    (root / 'config.toml').symlink_to(target)
+                    result = self.audit(root=root)
+                    self.assertTrue(result.unreadable)
+                    self.assertEqual(len(result.warnings), 1)
+                    self.assertNotIn('credential', result.warnings[0][0])
+                    self.assertIn('regular TOML file', result.warnings[0][1])
+
     def test_other_harnesses_do_not_audit_codex_settings(self):
         for name in ("claude", "droid", "pi", "opencode"):
             with self.subTest(name=name):
