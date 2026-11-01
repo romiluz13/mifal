@@ -395,6 +395,39 @@ class StopHookTest(unittest.TestCase):
         self.assertEqual({event["waiting"] for event in events}, {"unknown"})
         self.assertEqual(self.hook_log(), "")
 
+    def test_known_background_work_wins_over_a_missing_or_malformed_other_key(self):
+        self.admitted_with(receipt=False)
+        running, scheduled = [{"status": "running"}], [{"id": "cron"}]
+        cases = {"running, crons absent": {"background_tasks": running, "session_crons": None},
+                 "running, crons malformed": {"background_tasks": running, "session_crons": 1},
+                 "scheduled, tasks absent": {"background_tasks": None, "session_crons": scheduled},
+                 "scheduled, tasks malformed": {"background_tasks": "bad", "session_crons": scheduled}}
+        for label, changes in cases.items():
+            with self.subTest(case=label):
+                self.stop({**self.said("Still working."), "prompt_id": label, **changes}, expected=0)
+        self.assertEqual(self.quiet_events(), [])
+        self.assertEqual(self.hook_log(), "")
+
+    def test_a_scalar_background_tasks_value_reaches_preflight_and_writes_unknown_waiting(self):
+        self.admitted_with(receipt=False)
+        for value in (1, True):
+            with self.subTest(background_tasks=value):
+                self.stop({**self.said("Still working."), "prompt_id": f"scalar {value!r}",
+                           "background_tasks": value}, expected=0)
+        events = [json.loads((self.root / "quiet" / name).read_text()) for name in self.quiet_events()]
+        self.assertEqual(len(events), 2, "a scalar is a non-list value, not an unreadable payload")
+        self.assertEqual({event["waiting"] for event in events}, {"unknown"})
+        self.assertEqual(self.hook_log(), "")
+
+    def test_id_pairs_that_only_differ_in_where_a_newline_falls_leave_two_events(self):
+        self.admitted_with(receipt=False)
+        for session_id, prompt_id in (("a\nb", "c"), ("a", "b\nc")):
+            self.stop({**self.said("Still working."), "session_id": session_id, "prompt_id": prompt_id}, expected=0)
+        events = [json.loads((self.root / "quiet" / name).read_text()) for name in self.quiet_events()]
+        self.assertEqual(sorted((event["session_id"], event["prompt_id"]) for event in events),
+                         [("a", "b\nc"), ("a\nb", "c")])
+        self.assertEqual(self.hook_log(), "")
+
     def test_a_stop_without_a_reliable_identity_writes_no_event_and_logs_one_line(self):
         self.admitted_with(receipt=False)
         for missing in ("prompt_id", "session_id"):

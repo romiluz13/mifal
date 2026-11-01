@@ -18,13 +18,14 @@
 #
 # A mid-task stop of an admitted worker that reports nothing (last message not starting HELP, HELD or STOPPED, no
 # DONE line, no Return closing the attempt) also writes one QUIET event, schema 1, at
-# <record-root>/quiet/<sha256 of session_id and prompt_id>.json: type, owner, pane, attempt, session_id, prompt_id,
-# reason "no report", waiting, and the UTC write time. waiting is none when background_tasks and session_crons are
-# present lists holding nothing active ("running" is the only active status Claude Code 2.1.316 was captured
-# sending), and unknown when they are absent, not lists, or hold a status this hook does not recognise; a worker
-# waiting on background work (a running task or a non-empty session_crons) gets no event at all. The event never
-# blocks the stop: it is written atomically (a temp file in quiet/, then a hard link, so an existing event is never
-# overwritten) and a failed write is only logged. One stop delivered twice, or retried with stop_hook_active, has
+# <record-root>/quiet/<sha256 of the JSON array [session_id, prompt_id]>.json: type, owner, pane, attempt,
+# session_id, prompt_id, reason "no report", waiting, and the UTC write time. Positive evidence of work wins: a
+# running task or a non-empty session_crons list means no event at all, whatever shape the other key has. Otherwise
+# waiting is none when background_tasks and session_crons are present lists holding nothing active ("running" is
+# the only active status Claude Code 2.1.316 was captured sending), and unknown when either is absent or not a
+# list, or a task holds a status this hook does not recognise. The event never blocks the stop: it is written
+# atomically (a temp file in quiet/, then a hard link, so an existing event is never overwritten) and a failed
+# write is only logged. One stop delivered twice, or retried with stop_hook_active, has
 # the same (session_id, prompt_id) key, so it stays one event; a stop missing either id has no reliable identity:
 # no event, one "unknown stop identity" log line. The event file is immutable and owned by this hook; nothing here
 # reads it back or prompts anyone, and an unadmitted pane stays as silent as before.
@@ -63,7 +64,9 @@ msg = d.get("last_assistant_message")
 msg = msg if isinstance(msg, str) else ""
 word = re.match(r"[A-Za-z]+", re.sub(r"^[\s`*_>#-]+", "", msg))
 done = re.findall(r"(?m)^[\s`*_>#-]*DONE[ \t]+([0-9]+(?:\.[0-9]+)*)[.,:;!]*(?![\w.])", msg)
-print("active" if d.get("stop_hook_active") is True else "inactive", len(d.get("background_tasks") or []),
+tasks = d.get("background_tasks")
+print("active" if d.get("stop_hook_active") is True else "inactive",
+      len(tasks) if isinstance(tasks, (list, str, dict)) else 0,
       word.group(0) if word else "-", ",".join(dict.fromkeys(done)) or "-")' 2>/dev/null)" ||
   { log "cannot-evaluate: unreadable Stop payload"; exit 0; }
 set -- $flags
@@ -128,13 +131,14 @@ try:
         print("unknown stop identity")
     else:
         tasks, crons = d.get("background_tasks"), d.get("session_crons")
-        if not isinstance(tasks, list) or not isinstance(crons, list):
-            waiting = "unknown"
-        elif crons:
+        tasks_ok, crons_ok = isinstance(tasks, list), isinstance(crons, list)
+        statuses = [task.get("status") if isinstance(task, dict) else None for task in tasks] if tasks_ok else []
+        if "running" in statuses or (crons_ok and crons):
             waiting = "in flight"
+        elif not (tasks_ok and crons_ok) or tasks:
+            waiting = "unknown"
         else:
-            statuses = [task.get("status") if isinstance(task, dict) else None for task in tasks]
-            waiting = "in flight" if "running" in statuses else ("unknown" if tasks else "none")
+            waiting = "none"
         if waiting == "in flight":
             print("waiting")
         else:
@@ -149,7 +153,7 @@ try:
             event = {"schema": 1, "type": "QUIET", "owner": owner, "pane": pane, "attempt": attempt,
                      "session_id": session_id, "prompt_id": prompt_id, "reason": "no report",
                      "waiting": waiting, "written_at": datetime.datetime.now(datetime.timezone.utc).isoformat()}
-            event_id = hashlib.sha256((session_id + "\n" + prompt_id).encode("utf-8", "surrogatepass")).hexdigest()
+            event_id = hashlib.sha256(json.dumps([session_id, prompt_id]).encode("ascii")).hexdigest()
             quiet = os.path.join(record, "quiet")
             os.makedirs(quiet, exist_ok=True)
             final = os.path.join(quiet, event_id + ".json")
