@@ -24,12 +24,14 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import os
 import re
 import stat
 import subprocess
 import sys
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -435,6 +437,7 @@ def validate_workflow(text: str, path: Path, gate="entry", require_loads=True, r
             if len(claim_sections) != 1:
                 errors.append("latest return needs exactly one Claims section")
             claims = claim_sections[0] if len(claim_sections) == 1 else ""
+            errors.extend(validate_run_citations(claims, path))
             reported = [m["claim"].strip() for m in (CLAIM_RE.match(line.strip()) for line in claims.splitlines()) if m]
             declared = [claim for claim, _, _ in workflow_claims(body)]
             for claim in sorted(set(reported) - set(declared)):
@@ -1904,7 +1907,259 @@ def validate_brief(text: str, name: str):
 
 # ---------------------------------------------------------------- receipt
 
+RUN_WRAPPER_ERROR = 125
+
+
+def run_snapshot_tool():
+    tool = Path(__file__).resolve().parents[3] / "tools" / "review-snapshot.py"
+    if not tool.is_file():
+        tool = Path.home() / ".agents" / "mifal" / "tools" / "review-snapshot.py"
+    spec = importlib.util.spec_from_file_location("run_snapshot", tool)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def run_identity(tool, repo, paths):
+    def refuse_unreadable(error):
+        raise error
+
+    head = tool.git(repo, "rev-parse", "HEAD").decode().strip()
+    snapshot = tool.snapshot(repo, head, ["."])
+    explicit = {}
+    for path in paths:
+        if path.is_dir() and not path.is_symlink():
+            files = {}
+            for directory, dirs, names in os.walk(path, followlinks=False, onerror=refuse_unreadable):
+                for name in list(dirs):
+                    nested = Path(directory) / name
+                    if nested.is_symlink():
+                        names.append(name)
+                        dirs.remove(name)
+                for name in sorted(names):
+                    nested = Path(directory) / name
+                    files[str(nested.relative_to(path))] = tool.file_identity(repo, str(nested))
+            explicit[str(path)] = {"kind": "directory", "files": files}
+        else:
+            explicit[str(path)] = tool.file_identity(repo, str(path))
+    state = {key: value for key, value in snapshot.items()
+             if key not in ("snapshotSha256", "reviewCommands", "limits")}
+    state["explicitPaths"] = [str(path) for path in paths]
+    state["explicitFiles"] = explicit
+    snapshot.update(state)
+    snapshot["snapshotSha256"] = hashlib.sha256(json.dumps(state, sort_keys=True, ensure_ascii=True).encode()).hexdigest()
+    return snapshot
+
+
+def stream_record(path):
+    digest, size, tail = hashlib.sha256(), 0, b""
+    with regular_stream(path) as source:
+        for block in iter(lambda: source.read(65536), b""):
+            digest.update(block)
+            size += len(block)
+            tail = (tail + block)[-4096:]
+    return {"path": str(path), "sha256": digest.hexdigest(), "bytes": size,
+            "tail": tail.decode("utf-8", errors="replace")}
+
+
+def run_output_scope(tool, repo, outputs, paths):
+    for path in outputs:
+        resolved = path.resolve()
+        if any(resolved == selected.resolve() or
+               (selected.is_dir() and not selected.is_symlink() and selected.resolve() in resolved.parents)
+               for selected in paths):
+            raise ValueError(f"output must lie outside measured scope: {path}")
+        if repo == resolved or repo in resolved.parents:
+            name = str(resolved.relative_to(repo))
+            if name == ".git" or name.startswith(".git/") or tool.names(repo, "ls-files", "-z", "--", name):
+                raise ValueError(f"output must lie outside measured scope: {path}")
+            env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+            ignored = subprocess.run(["git", "-C", str(repo), *tool.SAFE, "check-ignore", "-q", "--", name],
+                                     capture_output=True, env=env, input=b"")
+            if ignored.returncode != 0:
+                raise ValueError(f"output must lie outside measured scope: {path}")
+
+
+def execute_run(args):
+    reserved, temporary = [], None
+    try:
+        argv = args.argv
+        if not argv or argv[0] != "--" or len(argv) == 1:
+            raise ValueError("run requires '-- {argv...}'")
+        argv = argv[1:]
+        tool = run_snapshot_tool()
+        cwd = Path.cwd().resolve()
+        repo = Path(os.fsdecode(tool.git(Path(args.repo or cwd).resolve(), "rev-parse", "--show-toplevel")).strip())
+        paths = sorted({(repo / path).parent.resolve() / (repo / path).name for path in args.path})
+        before = run_identity(tool, repo, paths)
+        output = args.out.expanduser().parent.resolve() / args.out.name
+        stdout, stderr = (output.with_name(output.name + suffix) for suffix in (".stdout", ".stderr"))
+        run_output_scope(tool, repo, (output, stdout, stderr), paths)
+        for path in (output, stdout, stderr):
+            reserved.append((path, path.open("xb")))
+        started = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        child = subprocess.run(argv, stdout=reserved[1][1], stderr=reserved[2][1], cwd=cwd)
+        ended = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        for _, source in reserved:
+            source.close()
+        after = run_identity(tool, repo, paths)
+        run_output_scope(tool, repo, (output, stdout, stderr), paths)
+        status = child.returncode
+        record = {
+            "schemaVersion": 1, "argv": argv, "repo": str(repo), "cwd": str(cwd),
+            "scope": {"paths": [str(path) for path in paths], "limits": [
+                "Tracked, staged, unstaged and nonignored untracked inputs are measured.",
+                "Ignored and external inputs are outside scope unless named with --path.",
+                "Collection is not atomic; submodule worktrees are not inspected.",
+                "Hashes identify bytes, not behavioral correctness or authenticated execution.",
+            ]},
+            "before": before, "after": after, "startedAt": started, "endedAt": ended,
+            "candidate": {"head": before["head"], "identity": "sha256:" + before["snapshotSha256"]},
+            "exitStatus": status if status >= 0 else None, "signal": -status if status < 0 else None,
+            "execution": "producer", "producer": "unknown",
+            "outcome": "crashed" if status < 0 else "passed" if status == 0 else "failed",
+            "stdout": stream_record(stdout), "stderr": stream_record(stderr),
+        }
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=output.parent,
+                                         prefix=output.name + ".", delete=False) as destination:
+            temporary = Path(destination.name)
+            json.dump(record, destination, indent=2, ensure_ascii=True)
+            destination.write("\n")
+            destination.flush()
+            os.fsync(destination.fileno())
+        os.replace(temporary, output)
+        temporary = None
+        print(f"ok: run record {output}")
+        return status if status >= 0 else 128 - status
+    except (OSError, ValueError) as error:
+        print(f"error: run wrapper: {error}", file=sys.stderr)
+        return RUN_WRAPPER_ERROR
+    finally:
+        for _, source in reserved:
+            source.close()
+        if temporary is not None:
+            temporary.unlink()
+
+
 CLAIM_RE = re.compile(r"^-\s*(?P<claim>[^:]+?):\s*(?P<status>passed|failed|untested)\b")
+RUN_CITATION_RE = re.compile(
+    r"\s*\|\s*run:(?P<path>\S+)\s+head:(?P<head>[0-9a-fA-F]{40}|[0-9a-fA-F]{64})"
+    r"\s+identity:sha256:(?P<identity>[0-9a-fA-F]{64})(?:\s+limit:(?P<limit>.+))?\s*")
+
+
+def unique_json_object(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"duplicate JSON key: {key}")
+        result[key] = value
+    return result
+
+
+def complete_run_record(path):
+    record = json.loads(regular_text(path), object_pairs_hook=unique_json_object)
+    if not isinstance(record, dict) or type(record.get("schemaVersion")) is not int or record["schemaVersion"] != 1:
+        raise ValueError("unsupported or missing run record schemaVersion")
+    required = {"argv", "repo", "cwd", "scope", "before", "after", "startedAt", "endedAt", "candidate",
+                "exitStatus", "signal", "execution", "producer", "outcome", "stdout", "stderr"}
+    if not required <= record.keys():
+        raise ValueError("incomplete run record fields")
+    argv = record["argv"]
+    if not isinstance(argv, list) or not argv or not all(isinstance(arg, str) for arg in argv) or not argv[0]:
+        raise ValueError("invalid run record argv")
+    for key in ("repo", "cwd"):
+        if not isinstance(record[key], str) or not Path(record[key]).is_absolute():
+            raise ValueError(f"invalid run record {key}")
+    times = []
+    for key in ("startedAt", "endedAt"):
+        value = record[key]
+        if not isinstance(value, str) or not value.endswith("Z"):
+            raise ValueError(f"invalid run record {key}")
+        times.append(datetime.fromisoformat(value[:-1] + "+00:00"))
+    if times[1] < times[0]:
+        raise ValueError("run record ends before it starts")
+    scope = record["scope"]
+    if (not isinstance(scope, dict) or not isinstance(scope.get("paths"), list) or
+            not all(isinstance(p, str) and Path(p).is_absolute() for p in scope["paths"]) or
+            not isinstance(scope.get("limits"), list) or not scope["limits"] or
+            not all(isinstance(limit, str) and limit for limit in scope["limits"])):
+        raise ValueError("invalid run record scope")
+    identity_fields = {"schemaVersion", "repo", "baseCommit", "mergeBase", "head", "paths", "files",
+                       "indexSha256", "workingTreePaths", "indexPaths", "indexWorktreeDifferPaths",
+                       "untrackedPaths", "omittedUntrackedPaths", "reviewable", "explicitPaths", "explicitFiles"}
+    for key in ("before", "after"):
+        state = record[key]
+        if (not isinstance(state, dict) or not identity_fields <= state.keys() or
+                state["schemaVersion"] != 2 or state["repo"] != record["repo"] or
+                state["paths"] != ["."] or state["explicitPaths"] != scope["paths"] or
+                state["omittedUntrackedPaths"] != [] or
+                not isinstance(state.get("snapshotSha256"), str) or
+                not re.fullmatch(r"[0-9a-f]{64}", state["snapshotSha256"]) or
+                not isinstance(state["head"], str) or not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", state["head"])):
+            raise ValueError(f"incomplete run record {key} identity")
+        canonical = {k: v for k, v in state.items() if k not in ("snapshotSha256", "reviewCommands", "limits")}
+        digest = hashlib.sha256(json.dumps(canonical, sort_keys=True, ensure_ascii=True).encode()).hexdigest()
+        if digest != state["snapshotSha256"]:
+            raise ValueError(f"inconsistent run record {key} identity")
+    candidate = record["candidate"]
+    if candidate != {"head": record["before"]["head"],
+                     "identity": "sha256:" + record["before"]["snapshotSha256"]}:
+        raise ValueError("inconsistent run record candidate")
+    if record["execution"] != "producer" or record["producer"] != "unknown":
+        raise ValueError("invalid run record execution or unsupported producer identity")
+    status, signal = record["exitStatus"], record["signal"]
+    if signal is None and type(status) is int and 0 <= status <= 255:
+        expected = "passed" if status == 0 else "failed"
+    elif status is None and type(signal) is int and 0 < signal < 128:
+        expected = "crashed"
+    else:
+        raise ValueError("invalid run record exit status or signal")
+    if record["outcome"] != expected:
+        raise ValueError("inconsistent run record outcome")
+    for key in ("stdout", "stderr"):
+        stream = record[key]
+        if (not isinstance(stream, dict) or not {"path", "sha256", "bytes", "tail"} <= stream.keys() or
+                not isinstance(stream["path"], str) or not Path(stream["path"]).is_absolute() or
+                not isinstance(stream["sha256"], str) or not re.fullmatch(r"[0-9a-f]{64}", stream["sha256"]) or
+                type(stream["bytes"]) is not int or stream["bytes"] < 0 or not isinstance(stream["tail"], str)):
+            raise ValueError(f"incomplete run record {key}")
+    return record
+
+
+def validate_run_citations(claims, task):
+    errors = []
+    for line in claims.splitlines():
+        item = line.strip()
+        claim = CLAIM_RE.match(item)
+        if not claim:
+            continue
+        tail = item[claim.end():]
+        name, status = claim["claim"].strip(), claim["status"]
+        if not re.search(r"(?:^|[\s|])run:", tail):
+            if status == "passed":
+                READ_NOTES.append(f"passed claim '{name}' has no run record")
+            continue
+        citation = RUN_CITATION_RE.fullmatch(tail)
+        if not citation:
+            errors.append(f"claim '{name}' has malformed run citation; use '| run:PATH head:HEAD identity:sha256:DIGEST'")
+            continue
+        target = workflow_path(citation["path"], task)
+        try:
+            record = complete_run_record(target)
+            if record["outcome"] == "crashed":
+                raise ValueError("run record was killed by a signal")
+            if record["outcome"] != status:
+                raise ValueError("run record outcome differs from claim")
+            if record["before"]["snapshotSha256"] != record["after"]["snapshotSha256"]:
+                raise ValueError("run record has identity drift during execution")
+            if record["candidate"]["head"] != citation["head"].lower():
+                raise ValueError("run record HEAD differs from claim")
+            if record["before"]["snapshotSha256"] != citation["identity"].lower():
+                raise ValueError("run record identity differs from claim")
+        except (OSError, UnicodeError, ValueError, TypeError, KeyError) as error:
+            errors.append(f"claim '{name}' run record {target}: {error}")
+    return errors
+
 
 LEVEL2_HEADING_RE = re.compile(r"^##\s+[^\n]*$", re.M)
 RETURN_LABEL_RE = re.compile(r"^##\s+Return\b")
@@ -2161,7 +2416,16 @@ def main(argv) -> int:
 
     sub.add_parser("selfcheck", help="run the validator against its fixtures")
 
+    p_run = sub.add_parser("run", help="run literal argv and publish a command record")
+    p_run.add_argument("--out", type=Path, required=True)
+    p_run.add_argument("--repo", type=Path)
+    p_run.add_argument("--path", action="append", default=[])
+    p_run.add_argument("argv", nargs=argparse.REMAINDER)
+
     args = parser.parse_args(argv)
+
+    if args.cmd == "run":
+        return execute_run(args)
 
     if args.cmd == "loads-proof":
         try:
