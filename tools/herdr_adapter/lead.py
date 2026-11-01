@@ -56,7 +56,8 @@ def load_contract_module(name):
 
 contracts = load_contract_module("validate_contracts")
 compliance = load_contract_module("check_compliance")
-PRIORITY = {"HELP": 300, "HELD": 300, "STOPPED": 300, "DONE": 200, "assign": 100}
+# QUIET outranks nothing: it is attended only when no other moment, review or escalation is due.
+PRIORITY = {"HELP": 300, "HELD": 300, "STOPPED": 300, "DONE": 200, "assign": 100, "QUIET": 0}
 MATT_CONTEXT = {"route": "Route", "next_gate": "Next gate", "start": "Start",
                 "ddd": "DDD", "ux": "UX", "state": "State"}
 # Same per-file and total ceilings as resume's bounded reader.
@@ -84,6 +85,9 @@ MAX_PIN_BYTES = 512 * 1024 * 1024  # a verifier file larger than this cannot be 
 PANE_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9:_.-]{0,63}")
 ATTEMPT_RE = re.compile(r"[0-9]+(\.[0-9]+)?")
 PIN_FIELDS = {"return", "attempt", "matt", "dispatched_at"}
+MAX_QUIET = 64
+QUIET_FIELDS = {"schema", "type", "owner", "pane", "attempt", "session_id", "prompt_id", "reason", "waiting",
+                "written_at"}
 FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
 
 
@@ -478,6 +482,112 @@ def pin_rows(root, state, now):
     return rows
 
 
+def quiet_event(folder, name):
+    """One Stop hook event from quiet/, or why it cannot be used. It is opened once, without following a link, and must
+    really be inside quiet/; its name must be the stop key the hook derives, so a copied or hand-made file is not one."""
+    try:
+        event = json_loads(BoundedReader(max_reads=1, confine={folder}).text(folder / name))
+    except (OSError, UnicodeError, ValueError, Refusal) as error:
+        return None, f"cannot be read as an event ({error.__class__.__name__})"
+    texts = ("owner", "pane", "attempt", "session_id", "prompt_id", "reason", "waiting", "written_at")
+    if (not isinstance(event, dict) or set(event) != QUIET_FIELDS or type(event["schema"]) is not int or
+            event["schema"] != 1 or event["type"] != "QUIET" or
+            any(type(event[k]) is not str or not event[k] or not event[k].isprintable() for k in texts) or
+            not ATTEMPT_RE.fullmatch(event["attempt"]) or event["waiting"] not in {"none", "unknown"} or
+            parse_stamp(event["written_at"]) is None):
+        return None, "is not a schema 1 QUIET event"
+    key = hashlib.sha256(json.dumps([event["session_id"], event["prompt_id"]]).encode("ascii")).hexdigest()
+    if name != key + ".json":
+        return None, "is not named by its own stop key"
+    return event, None
+
+
+def quiet_stale(state, event, sessions):
+    """Why an event no longer describes the current work, or None. Judged at consumption, not at write time: the hook
+    records the owner and attempt it saw then, and both can have moved on since."""
+    attempt = event["attempt"]
+    task = state["tasks"].get(attempt.split(".")[0])
+    if task is None:
+        return f"attempt {attempt} is not a task of this record"
+    if attempt != task["active"]:
+        return f"attempt {attempt} is no longer active (the task is on {task['active']})"
+    if task["status"] not in IN_FLIGHT:
+        return f"task {attempt} is {task['status']}, not in flight"
+    if event["owner"] != task["owner"]:
+        return f"{event['owner']} does not own task {attempt}; {task['owner']} does"
+    if event["pane"] != state["members"][task["owner"]]["pane_id"]:
+        return f"pane {event['pane']} is not {task['owner']}'s pane"
+    if sessions.get(event["pane"]) != event["session_id"]:
+        return f"session {event['session_id']} was replaced by a later session in pane {event['pane']}"
+    return None
+
+
+def quiet_events(root, state):
+    """The Stop hook's events under <record-root>/quiet/ that no lead turn has attended yet, each judged stale or
+    current, and attention rows for what cannot be read. The progress log is the lead's whole consumption state: an
+    event is consumed only once an attend-quiet entry naming it is durable. Nothing here writes, renames or deletes
+    an event file, and a record without quiet/ has no events and no rows."""
+    folder = root / "quiet"
+    try:
+        if not stat.S_ISDIR(os.lstat(folder).st_mode):
+            return [], ["quiet/ is not a folder (a link or a file), so its QUIET events are not read; look at it"]
+        names = sorted(os.listdir(folder))
+    except FileNotFoundError:
+        return [], []
+    except OSError as error:
+        return [], [f"quiet/ cannot be listed ({error.__class__.__name__}), so QUIET events are not read; look at it"]
+    attended = [e for e in state["progress"] if e.get("action") == "attend-quiet"]
+    seen = {e.get("event") for e in attended}
+    pending = [n for n in names if n.endswith(".json") and not n.startswith(".") and "quiet/" + n not in seen]
+    events, problems = [], []
+    for name in pending[:MAX_QUIET]:
+        event, problem = quiet_event(folder, name)
+        if problem:
+            problems.append(f"QUIET event quiet/{name} {problem}; look at the file (the lead never edits or deletes it)")
+        else:
+            events.append({"name": "quiet/" + name, "path": str(folder / name), "event": event})
+    if len(pending) > MAX_QUIET:
+        problems.append(f"{len(pending) - MAX_QUIET} more QUIET event files wait beyond the first {MAX_QUIET}")
+    # The newest stop seen from a pane names the session that pane runs now; an older stop from another session
+    # in the same pane is stale. The lead cannot see a Claude session otherwise.
+    stops = [e for e in attended if parse_stamp(e.get("written_at")) and e.get("pane") and e.get("session_id")]
+    sessions = {}
+    for stop in sorted(stops + [item["event"] for item in events], key=lambda e: parse_stamp(e["written_at"])):
+        sessions[stop["pane"]] = stop["session_id"]
+    for item in events:
+        item["stale"] = quiet_stale(state, item["event"], sessions)
+    return events, problems
+
+
+def quiet_rows(root, state):
+    events, problems = quiet_events(root, state)
+    rows = []
+    for item in events:
+        event = item["event"]
+        if item["stale"]:
+            rows.append(f"stale QUIET {event['attempt']} from {event['owner']} ({item['name']}): {item['stale']}; "
+                        "it moves nothing and needs no action")
+        else:
+            waiting = "; waiting: unknown" if event["waiting"] == "unknown" else ""
+            rows.append(f"QUIET {event['attempt']}: {event['owner']} stopped without a report "
+                        f"({event['reason']}{waiting}); look at its pane and ask for DONE, HELP or HELD. "
+                        f"QUIET closes, fails, retries and unholds nothing ({item['name']})")
+    return rows + problems
+
+
+def attend_quiet(item):
+    """The lead's attendance to one QUIET event: the progress entry that records it is the event's consumption."""
+    event = item["event"]
+    entry = {"moment": "M4", "action": "attend-quiet", "task": event["attempt"], "member": event["owner"],
+             "doorbell": f"QUIET {event['attempt']} {item['path']}", "event": item["name"],
+             **{k: event[k] for k in ("pane", "session_id", "prompt_id", "waiting", "written_at")}}
+    if item["stale"]:
+        return {**entry, "stale": item["stale"], "reason": f"stale QUIET: {item['stale']}; it moves nothing"}
+    return {**entry, "reason": f"{event['owner']} stopped on {event['attempt']} without a report ({event['reason']}, "
+                               f"waiting {event['waiting']}); look at its pane and ask for DONE, HELP or HELD. "
+                               "QUIET closes, fails, retries and unholds nothing"}
+
+
 def attention_rows(root, state, now):
     rows = []
     for task in state["tasks"].values():
@@ -519,7 +629,7 @@ def attention_rows(root, state, now):
             rows.append(f"task {task['active']} is in flight and the last lead turn was "
                         f"{span((now - last).total_seconds())} ago, past the {wake['deadline_seconds']}s "
                         f"wake deadline ({wake['mechanism']})")
-    return rows
+    return rows + quiet_rows(root, state)
 
 
 def parent_line(state):
@@ -1047,8 +1157,10 @@ def look(client, root, state):
             raise Refusal("output_unreadable", "cannot read member transition")
         if not isinstance(read.get("text"), str):
             raise Refusal("output_unreadable", "missing visible output")
-        rings = [line.strip() for line in above_input(read["text"], member["input_box"]["start"])
-                 if not contracts.parse_doorbell(line)[1]]
+        parsed = [(line.strip(), contracts.parse_doorbell(line))
+                  for line in above_input(read["text"], member["input_box"]["start"])]
+        # QUIET comes only from the Stop hook's event files: a member never rings it, so a pane line is not one.
+        rings = [line for line, (ring, errors) in parsed if not errors and ring["type"] != "QUIET"]
         counts = {}
         for line in rings:
             counts[line] = counts.get(line, 0) + 1
@@ -1184,7 +1296,7 @@ def send_task(client, root, state, task, options):
             "reason": "idle member with highest-value independent work", "dispatch": sent}
 
 
-def pick(state):
+def pick(state, quiet=()):
     candidates = []
     for ring in state["pending"]:
         candidates.append((PRIORITY[ring["type"]], 0, ring))
@@ -1194,6 +1306,11 @@ def pick(state):
         # required task for the same owner never dispatched.
         if assignable(state, task):
             candidates.append((PRIORITY["assign"], task["value"], {"assign": task["id"]}))
+    for item in quiet:
+        event = item["event"]
+        candidates.append((PRIORITY["QUIET"], 0, {"type": "QUIET", "task": event["attempt"].split(".")[0],
+                                                  "attempt": event["attempt"], "event": item["path"],
+                                                  "member": event["owner"]}))
     # Stable tie order is plan order, not a cursor or round-robin poll.
     candidates.sort(key=lambda item: (-item[0], -item[1]))
     return candidates
@@ -1743,7 +1860,9 @@ def turn(params, options):
         state["turn"] += 1
         not_run = stop_unreachable_optional(state)
         stalled = stalled_review(root, state)
-        candidates = pick(state)
+        quiet, _ = quiet_events(root, state)
+        candidates = pick(state, quiet)
+        acting = [c for c in candidates if c[0] > PRIORITY["QUIET"]]
         waiting = next((e for e in state["escalations"] if e["status"] == "waiting"), None)
         if waiting:
             entry = human_turn(root, state, waiting)
@@ -1751,10 +1870,10 @@ def turn(params, options):
                  for t in state["tasks"].values() if t.get("required", True)):
             # A failed required task decides the mission; dispatching optional work first only delays that.
             entry = fail_mission(root, state)
-        elif candidates and "assign" in candidates[0][2]:
-            entry = send_task(client, root, state, state["tasks"][candidates[0][2]["assign"]], options)
-        elif candidates:
-            ring = candidates[0][2]
+        elif acting and "assign" in acting[0][2]:
+            entry = send_task(client, root, state, state["tasks"][acting[0][2]["assign"]], options)
+        elif acting:
+            ring = acting[0][2]
             entry = act_ring(root, state, ring)
             if entry["action"] in {"stop", "escalate"}:
                 entry["git"] = git_window(state, state["tasks"][ring["task"]])
@@ -1775,6 +1894,8 @@ def turn(params, options):
                     f"Task {task['id']} depends on {dep['id']}, which ended {dep['status']} without acceptance. "
                     "Continue cannot accept a stopped dependency, so continue or stop fails the mission; "
                     "reconcile with a new authorized mission.")}], {"moment": "M9", "task": task["active"]})
+        elif quiet:
+            entry = attend_quiet(quiet[0])
         else:
             entry = {"moment": "M3", "action": "wait", "reason": "no authorized actionable moment"}
         if not_run:

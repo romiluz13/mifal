@@ -266,7 +266,8 @@ def inspect_task(client, root, state, task, options, budget, picture, screens):
              (ring["attempt"] or ring["task"]) == task["active"]]
     for line in lead.above_input(screens[pane], member["input_box"]["start"]):
         ring, errors = lead.contracts.parse_doorbell(line)
-        if not errors and (ring["attempt"] or ring["task"]) == task["active"]:
+        # QUIET comes only from the Stop hook's event files, never from a member: it is not delivery evidence.
+        if not errors and ring["type"] != "QUIET" and (ring["attempt"] or ring["task"]) == task["active"]:
             rings.append(ring)
     row["pane_inspected"] = True
     observed = task.get("delivery_observed", {})

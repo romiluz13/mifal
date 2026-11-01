@@ -3162,5 +3162,258 @@ class LeadTest(unittest.TestCase):
         self.assertEqual(self.turn()["action"], "accept")
         self.assertEqual([r for r in self.attention() if r.startswith("dependent")], [], "released, not held")
 
+    # ---- ticket 03: QUIET joins the doorbell vocabulary; the lead attends to it and it moves nothing ----------
+
+    VALIDATOR = Path(__file__).resolve().parents[3] / "skills/team-lead/scripts/validate_contracts.py"
+
+    def doorbell(self, *args):
+        return subprocess.run([sys.executable, "-B", str(self.VALIDATOR), *args],
+                              text=True, capture_output=True, timeout=30)
+
+    def test_quiet_parses_as_an_attention_doorbell_and_malformed_forms_are_refused(self):
+        event = "/abs/record/quiet/" + "a" * 64 + ".json"
+        parsed = self.doorbell("doorbell", "--parse", f"QUIET 7.2 {event}")
+        self.assertEqual(parsed.returncode, 0, parsed.stderr)
+        self.assertEqual(json.loads(parsed.stdout.split("\n", 1)[1]),
+                         {"type": "QUIET", "task": "7", "attempt": "7.2", "event": event})
+        refused = {"relative path": "QUIET 7.2 record/quiet/" + "a" * 64 + ".json",
+                   "missing path": "QUIET 7.2",
+                   "path with spaces": "QUIET 7.2 /abs/my record/quiet/" + "a" * 64 + ".json",
+                   "unknown attempt form": f"QUIET 7.2.1 {event}",
+                   "extra text": f"QUIET 7.2 {event} please look"}
+        for label, line in refused.items():
+            with self.subTest(label):
+                result = self.doorbell("doorbell", line)
+                self.assertEqual(result.returncode, 1, result.stdout)
+                self.assertRegex(result.stderr, r"^error: \S", "a named error, never a traceback")
+                self.assertNotIn("Traceback", result.stderr)
+        check = self.doorbell("selfcheck")
+        self.assertEqual(check.returncode, 0, check.stdout + check.stderr)
+        listed = [line.split()[1] for line in check.stdout.splitlines() if line.startswith("pass  doorbell/")]
+        self.assertIn("doorbell/good/quiet-attempt.txt", listed)
+        self.assertGreaterEqual(sum(name.startswith("doorbell/bad/quiet-") for name in listed), 5)
+
+    def quiet(self, attempt="7", owner="alpha", pane="scratch:p1", session="s1", prompt="p1", waiting="none",
+              written_at=None, **changes):
+        """One event file exactly as team-stop.sh writes it: named by sha256 of the JSON array [session, prompt]."""
+        event = {"schema": 1, "type": "QUIET", "owner": owner, "pane": pane, "attempt": attempt,
+                 "session_id": session, "prompt_id": prompt, "reason": "no report", "waiting": waiting,
+                 "written_at": written_at or datetime.now(timezone.utc).isoformat(), **changes}
+        folder = self.root / "quiet"
+        folder.mkdir(exist_ok=True)
+        path = folder / (hashlib.sha256(json.dumps([session, prompt]).encode("ascii")).hexdigest() + ".json")
+        path.write_text(json.dumps(event))
+        return path
+
+    def quiet_log(self):
+        return [e for e in self.lead_state()["progress"] if e.get("action") == "attend-quiet"]
+
+    def quiet_rows(self):
+        return [row for row in self.attention() if "QUIET" in row or "quiet/" in row]
+
+    def untouched(self):
+        folder = self.root / "quiet"
+        return {p.name: (p.read_bytes(), p.lstat().st_mtime_ns) for p in sorted(folder.iterdir())}
+
+    def test_a_quiet_event_waits_behind_other_work_shows_its_row_then_is_attended_once(self):
+        self.add_member("beta", "scratch:p2")
+        self.init([self.task(value=20), self.task("8", "beta", value=10)])
+        self.assertEqual(self.turn()["task"], "7")
+        path = self.quiet(waiting="unknown")
+        before = self.untouched()
+        busy = self.turn()
+        self.assertEqual((busy["action"], busy["task"]), ("dispatch", "8"), "an idle assignment outranks QUIET")
+        self.assertEqual(busy["candidates"][-1]["type"], "QUIET")
+        self.assertEqual(min(c["priority"] for c in busy["candidates"]), busy["candidates"][-1]["priority"])
+        rows = self.quiet_rows()
+        self.assertEqual(len(rows), 1, rows)
+        for part in ("QUIET 7", "alpha", "no report", "waiting: unknown", "look at its pane", path.name):
+            self.assertIn(part, rows[0])
+        self.assertEqual(self.quiet_log(), [], "shown, not yet attended")
+        attended = self.turn()
+        self.assertEqual((attended["action"], attended["task"], attended["member"]), ("attend-quiet", "7", "alpha"))
+        self.assertEqual(attended["doorbell"], f"QUIET 7 {path.resolve()}")
+        log = self.quiet_log()
+        self.assertEqual([e["event"] for e in log], ["quiet/" + path.name])
+        self.assertIn("quiet/" + path.name, (self.root / "state.md").read_text().split("## Progress log", 1)[1])
+        self.assertEqual(self.quiet_rows(), [])
+        for _ in range(2):
+            self.assertEqual(self.turn()["action"], "wait", "consuming it again changes nothing")
+        self.assertEqual(len(self.quiet_log()), 1, "no second log line")
+        self.assertEqual(self.untouched(), before, "the lead never modifies or deletes an event file")
+        self.assertEqual(self.lead_state()["tasks"]["7"]["status"], "sent")
+
+    def test_a_stale_attempt_a_replaced_session_or_a_former_owner_is_shown_stale_and_never_moves_the_task(self):
+        self.add_member("beta", "scratch:p2")
+        self.init([self.task(), self.task("8", "beta")])
+        self.turn()
+        self.turn()
+        self.receipt(content=b"wrong\n")
+        self.assertEqual(self.turn()["action"], "correct")
+        self.assertEqual(self.turn()["task"], "7.2")
+        sent = len(self.sent_states)
+        now = datetime.now(timezone.utc)
+        ago = lambda minutes: (now - timedelta(minutes=minutes)).isoformat()
+        old_attempt = self.quiet("7", session="first", prompt="a", written_at=ago(20))
+        replaced = self.quiet("7.2", session="before-clear", prompt="b", written_at=ago(10))
+        former = self.quiet("8", session="after-clear", prompt="c", written_at=ago(5))
+        current = self.quiet("7.2", session="after-clear", prompt="d", written_at=ago(1))
+        self.rerender()
+        rows = {row.split("(quiet/", 1)[1].split(")", 1)[0]: row for row in self.quiet_rows()}
+        self.assertIn("is no longer active (the task is on 7.2)", rows[old_attempt.name])
+        self.assertIn("session before-clear was replaced by a later session", rows[replaced.name])
+        self.assertIn("alpha does not own task 8; beta does", rows[former.name])
+        for path in (old_attempt, replaced, former):
+            self.assertTrue(rows[path.name].startswith("stale QUIET"), rows[path.name])
+            self.assertIn("it moves nothing", rows[path.name])
+        self.assertTrue(rows[current.name].startswith("QUIET 7.2: alpha stopped without a report"), rows[current.name])
+        before = self.lead_state()["tasks"]
+        actions = [self.turn() for _ in range(4)]
+        self.assertEqual({a["action"] for a in actions}, {"attend-quiet"})
+        self.assertEqual(sorted(a["event"] for a in actions if "stale" in a),
+                         sorted("quiet/" + p.name for p in (old_attempt, replaced, former)))
+        after = self.lead_state()["tasks"]
+        self.assertEqual({k: (t["active"], t["status"]) for k, t in after.items()},
+                         {k: (t["active"], t["status"]) for k, t in before.items()})
+        self.assertEqual(len(self.sent_states), sent, "a stale event dispatches nothing")
+        self.assertEqual(self.turn()["action"], "wait")
+
+    def only_quiet_for_seven(self, attempt="7"):
+        self.init()
+        self.turn()
+        if attempt != "7":
+            self.receipt(content=b"wrong\n")
+            self.assertEqual(self.turn()["action"], "correct")
+            self.turn()
+        self.quiet(attempt)
+        attended = self.turn()
+        self.assertEqual((attended["action"], attended["task"]), ("attend-quiet", attempt))
+        self.assertNotIn("stale", attended)
+        return self.lead_state()["tasks"]["7"]
+
+    def test_quiet_never_closes_a_task(self):
+        task = self.only_quiet_for_seven()
+        self.assertEqual(task["status"], "sent")
+        self.assertFalse((self.root / "reviews/7.json").exists())
+        self.assertNotIn("accepted_evidence", task)
+        self.assertEqual(self.turn()["action"], "wait", "the mission does not complete")
+
+    def test_quiet_never_fails_a_task(self):
+        task = self.only_quiet_for_seven("7.2")  # a failure on the last attempt would stop it and fail the mission
+        self.assertEqual((task["active"], task["status"]), ("7.2", "sent"))
+        self.assertNotIn("outcome", self.lead_state())
+        self.assertEqual(self.turn()["action"], "wait")
+
+    def test_quiet_never_grants_a_retry(self):
+        task = self.only_quiet_for_seven()
+        self.assertEqual((task["active"], task["return"]), ("7", "tasks/7.md"))
+        self.assertFalse((self.root / "tasks/7.2.md").exists())
+        self.assertEqual(self.turn()["action"], "wait")
+        self.assertEqual(len(self.sent_states), 1, "no second dispatch")
+
+    def test_quiet_never_lifts_a_hold_and_waits_while_the_lead_is_blocked(self):
+        self.init()
+        self.turn()
+        self.ring("HELD 7 waits on human approval to publish")
+        self.assertEqual(self.turn()["action"], "escalate")
+        path = self.quiet()
+        for _ in range(2):
+            self.assertEqual(self.turn()["action"], "wait-human")
+        state = self.lead_state()
+        self.assertEqual(state["tasks"]["7"]["status"], "held")
+        self.assertEqual([e["status"] for e in state["escalations"]], ["waiting"])
+        self.assertEqual(self.quiet_log(), [], "pending while the lead is blocked on the human")
+        self.assertEqual(len([r for r in self.quiet_rows() if path.name in r]), 1)
+        self.assertEqual(len(self.sent_states), 1)
+
+    def test_quiet_waits_while_the_lead_is_busy_or_drafting_and_nothing_is_typed_anywhere(self):
+        self.add_member("beta", "scratch:p2")
+        self.init([self.task(value=20), self.task("8", "beta", value=10)])
+        self.snapshot["panes"].append({**self.snapshot["panes"][0], "pane_id": "scratch:lead", "terminal_id": "lead",
+                                       "agent_status": "working"})
+        self.screens["scratch:lead"] = "[INPUT]\nhalf-typed note to the human\n[/INPUT]\n"
+        self.turn()
+        self.quiet()
+        sends = lambda: [r for r in self.peer.requests if r["method"] == "pane.send_input"]
+        before = len(sends())
+        self.receipt()
+        self.assertEqual(self.turn()["action"], "accept", "a DONE review outranks QUIET")
+        self.assertEqual(self.turn()["action"], "dispatch", "so does an idle assignment")
+        self.assertEqual(self.quiet_log(), [])
+        self.assertEqual(len(self.quiet_rows()), 1)
+        self.assertEqual(len(sends()), before + 1, "only the dispatch to beta typed anything")
+        self.assertTrue(all(r["params"]["pane_id"] == "scratch:p2" for r in sends()[before:]))
+        self.assertFalse(any(r["params"].get("pane_id") == "scratch:lead" for r in self.peer.requests),
+                         "the lead's own pane is never read or typed into")
+        self.assertEqual(self.screens["scratch:lead"], "[INPUT]\nhalf-typed note to the human\n[/INPUT]\n")
+
+    def test_a_crash_before_the_quiet_log_is_durable_leaves_the_event_pending(self):
+        self.init()
+        self.turn()
+        path = self.quiet()
+        self.root.chmod(0o555)
+        try:
+            crashed = self.command("lead", {"record_root": str(self.root), "wait_seconds": 0.03}, expected=1)
+        finally:
+            self.root.chmod(0o755)
+        self.assertNotIn("Traceback", json.dumps(crashed))
+        self.assertEqual(self.quiet_log(), [], "the attendance was never logged, so it was never consumed")
+        attended = self.turn()
+        self.assertEqual((attended["action"], attended["event"]), ("attend-quiet", "quiet/" + path.name))
+        self.assertEqual(len(self.quiet_log()), 1)
+
+    def test_a_malformed_linked_or_misplaced_quiet_event_is_a_named_row_never_a_traceback(self):
+        self.init()
+        self.turn()
+        folder = self.root / "quiet"
+        folder.mkdir()
+        (folder / ("a" * 64 + ".json")).write_text("{not json")
+        wrong_schema = self.quiet(schema=2)
+        renamed = folder / ("b" * 64 + ".json")
+        self.quiet(session="s9").rename(renamed)
+        outside = Path(self.temp.name) / "elsewhere"
+        outside.mkdir()
+        real = self.quiet(session="s8")
+        (outside / real.name).write_bytes(real.read_bytes())
+        real.unlink()
+        (folder / real.name).symlink_to(outside / real.name)
+        (folder / ".quiet-tmp123").write_text("half written")
+        self.assertEqual(self.turn()["action"], "wait", "nothing usable to attend")
+        rows = self.quiet_rows()
+        self.assertEqual(len(rows), 4, rows)
+        self.assertIn("quiet/" + "a" * 64 + ".json cannot be read as an event", " ".join(rows))
+        self.assertIn(f"quiet/{wrong_schema.name} is not a schema 1 QUIET event", " ".join(rows))
+        self.assertIn(f"quiet/{renamed.name} is not named by its own stop key", " ".join(rows))
+        self.assertIn(f"quiet/{real.name} cannot be read as an event", " ".join(rows))
+        self.assertEqual(self.quiet_log(), [])
+        shutil.rmtree(folder)
+        (outside / ("c" * 64 + ".json")).write_text("{}")
+        folder.symlink_to(outside)
+        self.assertEqual(self.turn()["action"], "wait")
+        self.assertEqual(self.quiet_rows(), ["quiet/ is not a folder (a link or a file), so its QUIET events are "
+                                             "not read; look at it"])
+        folder.unlink()
+        self.assertEqual(self.turn()["action"], "wait")
+        self.assertEqual(self.quiet_rows(), [], "no quiet/ folder: nothing to show")
+
+    def test_a_plain_record_without_quiet_renders_as_today_and_one_event_adds_exactly_one_row(self):
+        self.init()
+        self.turn()
+        self.dispatched_ago(30)
+        self.rerender()
+        plain = self.attention()
+        self.assertFalse((self.root / "quiet").exists(), "the lead never creates quiet/")
+        self.assertTrue(any(r.startswith("owner alpha is idle while task 7 has no return closing it") for r in plain),
+                        "the manual quiet-worker row other harnesses rely on stays")
+        before = len(self.peer.requests)
+        self.quiet(waiting="unknown")
+        self.rerender()
+        self.assertEqual(len(self.peer.requests), before, "rendering the attention surface needs no Herdr")
+        rows = self.attention()
+        self.assertEqual(rows[:len(plain)], plain)
+        self.assertEqual(len(rows), len(plain) + 1)
+        self.assertTrue(rows[-1].startswith("QUIET 7: alpha stopped without a report (no report; waiting: unknown)"))
+
+
 if __name__ == "__main__":
     unittest.main()

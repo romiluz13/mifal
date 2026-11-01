@@ -35,7 +35,9 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-DOORBELL_TYPES = ("DONE", "HELP", "HELD", "STOPPED")
+# QUIET is attention only: a lead reads it from a Stop hook's event file; it never closes, fails, retries or
+# unholds anything, and no member rings it.
+DOORBELL_TYPES = ("DONE", "HELP", "HELD", "STOPPED", "QUIET")
 
 TASK_ID = r"[0-9]+(?:\.[0-9]+)?"
 TASK_ID_RE = re.compile(r"^" + TASK_ID + r"$")
@@ -59,6 +61,7 @@ PAYLOAD_HINTS = {
     "HELP": "the reason",
     "HELD": "what it waits on",
     "STOPPED": "why it stopped",
+    "QUIET": "the absolute path of its event file",
 }
 
 
@@ -129,6 +132,13 @@ def parse_doorbell(line: str):
             f"'{payload}'. Put prose in the return file and ring "
             f"'DONE {task_token} <path>'."
         ]
+    if dtype == "QUIET" and (len(payload.split()) != 1 or not payload.startswith("/") or
+                             not re.search(r"/quiet/[^/]+\.json$", payload)):
+        return None, [
+            f"QUIET payload must be the absolute path of one event file, "
+            f"<record-root>/quiet/<id>.json, with no spaces or other text; "
+            f"got '{payload}'"
+        ]
     task, dot, attempt = task_token.partition(".")
     record = {
         "type": dtype,
@@ -137,6 +147,8 @@ def parse_doorbell(line: str):
     }
     if dtype == "DONE":
         record["artifact"] = payload
+    elif dtype == "QUIET":
+        record["event"] = payload
     else:
         record["detail"] = payload
     return record, []
