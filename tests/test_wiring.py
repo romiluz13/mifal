@@ -477,5 +477,142 @@ class Guide(Wiring):
         self.assertIn("Matt owns engineering in every harness.", text)
 
 
+class SkillFilters(Wiring):
+    def audit(self, text=None, root=None, name="codex"):
+        read = getattr(harness, "skill_filters", None)
+        self.assertTrue(callable(read), "Harness facts must expose the skill-filter audit")
+        root = root or self.home / ".codex"
+        root.mkdir(exist_ok=True)
+        if text is not None:
+            (root / "config.toml").write_text(text)
+        return read(name, self.home, root, self.home / ".agents/skills", {"tdd", "team-lead"})
+
+    def test_codex_setting_file_and_0166_schema_belong_to_each_recorded_root(self):
+        moved = self.home / "codex-work"
+        result = self.audit(root=moved)
+        self.assertIn(str(moved / "config.toml"), result.note)
+        self.assertIn("supports Codex 0.166.0 [[skills.config]] (path or name, enabled)", result.note)
+        self.assertIn("no exclusion found", result.note)
+        self.assertIn("Codex version and session -c overrides: unknown", result.note)
+        self.assertEqual(result.warnings, [])
+
+    def test_codex_path_selects_the_skill_document_and_later_name_reenables_it(self):
+        document = self.home / ".agents/skills/tdd/SKILL.md"
+        document.parent.mkdir(parents=True)
+        document.write_text("a skill")
+        for path in (str(document), "../.agents/skills/tdd/SKILL.md", "~/.agents/skills/tdd/SKILL.md"):
+            with self.subTest(path=path):
+                text = '[[skills.config]]\npath = "' + path + '"\nenabled = false\n'
+                result = self.audit(text)
+                self.assertIn("tdd: configured exclusion detected", result.warnings[0][0])
+                self.assertIn("enabled = true", result.warnings[0][1])
+                self.assertEqual(self.audit(text + '[[skills.config]]\nname = "tdd"\nenabled = true\n').warnings, [])
+        folder = str(document.parent)
+        self.assertEqual(self.audit('[[skills.config]]\npath = "' + folder + '"\nenabled = false\n').warnings, [])
+
+    def test_codex_0166_skills_config_rs_205_212_skips_selector_mistakes_only(self):
+        for selector in ('name = " "', 'name = "team-lead"\npath = "/other/SKILL.md"', ''):
+            with self.subTest(selector=selector):
+                result = self.audit('[[skills.config]]\nname = " tdd "\nenabled = false\n'
+                                    '[[skills.config]]\n' + selector + '\nenabled = false\n')
+                self.assertEqual(len(result.warnings), 1)
+                self.assertIn("tdd: configured exclusion detected", result.warnings[0][0])
+                self.assertIn("skipped", result.notes[0])
+
+    def test_codex_enabled_is_required_boolean_and_selectors_are_strings(self):
+        for entry in ('name = "tdd"', 'name = "tdd"\nenabled = "false"',
+                      'path = 1\nenabled = false', 'name = 1\nenabled = false'):
+            with self.subTest(entry=entry):
+                result = self.audit('[[skills.config]]\n' + entry)
+                self.assertIn("invalid skills.config", result.warnings[0][0])
+                self.assertIn("boolean enabled", result.warnings[0][1])
+
+    def test_codex_nul_path_is_unmatchable_without_discarding_other_rules(self):
+        result = self.audit('[[skills.config]]\npath = "\\u0000"\nenabled = false\n'
+                            '[[skills.config]]\nname = "tdd"\nenabled = false\n')
+        self.assertEqual(len(result.warnings), 1)
+        self.assertIn('tdd: configured exclusion detected', result.warnings[0][0])
+
+    def test_codex_linked_config_is_read_without_exposing_other_values(self):
+        read = getattr(harness, "skill_filters", None)
+        self.assertTrue(callable(read), "Harness facts must expose the skill-filter audit")
+        root = self.home / ".codex"
+        root.mkdir()
+        target = self.home / "dotfiles.toml"
+        target.write_text('model = "secret-placeholder"\n[[skills.config]]\nname = "tdd"\nenabled = false\n')
+        (root / "config.toml").symlink_to(target)
+        result = self.audit()
+        self.assertIn("tdd: configured exclusion detected", result.warnings[0][0])
+        self.assertNotIn("secret-placeholder", repr(result))
+
+    def test_codex_read_denial_reports_unknown_without_a_mode_bit_precheck(self):
+        self.audit('')
+        config = self.home / ".codex/config.toml"
+        config.chmod(0)
+        self.addCleanup(config.chmod, 0o600)
+        result = self.audit()
+        self.assertTrue(result.unreadable)
+        self.assertIn("cannot be read; exclusions unknown", result.warnings[0][0])
+        self.assertIn("restore read access", result.warnings[0][1])
+
+    def test_codex_home_and_dotfiles_folder_names_never_identify_credentials(self):
+        for folder in ('auth', 'token'):
+            with self.subTest(folder=folder):
+                root = self.home / folder / '.codex'
+                root.mkdir(parents=True)
+                target = self.home / 'dotfiles' / folder / 'settings.toml'
+                target.parent.mkdir(parents=True)
+                (root / 'config.toml').symlink_to(target)
+                for text, count in (('', 0), ('[[skills.config]]\nname = "tdd"\nenabled = false\n', 1)):
+                    target.write_text(text)
+                    result = self.audit(root=root)
+                    self.assertEqual(len(result.warnings), count)
+                    self.assertNotIn('credential', repr(result))
+                    if count:
+                        self.assertIn('tdd: configured exclusion detected', result.warnings[0][0])
+
+    def test_codex_nonregular_config_needs_regular_toml_not_read_access(self):
+        for kind in ('fifo', 'directory', 'device'):
+            with self.subTest(kind=kind):
+                root = self.home / kind
+                root.mkdir()
+                config = root / 'config.toml'
+                if kind == 'fifo':
+                    os.mkfifo(config)
+                elif kind == 'directory':
+                    config.mkdir()
+                else:
+                    config.symlink_to(os.devnull)
+                result = self.audit(root=root)
+                self.assertTrue(result.unreadable)
+                self.assertIn('exclusions unknown', result.warnings[0][0])
+                self.assertIn('regular TOML file', result.warnings[0][1])
+                self.assertNotIn('restore read access', result.warnings[0][1])
+
+    def test_codex_nonregular_target_names_are_never_credential_file_names(self):
+        for kind in ('directory', 'fifo'):
+            for filename in ('auth', 'token'):
+                with self.subTest(kind=kind, name=filename):
+                    root = self.home / (kind + '-' + filename)
+                    root.mkdir()
+                    target = self.home / (kind + '-targets') / filename
+                    target.parent.mkdir(exist_ok=True)
+                    if kind == 'directory':
+                        target.mkdir()
+                    else:
+                        os.mkfifo(target)
+                    (root / 'config.toml').symlink_to(target)
+                    result = self.audit(root=root)
+                    self.assertTrue(result.unreadable)
+                    self.assertEqual(len(result.warnings), 1)
+                    self.assertNotIn('credential', result.warnings[0][0])
+                    self.assertIn('regular TOML file', result.warnings[0][1])
+
+    def test_other_harnesses_do_not_audit_codex_settings(self):
+        for name in ("claude", "droid", "pi", "opencode"):
+            with self.subTest(name=name):
+                self.assertIsNone(self.audit('[[skills.config]]\nname = "tdd"\nenabled = false\n', name=name))
+
+
 if __name__ == "__main__":
     unittest.main()

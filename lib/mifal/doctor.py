@@ -1,7 +1,7 @@
 """mifal doctor: prove an install is healthy. Read-only: it writes nothing, uses no network, runs no harness,
-and opens no settings, token or credential file itself (`herdr status` loads Herdr's own config); it reads
-Mifal's own files and the rules files it wired, and, in a Codex Home served through config.toml, only that file and
-the Home's hooks.json and its [hooks] table."""
+and opens no token or credential file itself (`herdr status` loads Herdr's own config). It reads Mifal's own
+files and the rules files it wired, plus declared skill-setting files using the Harness's supported schema.
+In a Codex Home served through config.toml, it also reads the Guide key, hooks.json and the [hooks] table."""
 from __future__ import annotations
 
 import hashlib
@@ -115,6 +115,9 @@ def doctor(h: mf.Home, env, out) -> int:
                     if e["kind"] in ("file", "symlink") and e["path"].startswith(pool_prefix)}
     keys = {e["path"]: e for e in data["entries"] if e["kind"] == "key"}
     for name, rec in sorted(mf.homes(data), key=lambda home: home[0]):
+        if rec["status"] == "wired":
+            audit = harness.skill_filters(name, h.home, Path(rec["root"]), h.pool, mifal_skills, show)
+            _skill_filters(r, name, audit, rec.get("delivery") == "config")
         if rec.get("delivery") == "config":
             _key(r, rec, keys.get(rec["config"]), guide_sha, h)
             continue
@@ -200,6 +203,17 @@ def doctor(h: mf.Home, env, out) -> int:
 
     out(f"doctor: {r.counts['PASS']} passed, {r.counts['WARN']} warning(s), {r.counts['FAIL']} failed")
     return 1 if r.counts["FAIL"] else 0
+
+
+def _skill_filters(r, name, audit, guide_config=False):
+    if audit is None:
+        return
+    check = f"skill filters {name}"
+    r.out(f"note {check}: {audit.note}")
+    for note in audit.notes:
+        r.out(f"note {check}: {note}")
+    for detail, fix in audit.warnings:
+        r.line("WARN", check, detail, None if guide_config and audit.unreadable else fix)
 
 
 def _elsewhere(r, h, data, shell):
@@ -331,16 +345,21 @@ def _key(r, rec, entry, guide_sha, h):
             r.line("WARN", check, f"{show(root)} is {rec['status']}, and nothing in its hooks stops the key now",
                    "run mifal update to add it")
         return
-    if state(config) == mf.MISSING:
-        r.line("FAIL", check, f"{show(config)} is missing", f"restore it: {REINSTALL}")
-        return
     try:
-        text = cc.read(config) if state(config)[0] == "file" else None
+        now = state(config)
+        if now == mf.MISSING:
+            r.line("FAIL", check, f"{show(config)} is missing", f"restore it: {REINSTALL}")
+            return
+        text = cc.read(config) if now[0] == "file" else None
         if text is not None:
             cc.parse(text)
-    except (cc.Invalid, OSError):
+    except cc.Invalid:
         r.line("FAIL", check, f"{show(config)} is not UTF-8 TOML any more",
                f"fix it so Codex can read it, then {REINSTALL}")
+        return
+    except OSError:
+        r.line("FAIL", check, f"cannot read {show(config)}; Guide is not delivered",
+               f"restore read access to {show(config)}, then run mifal doctor again")
         return
     found = cc.split(text, entry["sha256"]) if text is not None and entry else None
     if found is None:
