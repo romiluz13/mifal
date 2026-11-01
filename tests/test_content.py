@@ -327,8 +327,10 @@ TEAM_LEAD = "skills/team-lead/"
 
 
 class TeamRules(unittest.TestCase):
-    """Release 0.3.2 plan decisions 2 and 6-10: each team rule lives once, in its home, and a deleted sentence fails
-    its test. String contracts: they show the text is present, not that any agent follows it."""
+    """Release 0.3.2 plan decisions 2 and 6-10: each team rule keeps its planned home (outside text is data has two
+    by design, the Guide and a hard line), its key phrase appears nowhere else, and a deleted sentence fails its test.
+    String contracts: they show the text is present, not that any agent follows it, and a reworded copy elsewhere
+    would pass."""
 
     def assertOnlyIn(self, phrase, *homes):
         found = sorted(rel for rel in prose() if phrase in " ".join((REPO / rel).read_text(encoding="utf-8").split()))
@@ -351,7 +353,7 @@ class TeamRules(unittest.TestCase):
         self.assertIn("installed version's documented flags and settings", dispatch)
         self.assertIn("Unknown counts as not equal and holds the dispatch", dispatch)
         self.assertOnlyIn("Unknown counts as not equal", TEAM_LEAD + "references/herdr.md")
-        brief = " ".join((REPO / TEAM_LEAD / "references/contracts/brief.md").read_text(encoding="utf-8").split())
+        brief = section(TEAM_LEAD + "references/contracts/brief.md", "Required sections")
         self.assertIn("optional `Permission:` line under `## Current state`", brief)
         self.assertIn("the validator does not rank", brief)
 
@@ -364,7 +366,7 @@ class TeamRules(unittest.TestCase):
                 self.assertIn(field, first)
         self.assertIn("Seeing an item again never resets its age", first)
         self.assertOnlyIn("never resets its age", TEAM_LEAD + "references/team-memory.md")
-        self.assertIn("Read `## Waiting on you` in `state.md` first", section(TEAM_LEAD + "SKILL.md", "M9."))
+        self.assertIn("First read `## Waiting on you` in `state.md`", section(TEAM_LEAD + "SKILL.md", "M9."))
 
     def test_a_human_hold_keeps_its_format_and_lifts_only_on_its_condition(self):
         m4 = section(TEAM_LEAD + "SKILL.md", "M4.")
@@ -381,14 +383,14 @@ class TeamRules(unittest.TestCase):
         keep = section(TEAM_LEAD + "references/herdr.md", "Keeping or restarting")
         for rule in ("Every re-review after a fix is a new reviewer session",
                      "the earlier findings, the builder's responses and the open objections",
-                     "resets neither the review history nor the retry count",
+                     "resets neither the review history nor the retry count", "Record each review's cost",
                      "every fix you write gets an independent final review"):
             with self.subTest(rule=rule):
                 self.assertIn(rule, keep)
         self.assertOnlyIn("resets neither the review history", TEAM_LEAD + "references/herdr.md")
 
     def test_the_brief_carries_the_humans_words_and_a_conflict_rings_help(self):
-        brief = " ".join((REPO / TEAM_LEAD / "references/contracts/brief.md").read_text(encoding="utf-8").split())
+        brief = section(TEAM_LEAD + "references/contracts/brief.md", "Required sections")
         self.assertIn("Recommended: `## Source`", brief)
         self.assertIn("rings `HELP` rather than picking one", brief)
         self.assertOnlyIn("rather than picking one", TEAM_LEAD + "references/contracts/brief.md")

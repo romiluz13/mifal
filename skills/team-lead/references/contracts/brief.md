@@ -66,8 +66,8 @@ behind the brief. A worker that finds the brief contradicting its source
 rings `HELP` rather than picking one.
 
 A brief may carry an optional `Permission:` line under `## Current state`:
-the worker's approval, filesystem and network permissions as launched, the
-same as or narrower than the lead's (on Herdr, the
+the worker's approval, filesystem and network permissions as launched,
+checked against the lead's (on Herdr, by the
 [dispatch rule](../herdr.md#dispatch)). It sits there because the
 `## Workflow` check refuses fields it does not know. The reviewer checks the
 line; the validator does not rank permission modes, which differ across agent

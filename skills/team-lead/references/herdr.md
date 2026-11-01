@@ -78,8 +78,8 @@ anything.
   only when you run that way too and the agreement allows it. Record your own
   effective permissions; before each launch, check the worker's against the
   installed version's documented flags and settings, and record the actual
-  launch arguments without credentials. Unknown counts as not equal and holds
-  the dispatch.
+  launch arguments, without credentials, with its roster entry in `state.md`.
+  Unknown counts as not equal and holds the dispatch.
 - Put the brief in `<record>/tasks/<id>.md`, where `<record>` is the
   record root's absolute path
   ([communication](communication.md#parallel-agents-in-one-repository)), and
@@ -217,13 +217,14 @@ authority, for unrelated work or once a teammate has lost the thread. The
 development record belongs to the member, not the session, so carry it into
 the next brief.
 
-Every re-review after a fix is a new reviewer session, so the second
-judgment is not anchored on the first read. Give it the brief, the review
-snapshot, the earlier findings, the builder's responses and the open
-objections. A new session resets neither the review history nor the retry
-count. A mechanical recheck, such as rerunning a test or the validator, needs
+Every re-review after a fix is a new reviewer session, even though it is
+related follow-on work, so the second judgment is not anchored on the first
+read. Give it the brief, the review snapshot, the earlier findings, the
+builder's responses and the open objections. A new session resets neither the
+review history nor the retry count. A mechanical recheck, such as rerunning a test or the validator, needs
 no new judgment review. You may fix a small finding yourself; every fix you
-write gets an independent final review.
+write gets an independent final review. Record each review's cost with its
+findings.
 
 ## House rules inherited from the herdr skill
 
