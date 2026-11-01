@@ -72,6 +72,14 @@ anything.
   check `agent get <pane-id>` for detection/readiness; use
   `agent explain <pane-id>` if detection is unclear, then
   `agent rename <pane-id> <name>` for its live name before prompting.
+- Start a worker with the same or narrower approval, filesystem and network
+  permissions as yours, because a worker can do whatever its launch allows,
+  including what you could not authorize. Pass a flag that skips approvals
+  only when you run that way too and the agreement allows it. Record your own
+  effective permissions; before each launch, check the worker's against the
+  installed version's documented flags and settings, and record the actual
+  launch arguments without credentials. Unknown counts as not equal and holds
+  the dispatch.
 - Put the brief in `<record>/tasks/<id>.md`, where `<record>` is the
   record root's absolute path
   ([communication](communication.md#parallel-agents-in-one-repository)), and
@@ -208,6 +216,14 @@ feedback you've already given it are an asset. Start a fresh session, with
 authority, for unrelated work or once a teammate has lost the thread. The
 development record belongs to the member, not the session, so carry it into
 the next brief.
+
+Every re-review after a fix is a new reviewer session, so the second
+judgment is not anchored on the first read. Give it the brief, the review
+snapshot, the earlier findings, the builder's responses and the open
+objections. A new session resets neither the review history nor the retry
+count. A mechanical recheck, such as rerunning a test or the validator, needs
+no new judgment review. You may fix a small finding yourself; every fix you
+write gets an independent final review.
 
 ## House rules inherited from the herdr skill
 

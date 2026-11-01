@@ -60,6 +60,19 @@ Recommended, per the existing template: `## Kind` (or the `kind:` field),
 `## Least sure of`, `## Development target`, `## Subagents`, `## Return`
 (the return path and the exact doorbell line to ring).
 
+Recommended: `## Source`, which quotes the human's request with who said it
+and when, or points to where it is recorded, so the worker can read the words
+behind the brief. A worker that finds the brief contradicting its source
+rings `HELP` rather than picking one.
+
+A brief may carry an optional `Permission:` line under `## Current state`:
+the worker's approval, filesystem and network permissions as launched, the
+same as or narrower than the lead's (on Herdr, the
+[dispatch rule](../herdr.md#dispatch)). It sits there because the
+`## Workflow` check refuses fields it does not know. The reviewer checks the
+line; the validator does not rank permission modes, which differ across agent
+kinds.
+
 ## Rules
 
 - **The brief is a file, not a message.** Pane prompts point at the file;
