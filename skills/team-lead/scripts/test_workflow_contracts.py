@@ -2280,6 +2280,22 @@ class RunRecordTests(unittest.TestCase):
         self.assertTrue(output.is_dir())
         self.assertEqual(set(self.root.glob("run.json.*")), {self.root / "run.json.stderr", self.root / "run.json.stdout"})
 
+    def test_unreadable_explicit_directory_refuses_before_launch(self):
+        directory = self.repo / "ignored-private"
+        directory.mkdir()
+        (directory / "input").write_text("must be measured")
+        marker = self.root / "launched"
+        directory.chmod(0)
+        try:
+            code = "from pathlib import Path; Path(" + repr(str(marker)) + ").touch()"
+            result, output = self.run_command(sys.executable, "-c", code, paths=[directory])
+            self.assertEqual(result.returncode, 125, result.stderr)
+            self.assertIn(b"Permission denied", result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertFalse(output.exists())
+        finally:
+            directory.chmod(0o755)
+
 
 if __name__ == "__main__":
     unittest.main()

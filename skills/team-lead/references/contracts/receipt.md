@@ -92,7 +92,8 @@ files. Identity uses `review-snapshot.py`'s raw bytes, symlink target text,
 executable bits and filter-disabled Git reads. `--path` adds inputs to that
 scope; it never narrows the default scope. Paths are relative to the repository
 root, or absolute for external inputs. A named directory includes its files,
-including ignored files, without following directory symlinks. Ignored and
+including ignored files, without following directory symlinks. An unreadable
+named directory is refused rather than silently omitted. Ignored and
 external inputs are otherwise outside scope. Submodule worktrees are not
 inspected, and collection is not atomic. Claims must state any additional
 limit in what the command checked; the default input limits are in the record.

@@ -1921,13 +1921,16 @@ def run_snapshot_tool():
 
 
 def run_identity(tool, repo, paths):
+    def refuse_unreadable(error):
+        raise error
+
     head = tool.git(repo, "rev-parse", "HEAD").decode().strip()
     snapshot = tool.snapshot(repo, head, ["."])
     explicit = {}
     for path in paths:
         if path.is_dir() and not path.is_symlink():
             files = {}
-            for directory, dirs, names in os.walk(path, followlinks=False):
+            for directory, dirs, names in os.walk(path, followlinks=False, onerror=refuse_unreadable):
                 for name in list(dirs):
                     nested = Path(directory) / name
                     if nested.is_symlink():
