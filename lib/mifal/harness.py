@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import errno
+import fnmatch
 import hashlib
+import json
 import os
 import re
 import shlex
@@ -156,6 +158,7 @@ class SettingsFacts:
     format: str
     schema: str
     parser: object
+    pool: bool = False
 
 
 @dataclass
@@ -167,7 +170,8 @@ class SettingsRead:
     invalid_utf8: bool = False
 
 
-CREDENTIAL_NAMES = frozenset(("auth", "auth.json", "token", "tokens.json", "credentials.json", ".credentials.json"))
+CREDENTIAL_NAMES = frozenset(("auth", "auth.json", "oauth.json", "token", "tokens.json", "credentials",
+                             "credentials.json", ".credentials.json", ".claude.json"))
 
 
 def read_settings(config: Path, facts: SettingsFacts, show=str) -> SettingsRead:
@@ -183,7 +187,8 @@ def read_settings(config: Path, facts: SettingsFacts, show=str) -> SettingsRead:
             return SettingsRead(failure=(f"{where} has a looping or changing link; exclusions unknown",
                 f"replace the looping or changing link at {where} with an existing regular {shape} file, then run mifal doctor again"), unreadable=True)
         credential = target.name.lower() in CREDENTIAL_NAMES
-        wrong_shape = target.suffix.lower() != '.' + shape.lower()
+        suffixes = ('.json', '.jsonc') if shape == 'JSONC' else ('.' + shape.lower(),)
+        wrong_shape = target.suffix.lower() not in suffixes and not (shape == 'gitignore' and target.name.lower() == '.gitignore')
         if credential or wrong_shape:
             if not stat.S_ISREG(target.stat().st_mode):
                 return SettingsRead(failure=regular, unreadable=True)
@@ -278,24 +283,369 @@ def _codex_filters(text, result, facts, home, root, pool, skills, show):
 CODEX_SETTINGS = SettingsFacts("config.toml", "Codex 0.166.0", "TOML",
     "supports Codex 0.166.0 [[skills.config]] (path or name, enabled); Codex version and session -c overrides: unknown",
     _codex_filters)
-SETTINGS = {"codex": CODEX_SETTINGS}
 
 
-def skill_filters(name, home: Path, root: Path, pool: Path, skills, show=str) -> SkillFilters | None:
-    facts = SETTINGS.get(name)
-    if facts is None:
+def _invalid(result, where, key, shape='JSON'):
+    result.warnings.append((f"{where} has invalid {key}; exclusions unknown",
+                            f"repair {key} in {where} using the supported {shape} schema, then run mifal doctor again"))
+
+
+def _json(text, result, where, shape='JSON'):
+    def invalid_constant(value):
+        raise ValueError('invalid JSON number')
+
+    try:
+        data = json.loads(text.lstrip('\ufeff'), parse_constant=invalid_constant)
+        if not isinstance(data, dict):
+            raise ValueError()
+        return data
+    except (ValueError, RecursionError):
+        _invalid(result, where, shape + ' settings', shape)
         return None
-    config = root / facts.file
-    result = SkillFilters(f"reads {show(config)} skill keys only ({facts.schema})")
-    read = read_settings(config, facts, show)
-    if read.failure:
-        result.warnings.append(read.failure)
-        result.unreadable = read.unreadable
-        return result
-    if read.missing:
-        result.coverage = f"no exclusion found in {show(config)}; reads skill keys only ({facts.schema})"
-        return result
-    return facts.parser(read.text, result, facts, home, root, pool, skills, show)
+
+
+def _hidden(result, skill, where, key, fix):
+    result.warnings.append((f"{skill}: configured exclusion detected in {where} at {key}", fix))
+
+
+def _claude_filters(reads, result, home, root, pool, skills, show):
+    for facts, path, text in reads:
+        where = show(path)
+        data = _json(text if text.lstrip("\ufeff").strip() else "{}", result, where)
+        if data is None:
+            continue
+        overrides = data.get('skillOverrides', {})
+        if not isinstance(overrides, dict) or any(value not in ('on', 'name-only', 'user-invocable-only', 'off')
+                                                  for value in overrides.values()):
+            _invalid(result, where, 'skillOverrides')
+            continue
+        for skill in sorted(skills):
+            if overrides.get(skill) in ('off', 'user-invocable-only'):
+                _hidden(result, skill, where, 'skillOverrides',
+                        f"set skillOverrides.{skill} to on or remove its entry in {where}; restart Claude Code")
+    return result
+
+
+CLAUDE_SETTINGS = SettingsFacts('settings.json', 'Claude Code 2.1.316', 'JSON',
+    'supports Claude Code 2.1.316 skillOverrides (on, name-only, user-invocable-only, off); '
+    'project, local, managed, flags and synced settings are not read; effective session scope: unknown', _claude_filters)
+
+
+def _droid_filters(reads, result, home, root, pool, skills, show):
+    for facts, path, text in reads:
+        where = show(path)
+        try:
+            cleaned = _jsonc(text, trailing_commas=False)
+        except ValueError:
+            _invalid(result, where, 'JSONC settings', 'JSONC')
+            continue
+        data = _json(cleaned, result, where, 'JSONC')
+        if data is None:
+            continue
+        disabled = data.get('disabledSkills', [])
+        if not isinstance(disabled, list) or any(not isinstance(value, str) for value in disabled):
+            _invalid(result, where, 'disabledSkills')
+            continue
+        names = {re.sub('-+', '-', re.sub('[^a-z0-9-]', '-', value.lower())).strip('-') for value in disabled}
+        for skill in sorted(skills & names):
+            _hidden(result, skill, where, 'disabledSkills',
+                    f"remove {skill} from disabledSkills in {where}; restart Droid")
+    return result
+
+
+DROID_SETTINGS = SettingsFacts('settings.json', 'Droid 1.1.0', 'JSONC',
+    'supports Droid 1.1.0 disabledSkills (normalized names; JSON comments allowed, trailing commas refused); '
+    'project settings and frontmatter are not read; '
+    'effective session scope: unknown', _droid_filters)
+
+
+def _glob(value, pattern, dot=False):
+    if any(token in pattern for token in ('{', '}', '@(', '?(', '*(', '+(', '!(', '[[:', '[^')):
+        raise ValueError('unsupported pattern syntax')
+    if not dot and pattern.startswith('#'):
+        return False
+    negate = False
+    if not dot:
+        while pattern.startswith('!'):
+            negate = not negate
+            pattern = pattern[1:]
+    parts, targets = pattern.split('/'), value.split('/')
+
+    def matches(p, v):
+        if not p:
+            return not v
+        if p[0] == '**':
+            return matches(p[1:], v) or bool(v) and (dot or not v[0].startswith('.')) and matches(p, v[1:])
+        return bool(v) and (dot or not v[0].startswith('.') or p[0].startswith('.')) and \
+            fnmatch.fnmatchcase(v[0], p[0]) and matches(p[1:], v[1:])
+
+    matched = matches(parts, targets)
+    return not matched if negate else matched
+
+
+def _pi_pattern(pattern, home):
+    if pattern.startswith('file://'):
+        from urllib.parse import unquote, urlsplit
+        url = urlsplit(pattern)
+        if url.netloc not in ('', 'localhost'):
+            raise ValueError('unsupported file URL')
+        if re.search('%2f', url.path, re.I):
+            raise ValueError('encoded file URL separator')
+        pattern = unquote(url.path, errors='strict')
+        if any(part in ('.', '..') for part in pattern.split('/')):
+            raise ValueError('unsupported file URL dot segments')
+    if pattern == '~' or pattern.startswith('~/'):
+        trailing = pattern.endswith('/')
+        pattern = os.path.normpath(str(home) + pattern[1:])
+        if trailing and pattern != '/':
+            pattern += '/'
+    return pattern.replace('\\', '/')
+
+
+def _pi_matches(document, pattern, base, home, exact=False):
+    if exact and pattern.startswith(('./', '.\\')):
+        pattern = pattern[2:]
+    pattern = _pi_pattern(pattern, home)
+    paths = [os.path.relpath(document, base), str(document), os.path.relpath(document.parent, base), str(document.parent)]
+    if exact:
+        return pattern in [value.replace('\\', '/') for value in paths]
+    return any(_glob(value.replace('\\', '/'), pattern) for value in paths + [document.name, document.parent.name])
+
+
+def _ignored(document, folder, text):
+    relative = document.relative_to(folder).as_posix()
+    pieces = relative.split('/')
+    for count in range(1, len(pieces) + 1):
+        candidate = '/'.join(pieces[:count])
+        directory = count < len(pieces)
+        ignored = False
+        for line in text.splitlines():
+            pattern = line.rstrip(' ')
+            if not pattern or pattern.startswith('#'):
+                continue
+            if '\\' in pattern:
+                raise ValueError('unsupported ignore escape')
+            negate = pattern.startswith('!')
+            if negate:
+                pattern = pattern[1:]
+            directory_only = pattern.endswith('/')
+            if directory_only:
+                pattern = pattern[:-1]
+            anchored = pattern.startswith('/')
+            pattern = pattern.lstrip('/')
+            target = candidate if anchored or '/' in pattern else pieces[count - 1]
+            if (not directory_only or directory) and _glob(target.lower(), pattern.lower(), dot=True):
+                ignored = not negate
+        if ignored:
+            return True
+    return False
+
+
+def _pi_filters(reads, result, home, root, pool, skills, show):
+    patterns = []
+    ignores = {}
+    for facts, path, text in reads:
+        if facts.format == 'gitignore':
+            ignores[path.parent] = (path, text)
+            continue
+        data = _json(text, result, show(path))
+        if data is None:
+            continue
+        patterns = data.get('skills', [])
+        if isinstance(patterns, dict):
+            patterns = patterns.get('customDirectories', [])
+        if not isinstance(patterns, list) or any(not isinstance(pattern, str) for pattern in patterns):
+            _invalid(result, show(path), 'skills')
+            patterns = []
+    unknown = set()
+    for skill in sorted(skills):
+        candidates = [(pool / skill / 'SKILL.md', pool.parent)]
+        alias = root / 'skills' / skill / 'SKILL.md'
+        try:
+            if os.path.samefile(alias, candidates[0][0]):
+                candidates.insert(0, (alias, root))
+        except OSError:
+            pass
+        hidden = None
+        for document, base in candidates:
+            ignore = ignores.get(document.parent.parent)
+            try:
+                if ignore and _ignored(document, ignore[0].parent, ignore[1]):
+                    hidden = (show(ignore[0]), '.gitignore')
+                    continue
+            except (ValueError, RecursionError):
+                unknown.add((show(ignore[0]), '.gitignore pattern syntax'))
+            try:
+                excluded = any(_pi_matches(document, pattern[1:], base, home) for pattern in patterns if pattern.startswith('!'))
+                if any(_pi_matches(document, pattern[1:], base, home, exact=True) for pattern in patterns if pattern.startswith('+')):
+                    excluded = False
+                if any(_pi_matches(document, pattern[1:], base, home, exact=True) for pattern in patterns if pattern.startswith('-')):
+                    excluded = True
+                if excluded:
+                    hidden = (show(root / 'settings.json'), 'skills')
+            except (ValueError, RecursionError):
+                unknown.add((show(root / 'settings.json'), 'skills pattern syntax'))
+        if hidden:
+            where, key = hidden
+            _hidden(result, skill, where, key,
+                    f"remove the matching exclusion for {skill} from {key} in {where}; restart Pi")
+    for where, key in sorted(unknown):
+        result.warnings.append((f"{where} uses pattern syntax outside the supported Pi audit; exclusions unknown",
+                                f"inspect {key} in {where} with Pi 1.4.0; this audit supports ordinary globs and exact paths"))
+    return result
+
+
+PI_SETTINGS = SettingsFacts('settings.json', 'Pi 1.4.0', 'JSON',
+    'supports Pi 1.4.0 skills (!glob, +exact, -exact) and root skills-folder .gitignore; '
+    'complex pattern and dot-segment file-URL syntax: unknown; project, packages, added resource paths, nested ignore files, '
+    '.ignore and .fdignore are not read; effective session scope: unknown', _pi_filters)
+PI_IGNORE = SettingsFacts('skills/.gitignore', 'Pi 1.4.0', 'gitignore', PI_SETTINGS.schema, _pi_filters)
+PI_POOL_IGNORE = SettingsFacts('.gitignore', 'Pi 1.4.0', 'gitignore', PI_SETTINGS.schema, _pi_filters, pool=True)
+
+
+def _jsonc(text, trailing_commas=True):
+    output = []
+    quoted = escaped = False
+    i = 0
+    while i < len(text):
+        char = text[i]
+        if not quoted and text[i:i + 2] in ('//', '/*'):
+            if text[i:i + 2] == '//':
+                end = text.find('\n', i + 2)
+                i = len(text) if end < 0 else end
+            else:
+                end = text.find('*/', i + 2)
+                if end < 0:
+                    raise ValueError('unclosed comment')
+                i = end + 2
+            output.append(' ')
+            continue
+        if char == '"' and not escaped:
+            quoted = not quoted
+        escaped = char == '\\' and quoted and not escaped
+        output.append(char)
+        i += 1
+    text = ''.join(output)
+    if not trailing_commas:
+        return text
+    output = []
+    quoted = escaped = False
+    for i, char in enumerate(text):
+        if char == '"' and not escaped:
+            quoted = not quoted
+        escaped = char == '\\' and quoted and not escaped
+        if char == ',' and not quoted and text[i + 1:].lstrip().startswith(('}', ']')):
+            continue
+        output.append(char)
+    return ''.join(output)
+
+
+def _oc_match(value, pattern):
+    pattern = re.escape(pattern.replace('\\', '/')).replace(r'\*', '.*').replace(r'\?', '.')
+    if pattern.endswith(r'\ .*'):
+        pattern = pattern[:-4] + '( .*)?'
+    flags = re.S | (re.I if os.name == 'nt' else 0)
+    return re.fullmatch(pattern, value.replace('\\', '/'), flags) is not None
+
+
+def _opencode_filters(reads, result, home, root, pool, skills, show):
+    merged = {}
+    for facts, path, text in reads:
+        where = show(path)
+        try:
+            cleaned = _jsonc(text)
+        except ValueError:
+            _invalid(result, where, 'JSONC settings', 'JSONC')
+            continue
+        data = _json(cleaned, result, where, 'JSONC')
+        if data is None:
+            continue
+        permission = data.get('permission', {})
+        if isinstance(permission, str):
+            permission = {'*': permission}
+        if not isinstance(permission, dict) or any(
+                not isinstance(value, (str, dict)) or isinstance(value, str) and value not in ('allow', 'ask', 'deny')
+                or isinstance(value, dict) and any(action not in ('allow', 'ask', 'deny') for action in value.values())
+                for value in permission.values()):
+            _invalid(result, where, 'permission.skill', 'JSONC')
+            continue
+        if any(token in json.dumps(permission) for token in ('{env:', '{file:')):
+            _invalid(result, where, 'permission substitutions (not expanded)', 'JSONC')
+            continue
+        for key, value in permission.items():
+            if isinstance(value, str):
+                merged[key] = (value, where)
+            else:
+                previous = merged.get(key)
+                rules = previous if isinstance(previous, dict) else {}
+                rules.update({pattern: (action, where) for pattern, action in value.items()})
+                merged[key] = rules
+    for skill in sorted(skills):
+        winner = None
+        for key, value in merged.items():
+            if not _oc_match('skill', key):
+                continue
+            for pattern, action in (value.items() if isinstance(value, dict) else [('*', value)]):
+                if pattern == '~' or pattern.startswith('~/'):
+                    pattern = str(home) + pattern[1:]
+                elif pattern.startswith('$HOME'):
+                    pattern = str(home) + pattern[5:]
+                if _oc_match(skill, pattern):
+                    winner = (action[0], action[1], key)
+        if winner and winner[0] == 'deny':
+            where, key = winner[1:]
+            key = 'permission.' + key
+            _hidden(result, skill, where, key,
+                    f"set the matching {key} rule for {skill} to allow or remove it in {where}; restart OpenCode")
+    return result
+
+
+OPENCODE_SETTINGS = SettingsFacts('config.json', 'OpenCode 1.19.4', 'JSONC',
+    'supports OpenCode 1.19.4 permission.skill (allow, ask, deny or ordered pattern map), '
+    'global config.json then opencode.json then opencode.jsonc (overridden directories: opencode.json/jsonc only); '
+    'legacy TOML migration, project, managed, agent, other global Homes and env/CLI settings are not read; '
+    'effective session scope: unknown', _opencode_filters)
+OPENCODE_JSON = SettingsFacts('opencode.json', 'OpenCode 1.19.4', 'JSONC', OPENCODE_SETTINGS.schema, _opencode_filters)
+OPENCODE_JSONC = SettingsFacts('opencode.jsonc', 'OpenCode 1.19.4', 'JSONC', OPENCODE_SETTINGS.schema, _opencode_filters)
+SETTINGS = {"codex": (CODEX_SETTINGS,), 'claude': (CLAUDE_SETTINGS,), 'droid': (DROID_SETTINGS,),
+            'pi': (PI_SETTINGS, PI_IGNORE, PI_POOL_IGNORE),
+            'opencode': (OPENCODE_SETTINGS, OPENCODE_JSON, OPENCODE_JSONC)}
+
+
+def skill_filters(name, home: Path, root: Path, pool: Path, skills, show=str, env=None) -> SkillFilters | None:
+    files = SETTINGS.get(name)
+    if files is None:
+        return None
+    if name == 'opencode':
+        try:
+            global_root = config_home(home, env or {}) / 'opencode'
+        except Refused:
+            global_root = None
+        try:
+            is_global = global_root is not None and os.path.samefile(root, global_root)
+        except OSError:
+            is_global = global_root is not None and root.absolute() == global_root.absolute()
+        if not is_global:
+            files = files[1:]
+    paths = [(facts, (pool if facts.pool else root) / facts.file) for facts in files]
+    listed = ', '.join(show(path) for _, path in paths)
+    result = SkillFilters(f"reads {listed} skill keys only ({files[0].schema})")
+    reads = []
+    for facts, config in paths:
+        read = read_settings(config, facts, show)
+        if read.failure:
+            result.warnings.append(read.failure)
+            result.unreadable |= read.unreadable
+        elif not read.missing:
+            reads.append((facts, config, read.text))
+    if name == 'codex':
+        if reads:
+            return CODEX_SETTINGS.parser(reads[0][2], result, CODEX_SETTINGS, home, root, pool, skills, show)
+    else:
+        files[0].parser(reads, result, home, root, pool, skills, show)
+    if not result.warnings:
+        result.coverage = f"no exclusion found in {listed}; reads skill keys only ({files[0].schema})"
+    return result
 
 
 def _open_fence(text: str) -> bool:

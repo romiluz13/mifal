@@ -1,5 +1,6 @@
 import os
 import io
+import json
 import re
 import sys
 import subprocess
@@ -481,6 +482,93 @@ class Guide(Wiring):
 
 
 class SkillFilters(Wiring):
+    def test_non_json_numbers_and_deep_settings_are_unknown_without_disclosure(self):
+        for name in ('claude', 'droid', 'pi', 'opencode'):
+            filename = 'opencode.json' if name == 'opencode' else 'settings.json'
+            for text in ('{"unrelated":NaN}', '{"unrelated":' + '[' * 10000 + '0' + ']' * 10000 + '}'):
+                result = self.other_audit(name, text, filename)
+                self.assertIn('exclusions unknown', repr(result.warnings))
+                self.assertNotIn('NaN', repr(result))
+
+    def other_audit(self, name, text, filename='settings.json'):
+        root = self.home / '.config/opencode' if name == 'opencode' else self.home / ('other-' + name)
+        root.mkdir(parents=True, exist_ok=True)
+        (root / filename).write_text(text)
+        return harness.skill_filters(name, self.home, root, self.home / '.agents/skills', {'tdd', 'team-lead'})
+
+    def test_claude_modes_and_droid_normalized_names_hide_only_known_skills(self):
+        for mode, hidden in [('on', False), ('name-only', False), ('user-invocable-only', True), ('off', True)]:
+            result = self.other_audit('claude', json.dumps({'skillOverrides': {'tdd': mode, 'sk-secret': 'off'}}))
+            self.assertEqual(any('tdd: configured exclusion detected' in detail for detail, _ in result.warnings), hidden)
+            self.assertNotIn('sk-secret', repr(result))
+        result = self.other_audit('droid', '{"disabledSkills":["--TDD--","TEAM LEAD","sk-secret"]}')
+        self.assertEqual(len(result.warnings), 2)
+        self.assertNotIn('sk-secret', repr(result))
+        for name, text in [('claude', '{"skillOverrides":[]}'), ('droid', '{"disabledSkills":[false]}')]:
+            self.assertIn('exclusions unknown', repr(self.other_audit(name, text)))
+
+    def test_pi_pool_patterns_and_ignore_pruning_follow_the_source_order(self):
+        pool = self.home / '.agents/skills'
+        (pool / 'tdd').mkdir(parents=True)
+        (pool / 'tdd/SKILL.md').write_text('a skill')
+        for patterns, hidden in [(['!tdd'], True), (['!tdd', '+skills/tdd'], False),
+                                 (['-skills/tdd', '+skills/tdd', '!tdd'], True),
+                                 (['!TDD'], False), (['!t[d]d'], True), (['plain/resource'], False),
+                                 (['!~/.agents/skills/tdd/../tdd/SKILL.md'], True)]:
+            result = self.other_audit('pi', json.dumps({'skills': patterns}))
+            self.assertEqual(any('tdd: configured exclusion detected' in detail for detail, _ in result.warnings), hidden)
+        for rules, hidden in [('TDD/\n!tdd/SKILL.md\n', True), ('tdd/\n!tdd/\n', False),
+                              ('tdd/SKILL.md\n', True), ('/other/tdd\n', False)]:
+            (pool / '.gitignore').write_text(rules)
+            result = self.other_audit('pi', '{"skills":[]}')
+            self.assertEqual(any('tdd: configured exclusion detected' in detail for detail, _ in result.warnings), hidden)
+        (pool / '.gitignore').unlink()
+        result = self.other_audit('pi', '{"skills":["!{tdd,team-lead}"]}')
+        self.assertIn('exclusions unknown', repr(result))
+        self.assertNotIn('no exclusion found', result.coverage)
+        encoded = 'file://' + str(pool / 'tdd/SKILL.md').replace('/skills/', '/skills%2F')
+        result = self.other_audit('pi', json.dumps({'skills': ['!' + encoded]}))
+        self.assertIn('exclusions unknown', repr(result.warnings))
+        self.assertNotIn('configured exclusion detected', repr(result.warnings))
+
+    def test_opencode_jsonc_and_merged_permission_maps_preserve_order(self):
+        result = self.other_audit('opencode', '// comment\n{"url":"https://secret.invalid/*",'
+                                  '"permission":{"skill":{"tdd":"allow","*":"deny",},},}', 'config.json')
+        self.assertEqual(len(result.warnings), 2)
+        result = self.other_audit('opencode', '{"permission":{"skill":{"tdd":"allow"}}}', 'opencode.json')
+        self.assertEqual(len(result.warnings), 2)
+        self.assertTrue(all('config.json at permission.skill' in detail for detail, _ in result.warnings))
+        result = self.other_audit('opencode', '{"permission":{"skill":{"*":"ask"}}}', 'opencode.jsonc')
+        self.assertEqual(result.warnings, [])
+        root = self.home / '.config/opencode'
+        for file in ('config.json', 'opencode.json', 'opencode.jsonc'):
+            (root / file).unlink()
+        result = self.other_audit('opencode', '{"permission":{"skill":{"tdd *":"deny"}}}', 'opencode.json')
+        self.assertEqual(len(result.warnings), 1)
+        self.assertIn('tdd: configured exclusion detected', result.warnings[0][0])
+        result = self.other_audit('opencode', '{"permission":"deny"}', 'opencode.json')
+        self.assertEqual(len(result.warnings), 2)
+        result = self.other_audit('opencode', '{"permission":{"skill":{"tdd":"{file:/secret}"}}}', 'opencode.json')
+        self.assertIn('exclusions unknown', repr(result))
+        self.assertNotIn('/secret', repr(result))
+
+    def test_opencode_override_ignores_legacy_global_filename(self):
+        root = self.home / 'custom-opencode'
+        root.mkdir()
+        (root / 'config.json').write_text('{"permission":"deny"}')
+        result = harness.skill_filters('opencode', self.home, root, self.home / '.agents/skills', {'tdd'})
+        self.assertEqual(result.warnings, [])
+        self.assertNotIn(str(root / 'config.json'), result.coverage)
+        (root / 'opencode.jsonc').write_text('{"permission":{"skill":"deny"}}')
+        result = harness.skill_filters('opencode', self.home, root, self.home / '.agents/skills', {'tdd'})
+        self.assertIn('tdd: configured exclusion detected', repr(result.warnings))
+        global_root = self.home / 'xdg/opencode'
+        global_root.mkdir(parents=True)
+        (global_root / 'config.json').write_text('{"permission":"deny"}')
+        result = harness.skill_filters('opencode', self.home, global_root, self.home / '.agents/skills', {'tdd'},
+                                       env={'XDG_CONFIG_HOME': str(global_root.parent)})
+        self.assertIn('config.json at permission.*', repr(result.warnings))
+
     def audit(self, text=None, root=None, name="codex"):
         read = getattr(harness, "skill_filters", None)
         self.assertTrue(callable(read), "Harness facts must expose the skill-filter audit")
@@ -701,10 +789,35 @@ assert result.unreadable and 'regular TOML file' in repr(result.warnings), repr(
                     self.assertNotIn('credential', result.warnings[0][0])
                     self.assertIn('regular TOML file', result.warnings[0][1])
 
+    def test_claude_blank_settings_are_an_empty_object(self):
+        root = self.home / '.claude'
+        root.mkdir()
+        for text in (' \n\t', '\ufeff \n\t'):
+            (root / 'settings.json').write_text(text)
+            result = self.audit(name='claude', root=root)
+            self.assertIsNotNone(result)
+            self.assertEqual(result.warnings, [])
+
+    def test_droid_jsonc_comments_hide_known_skills_without_accepting_trailing_commas(self):
+        root = self.home / '.factory'
+        root.mkdir()
+        config = root / 'settings.json'
+        for text, hidden, unknown in (
+                ('{/* plain comment */"unrelated":"https://secret/"}', False, False),
+                ('{// comment\n"disabledSkills":["TDD"]}', True, False),
+                ('{"disabledSkills":["TDD",]}', False, True)):
+            config.write_text(text)
+            result = self.audit(name='droid', root=root)
+            self.assertEqual(any('configured exclusion detected' in detail for detail, fix in result.warnings), hidden)
+            self.assertEqual(any('unknown' in detail for detail, fix in result.warnings), unknown)
+            self.assertNotIn('https://secret/', repr(result))
+
     def test_other_harnesses_do_not_audit_codex_settings(self):
         for name in ("claude", "droid", "pi", "opencode"):
             with self.subTest(name=name):
-                self.assertIsNone(self.audit('[[skills.config]]\nname = "tdd"\nenabled = false\n', name=name))
+                result = self.audit('[[skills.config]]\nname = "tdd"\nenabled = false\n', name=name)
+                self.assertEqual(result.warnings, [])
+                self.assertNotIn('Codex 0.166.0', result.coverage)
 
 
 if __name__ == "__main__":

@@ -116,7 +116,7 @@ def doctor(h: mf.Home, env, out) -> int:
     keys = {e["path"]: e for e in data["entries"] if e["kind"] == "key"}
     for name, rec in sorted(mf.homes(data), key=lambda home: home[0]):
         if rec["status"] == "wired":
-            audit = harness.skill_filters(name, h.home, Path(rec["root"]), h.pool, mifal_skills, show)
+            audit = harness.skill_filters(name, h.home, Path(rec["root"]), h.pool, mifal_skills, show, env=env)
             _skill_filters(r, name, audit, rec.get("delivery") == "config")
         if rec.get("delivery") == "config":
             _key(r, rec, keys.get(rec["config"]), guide_sha, h)
