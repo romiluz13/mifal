@@ -1,5 +1,6 @@
 """hooks/team-stop.sh: Claude Stop feedback for an admitted worker. It can block a stop once; it can never accept."""
 
+from datetime import datetime
 import json
 import os
 from pathlib import Path
@@ -12,6 +13,9 @@ import test_preflight
 
 HOOKS = Path(__file__).resolve().parents[1] / "hooks"
 HOOK = HOOKS / "team-stop.sh"
+# Real Claude Code 2.1.316 Stop payloads, captured natively for Mifal 0.3.2 (task 101). Only cwd and
+# transcript_path are anonymized; every field the hook reads is the captured bytes.
+FIXTURES = Path(__file__).resolve().parent / "fixtures"
 PREFLIGHT = test_preflight.PREFLIGHT
 PANE = test_preflight.PANE
 
@@ -35,19 +39,23 @@ class StopHookTest(unittest.TestCase):
     pin = test_preflight.PreflightTest.pin
     manual_return = test_preflight.PreflightTest.manual_return
 
-    def stop(self, payload=None, pane=PANE, record=None, preflight=PREFLIGHT, python=sys.executable, expected=None):
-        """Run the hook as Claude Code does: Stop payload on stdin, the record root fixed in the command."""
-        payload = {"session_id": "s", "transcript_path": "/tmp/t.jsonl", "cwd": str(self.project),
+    def stop(self, payload=None, pane=PANE, record=None, preflight=PREFLIGHT, python=sys.executable, expected=None,
+             raw=None):
+        """Run the hook as Claude Code does: Stop payload on stdin, the record root fixed in the command.
+        A payload value of None deletes that key; raw sends a captured payload's bytes verbatim."""
+        payload = {"session_id": "s", "prompt_id": "p1", "transcript_path": "/tmp/t.jsonl", "cwd": str(self.project),
                    "permission_mode": "default", "hook_event_name": "Stop", "stop_hook_active": False,
                    "last_assistant_message": "DONE 7 tasks/7.md", "background_tasks": [], "session_crons": [],
                    **(payload or {})}
+        payload = {key: value for key, value in payload.items() if value is not None}
         env = {"PATH": "/usr/bin:/bin", "HOME": os.environ["HOME"], "TEAM_STOP_PREFLIGHT": str(preflight)}
         if python is not None:
             env["TEAM_STOP_PYTHON"] = str(python)
         if pane is not None:
             env["HERDR_PANE_ID"] = pane
         result = subprocess.run([str(HOOK), str(record if record is not None else self.root)],
-                                input=json.dumps(payload), text=True, capture_output=True, timeout=60, env=env)
+                                input=raw if raw is not None else json.dumps(payload),
+                                text=True, capture_output=True, timeout=60, env=env)
         self.assertIn(result.returncode, (0, 2), "a hook exit of 1 is a non-blocking error; the hook never uses it")
         if expected is not None:
             self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
@@ -294,6 +302,201 @@ class StopHookTest(unittest.TestCase):
         self.assertTrue(hook["command"].split()[0].endswith("team-stop.sh"), hook["command"])
         self.assertEqual(len(hook["command"].split()), 2, "the record root is fixed in the command")
         self.assertTrue(os.access(HOOK, os.X_OK))
+
+
+    # ---- ticket 02: a silent stop leaves one QUIET event; today's feedback is unchanged ---------------------
+
+    def fixture(self, name):
+        return (FIXTURES / name).read_text()
+
+    def quiet_events(self):
+        quiet = self.root / "quiet"
+        return sorted(p.name for p in quiet.glob("*.json")) if quiet.is_dir() else []
+
+    def quiet_event(self):
+        events = self.quiet_events()
+        self.assertEqual(len(events), 1, f"expected exactly one quiet event, found {events}")
+        return json.loads((self.root / "quiet" / events[0]).read_text())
+
+    def test_a_silent_stop_writes_one_schema_1_quiet_event(self):
+        self.admitted_with(receipt=False)
+        result = self.stop(raw=self.fixture("stop-c1-baseline.json"), expected=0)
+        self.assertEqual((result.stderr, self.hook_log()), ("", ""), "a written event is not a complaint")
+        captured = json.loads(self.fixture("stop-c1-baseline.json"))
+        event = self.quiet_event()
+        self.assertEqual(set(event), {"schema", "type", "owner", "pane", "attempt", "session_id", "prompt_id",
+                                      "reason", "waiting", "written_at"})
+        self.assertEqual((event["schema"], event["type"], event["owner"], event["pane"], event["attempt"]),
+                         (1, "QUIET", "alpha", PANE, "7"))
+        self.assertEqual((event["session_id"], event["prompt_id"]),
+                         (captured["session_id"], captured["prompt_id"]))
+        self.assertEqual((event["reason"], event["waiting"]), ("no report", "none"))
+        self.assertEqual(datetime.fromisoformat(event["written_at"]).utcoffset().total_seconds(), 0,
+                         "the write time is UTC")
+        self.assertRegex(self.quiet_events()[0], r"^[0-9a-f]{64}\.json$",
+                         "the file name is a derived id, never text from the payload")
+
+    def test_one_stop_delivered_twice_leaves_exactly_one_event(self):
+        self.admitted_with(receipt=False)
+        self.stop(raw=self.fixture("stop-c2-delivery-1.json"), expected=0)
+        self.stop(raw=self.fixture("stop-c2-delivery-2.json"), expected=0)  # the same stop, delivered again
+        self.assertEqual(len(self.quiet_events()), 1)
+        self.assertEqual(self.hook_log(), "")
+
+    def test_two_stops_in_one_session_leave_two_events(self):
+        self.admitted_with(receipt=False)
+        self.stop(raw=self.fixture("stop-c3-delivery-1.json"), expected=0)
+        self.stop(raw=self.fixture("stop-c3-delivery-2.json"), expected=0)  # same session, a new prompt_id
+        events = self.quiet_events()
+        self.assertEqual(len(events), 2)
+        first = json.loads((self.root / "quiet" / events[0]).read_text())
+        second = json.loads((self.root / "quiet" / events[1]).read_text())
+        self.assertEqual(first["session_id"], second["session_id"])
+        self.assertNotEqual(first["prompt_id"], second["prompt_id"])
+
+    def test_the_retry_of_a_blocked_stop_writes_nothing_new(self):
+        self.admitted_with(receipt=False)
+        self.stop(raw=self.fixture("stop-c9-delivery-1.json"), expected=0)
+        first = self.quiet_events()[0]
+        before = (self.root / "quiet" / first).read_bytes()
+        self.stop(raw=self.fixture("stop-c9-retry.json"), expected=0)  # stop_hook_active: the same stop again
+        self.assertEqual(self.quiet_events(), [first])
+        self.assertEqual((self.root / "quiet" / first).read_bytes(), before)
+        self.assertEqual(self.hook_log(), "")
+
+    def test_an_existing_event_file_is_never_overwritten(self):
+        self.admitted_with(receipt=False)
+        self.stop(raw=self.fixture("stop-c2-delivery-1.json"), expected=0)
+        path = self.root / "quiet" / self.quiet_events()[0]
+        path.write_text('{"sentinel": true}\n')
+        self.stop(raw=self.fixture("stop-c2-delivery-2.json"), expected=0)
+        self.assertEqual(path.read_text(), '{"sentinel": true}\n')
+        self.assertEqual(len(self.quiet_events()), 1)
+        self.assertEqual(self.hook_log(), "")
+
+    def test_background_work_in_flight_or_scheduled_writes_no_event(self):
+        self.admitted_with(receipt=False)
+        for name in ("stop-c6-delivery-1.json", "stop-c6-delivery-2.json", "stop-c7-scheduled.json"):
+            with self.subTest(fixture=name):
+                self.stop(raw=self.fixture(name), expected=0)
+        self.assertEqual(self.quiet_events(), [])
+        self.assertEqual(self.hook_log(), "")
+
+    def test_an_unreadable_background_state_is_recorded_as_unknown_waiting(self):
+        self.admitted_with(receipt=False)
+        cases = {"key absent": {"background_tasks": None}, "not a list": {"session_crons": "none"},
+                 "unknown status": {"background_tasks": [{"id": "b1", "status": "queued"}]},
+                 "task without a status": {"background_tasks": [{"id": "b1"}]}}
+        for label, changes in cases.items():
+            with self.subTest(case=label):
+                self.stop({**self.said("Still working; tests next."), "prompt_id": label, **changes}, expected=0)
+        events = [json.loads((self.root / "quiet" / name).read_text()) for name in self.quiet_events()]
+        self.assertEqual(len(events), len(cases))
+        self.assertEqual({event["waiting"] for event in events}, {"unknown"})
+        self.assertEqual(self.hook_log(), "")
+
+    def test_known_background_work_wins_over_a_missing_or_malformed_other_key(self):
+        self.admitted_with(receipt=False)
+        running, scheduled = [{"status": "running"}], [{"id": "cron"}]
+        cases = {"running, crons absent": {"background_tasks": running, "session_crons": None},
+                 "running, crons malformed": {"background_tasks": running, "session_crons": 1},
+                 "scheduled, tasks absent": {"background_tasks": None, "session_crons": scheduled},
+                 "scheduled, tasks malformed": {"background_tasks": "bad", "session_crons": scheduled}}
+        for label, changes in cases.items():
+            with self.subTest(case=label):
+                self.stop({**self.said("Still working."), "prompt_id": label, **changes}, expected=0)
+        self.assertEqual(self.quiet_events(), [])
+        self.assertEqual(self.hook_log(), "")
+
+    def test_a_scalar_background_tasks_value_reaches_preflight_and_writes_unknown_waiting(self):
+        self.admitted_with(receipt=False)
+        for value in (1, True):
+            with self.subTest(background_tasks=value):
+                self.stop({**self.said("Still working."), "prompt_id": f"scalar {value!r}",
+                           "background_tasks": value}, expected=0)
+        events = [json.loads((self.root / "quiet" / name).read_text()) for name in self.quiet_events()]
+        self.assertEqual(len(events), 2, "a scalar is a non-list value, not an unreadable payload")
+        self.assertEqual({event["waiting"] for event in events}, {"unknown"})
+        self.assertEqual(self.hook_log(), "")
+
+    def test_id_pairs_that_only_differ_in_where_a_newline_falls_leave_two_events(self):
+        self.admitted_with(receipt=False)
+        for session_id, prompt_id in (("a\nb", "c"), ("a", "b\nc")):
+            self.stop({**self.said("Still working."), "session_id": session_id, "prompt_id": prompt_id}, expected=0)
+        events = [json.loads((self.root / "quiet" / name).read_text()) for name in self.quiet_events()]
+        self.assertEqual(sorted((event["session_id"], event["prompt_id"]) for event in events),
+                         [("a", "b\nc"), ("a\nb", "c")])
+        self.assertEqual(self.hook_log(), "")
+
+    def test_a_stop_without_a_reliable_identity_writes_no_event_and_logs_one_line(self):
+        self.admitted_with(receipt=False)
+        for missing in ("prompt_id", "session_id"):
+            with self.subTest(missing=missing):
+                before = len(self.hook_log().splitlines())
+                self.stop({**self.said("Still working."), missing: None}, expected=0)
+                self.assertEqual(self.quiet_events(), [])
+                self.assertEqual(len(self.hook_log().splitlines()), before + 1)
+                self.assertIn("unknown stop identity", self.hook_log().splitlines()[-1])
+
+    def test_path_like_ids_stay_inside_the_quiet_folder(self):
+        self.admitted_with(receipt=False)
+        self.stop({**self.said("Still working."), "session_id": "../../etc/x"}, expected=0)
+        events = self.quiet_events()
+        self.assertEqual(len(events), 1)
+        self.assertRegex(events[0], r"^[0-9a-f]{64}\.json$")
+        self.assertEqual([p.name for p in (self.root / "quiet").iterdir()], events, "no stray temp file is left")
+        event = json.loads((self.root / "quiet" / events[0]).read_text())
+        self.assertEqual(event["session_id"], "../../etc/x", "payload text is data, never a file name")
+        self.assertEqual(self.hook_log(), "")
+
+    def test_a_done_claim_or_a_closing_return_writes_no_event_and_keeps_today_s_feedback(self):
+        self.admitted_with(claim_status="untested")
+        result = self.stop(self.said("Finished."), expected=2)  # a Return closes attempt 7, but is not ready
+        self.assertIn("greeting: missing passing claim", result.stderr)
+        self.assertEqual(self.quiet_events(), [])
+        path = self.root / "tasks/7.md"
+        path.write_text(path.read_text().replace("greeting: untested", "greeting: passed"))
+        self.stop(self.said("Finished."), expected=0)  # a closing Return without a DONE line
+        self.stop(expected=0)  # a DONE line naming the pane's attempt
+        self.assertEqual(self.quiet_events(), [])
+        self.assertEqual(self.hook_log(), "")
+
+    def test_help_held_and_stopped_are_exempt_from_quiet_events(self):
+        self.admitted_with(receipt=False)
+        for text in ("HELP 7 I need the schema", "HELD 7 waiting for approval", "STOPPED 7 two approaches failed"):
+            with self.subTest(text=text):
+                self.stop(self.said(text), expected=0)
+        self.assertEqual(self.quiet_events(), [])
+        self.assertEqual(self.hook_log(), "")
+
+    def test_an_unadmitted_pane_writes_no_quiet_event(self):
+        self.admitted_with(receipt=False)
+        self.stop(self.said("Still working."), pane="scratch:p9", expected=0)
+        self.stop(self.said("Still working."), pane=None, expected=0)
+        self.assertEqual(self.quiet_events(), [])
+        self.assertEqual(self.hook_log(), "")
+
+    def test_a_pinned_pane_records_no_owner(self):
+        self.pinned_without_a_closing_return()
+        self.stop(self.said("Still working."), expected=0)
+        event = self.quiet_event()
+        self.assertEqual((event["owner"], event["attempt"]), ("-", "9"))
+        self.assertEqual(self.hook_log(), "")
+
+    def test_a_read_only_quiet_folder_is_logged_and_the_stop_is_allowed(self):
+        self.admitted_with(receipt=False)
+        quiet = self.root / "quiet"
+        quiet.mkdir()
+        quiet.chmod(0o555)
+        try:
+            result = self.stop(self.said("Still working."), expected=0)
+        finally:
+            quiet.chmod(0o755)
+        self.assertEqual(result.stderr, "")
+        log = self.hook_log().splitlines()
+        self.assertEqual(len(log), 1)
+        self.assertIn("write failed", log[0])
+        self.assertEqual([p.name for p in quiet.iterdir()], [])
 
 
 if __name__ == "__main__":

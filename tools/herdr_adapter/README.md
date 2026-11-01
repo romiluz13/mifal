@@ -7,6 +7,8 @@ Ticket 06 adds a separate [turn-based lead interface](LEAD.md), consuming this
 adapter, the event loop, vocabulary contracts and compliance gate.
 After a break or restart, ticket 09's [M1 resume command](LEAD.md#resume-before-another-lead-turn)
 reconciles disk and current member identities before returning control to that loop.
+Automatic QUIET events cover Claude Code workers with the team Stop hook only;
+workers on other Harnesses stay on the manual quiet-worker check.
 
 ## Interface
 
