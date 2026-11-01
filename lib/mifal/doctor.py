@@ -1,7 +1,7 @@
 """mifal doctor: prove an install is healthy. Read-only: it writes nothing, uses no network, runs no harness,
-and opens no settings, token or credential file itself (`herdr status` loads Herdr's own config); it reads
-Mifal's own files and the rules files it wired, and, in a Codex Home served through config.toml, only that file and
-the Home's hooks.json and its [hooks] table."""
+and opens no token or credential file itself (`herdr status` loads Herdr's own config). It reads Mifal's own
+files and the rules files it wired, plus each served Codex Home's config.toml skill keys (Codex 0.166.0 schema).
+In a Codex Home served through config.toml, it also reads the Guide key, hooks.json and the [hooks] table."""
 from __future__ import annotations
 
 import hashlib
@@ -115,6 +115,8 @@ def doctor(h: mf.Home, env, out) -> int:
                     if e["kind"] in ("file", "symlink") and e["path"].startswith(pool_prefix)}
     keys = {e["path"]: e for e in data["entries"] if e["kind"] == "key"}
     for name, rec in sorted(mf.homes(data), key=lambda home: home[0]):
+        if name == "codex" and rec["status"] == "wired":
+            _codex_skill_filters(r, h, Path(rec["root"]), mifal_skills)
         if rec.get("delivery") == "config":
             _key(r, rec, keys.get(rec["config"]), guide_sha, h)
             continue
@@ -200,6 +202,62 @@ def doctor(h: mf.Home, env, out) -> int:
 
     out(f"doctor: {r.counts['PASS']} passed, {r.counts['WARN']} warning(s), {r.counts['FAIL']} failed")
     return 1 if r.counts["FAIL"] else 0
+
+
+def _codex_skill_filters(r, h, root, skills):
+    check, config = "skill filters codex", root / "config.toml"
+    where = h.show(config)
+    r.out(f"note {check}: supports Codex 0.166.0 [[skills.config]] (path or name, enabled); "
+          f"reads {where} skill keys only")
+    r.line("WARN", check, f"{h.show(root)}: compatibility and effective scope unknown; "
+           "installed Codex version and session overrides are not checked",
+           "check your Codex version against 0.166.0 and any session -c skills.config overrides")
+    try:
+        if config.is_symlink() or mf.diverted(config) or config.exists() and not config.is_file():
+            r.line("WARN", check, f"{where} is not a regular unlinked file; exclusions unknown",
+                   f"make {where} a regular file at its recorded Home, then run mifal doctor again")
+            return
+        if config.exists() and not config.stat().st_mode & 0o444:
+            raise PermissionError
+        table = cc.parse(cc.read(config)).get("skills", {})
+    except FileNotFoundError:
+        return
+    except cc.Invalid:
+        r.line("WARN", check, f"{where} is not valid UTF-8 TOML; exclusions unknown",
+               f"repair the TOML in {where}, then run mifal doctor again")
+        return
+    except OSError:
+        r.line("WARN", check, f"{where} cannot be read; exclusions unknown",
+               f"restore read access to {where}, then run mifal doctor again")
+        return
+    entries = table.get("config", []) if isinstance(table, dict) else None
+    if not isinstance(entries, list) or any(
+            not isinstance(entry, dict) or type(entry.get("enabled")) is not bool
+            or ("path" in entry) == ("name" in entry)
+            or "path" in entry and (not isinstance(entry["path"], str) or "\0" in entry["path"])
+            or "name" in entry and (not isinstance(entry["name"], str) or not entry["name"].strip())
+            for entry in entries):
+        r.line("WARN", check, f"{where} has invalid skills.config; exclusions unknown",
+               f"use [[skills.config]] entries with one path or name selector and boolean enabled in {where}")
+        return
+    documents = {os.path.realpath(h.pool / skill / "SKILL.md"): skill for skill in skills}
+    disabled = set()
+    for entry in entries:
+        if "path" in entry:
+            path = entry["path"]
+            if path == "~" or path.startswith("~/"):
+                path = h.home / path[2:].lstrip("/")
+            skill = documents.get(os.path.realpath(root / path))
+        else:
+            skill = entry["name"].strip()
+        if skill in skills:
+            if entry["enabled"]:
+                disabled.discard(skill)
+            else:
+                disabled.add(skill)
+    for skill in sorted(disabled):
+        r.line("WARN", check, f"{skill}: configured exclusion detected in {where} at [[skills.config]]",
+               f"set enabled = true or remove the matching entry in {where}; restart Codex")
 
 
 def _elsewhere(r, h, data, shell):
