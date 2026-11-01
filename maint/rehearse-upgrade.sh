@@ -17,15 +17,31 @@ repo="$1" from="$2"
 # A 0.2.x release predates OpenCode's rules file and the update guards: its install records OpenCode as skipped, and
 # its own update moves a skill of mine under a newly reserved name instead of stopping. From 0.3.0 on, neither holds.
 case "$from" in v0.[0-2].*) legacy=1 ;; *) legacy=0 ;; esac
-home="$(mktemp -d)"
+case "$from" in v0.1.*) branch_following=1 ;; *) branch_following=0 ;; esac
+home="$(mktemp -d "${TMPDIR:-/tmp}/mifal-rehearsal.XXXXXX")"
 trap 'rm -rf "${home:?}"' EXIT
 home="$(cd -P "$home" && pwd)"
-python="$(dirname "$(command -v python3)")"
-mkdir -p "$home/stub"
+python="$(python3 -B -I -c 'import sys; print(sys.executable)')"
+mkdir -p "$home/stub" "$home/tmp"
+ln -s "$python" "$home/stub/python3"
 stub() { printf '#!/bin/sh\n[ "$1" = "--version" ] && echo "%s"\n' "$2" >"$home/stub/$1"; chmod +x "$home/stub/$1"; }
 stub herdr "herdr 0.9.5"
 for agent in claude codex droid pi opencode; do stub "$agent" "$agent 1.0.0"; done
-run() { env -i HOME="$home" PATH="$home/stub:$python:/usr/bin:/bin" LANG=en_US.UTF-8 TERM=dumb "$@"; }
+run() { env -i HOME="$home" TMPDIR="$home/tmp" PATH="$home/stub:/usr/bin:/bin" \
+  GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null LANG=en_US.UTF-8 TERM=dumb "$@"; }
+git() { run /usr/bin/git "$@"; }
+python3() { run "$home/stub/python3" -B "$@"; }
+python3 -I -c '
+import os, sys, tempfile
+from pathlib import Path
+home = Path(sys.argv[1]).resolve()
+assert Path.home().resolve() == home
+temporary = home / "tmp"
+assert Path(tempfile.gettempdir()).resolve() == temporary
+assert not any(k in os.environ for k in ("CODEX_HOME", "CLAUDE_CONFIG_DIR", "PI_CODING_AGENT_DIR",
+                                       "FACTORY_HOME_OVERRIDE", "OPENCODE_CONFIG_DIR", "XDG_CONFIG_HOME"))
+print(f"PASS isolation: disposable HOME {home}; temporary writes under {temporary}; no inherited Homes")
+' "$home"
 all="--harness claude --harness codex --harness droid --harness pi --harness opencode"
 rules="claude:.claude/CLAUDE.md codex:.codex/AGENTS.md droid:.factory/AGENTS.md pi:.pi/agent/AGENTS.md"
 results="$home/results.txt" problems="" failures=0
@@ -43,7 +59,7 @@ verdict() {
 }
 blocks() { local n; n="$(grep -c '^<!-- mifal:begin ' "$1" 2>/dev/null || true)"; echo "${n:-0}"; }
 snap() {
-  python3 -I - "$home" <<'PY'
+  python3 -I -c '
 import hashlib, os, sys
 home = sys.argv[1]
 for top in (".agents", ".claude", ".codex", ".factory", ".pi", ".config", ".local"):
@@ -56,21 +72,40 @@ for top in (".agents", ".claude", ".codex", ".factory", ".pi", ".config", ".loca
                 print(rel, "->", os.readlink(path))
             else:
                 print(rel, hashlib.sha256(open(path, "rb").read()).hexdigest())
-PY
+' "$home"
 }
-# opencode_named FILE: a line of FILE that names OpenCode and the CLAUDE.md it stops reading.
-opencode_named() { local l; l="$(grep -i opencode "$1" || true)"; grep -q 'CLAUDE.md' <<<"$l"; }
+# Shell here-documents use scratch files outside this HOME on macOS; text checks use files inside it.
+# opencode_named TEXT: a line that names OpenCode and the CLAUDE.md it stops reading.
+opencode_named() {
+  printf '%s\n' "$1" >"$home/opencode-note.txt"
+  grep -i opencode "$home/opencode-note.txt" >"$home/opencode-lines.txt" || true
+  grep -q 'CLAUDE.md' "$home/opencode-lines.txt"
+}
 
-git clone -q --bare "$repo" "$home/origin.git"
-# The candidate is REPO's checked-out revision, published as the private origin's main and, when it is a new
-# version, as its release tag, the way a release is published; a stale local main in REPO is never used.
+git clone -q --bare --no-hardlinks "$repo" "$home/origin.git"
+start="$(git -C "$home/origin.git" rev-parse -q --verify "refs/tags/$from^{commit}")" || \
+  fail "GAP $from: no local release tag; the promised path was not rehearsed"
+for older in v0.1.0 v0.1.1; do
+  git -C "$home/origin.git" rev-parse -q --verify "refs/tags/$older^{commit}" >/dev/null || \
+    echo "GAP $older: no local release tag; its branch-following upgrade promise remains unrehearsed"
+done
+echo "GAP full rehearsal from v0.1.2 and v0.2.0: their own rollback doctors fail on a restored user Pool skill without a Claude link; the upgrade can reach the candidate, but the full rehearsal is not passed"
+for required in install.sh bin/mifal lib/mifal_cli.py; do
+  git -C "$home/origin.git" cat-file -e "$start:$required" || \
+    fail "GAP $from: required installer layout lacks $required; no replacement step was run"
+done
+# The candidate is REPO's checked-out revision, published as the private origin's main and release tag;
+# a stale local main in REPO is never used.
 git -C "$home/origin.git" update-ref refs/heads/main HEAD
 git -C "$home/origin.git" symbolic-ref HEAD refs/heads/main
 next="$(git -C "$home/origin.git" show main:VERSION)"
-git -C "$home/origin.git" rev-parse -q --verify "refs/tags/v$next" >/dev/null || git -C "$home/origin.git" tag "v$next" main
 candidate="$(git -C "$home/origin.git" rev-parse main)"
+# Only the disposable origin publishes this tree as a release, including when VERSION has not yet been bumped.
+if [ "$branch_following" = 0 ]; then
+  git -C "$home/origin.git" update-ref "refs/tags/v$next" "$candidate"
+fi
 git clone -q "$home/origin.git" "$home/clone"
-git -C "$home/clone" checkout -q -B main "$from"
+git -C "$home/clone" checkout -q -B main "$start"
 git -C "$home/clone" branch -q --set-upstream-to=origin/main main
 for entry in $rules; do
   mkdir -p "$(dirname "$home/${entry#*:}")"
@@ -87,8 +122,8 @@ mifal="$home/.local/bin/mifal"
 # audit REV [--complete]: every file REV's tree installs is installed byte-equal and owned in the Manifest with its
 # hash. Prints the counts; with --complete a gap fails the rehearsal.
 audit() {
-  python3 - "$home" "$home/origin.git" "$1" "${2:-}" <<'PY'
-import hashlib, json, subprocess, sys
+  python3 -c '
+import hashlib, io, json, subprocess, sys
 from pathlib import Path
 home, origin, rev, mode = Path(sys.argv[1]), sys.argv[2], sys.argv[3], sys.argv[4]
 ENGINE = ("bin", "lib", "tools", "LICENSE", "NOTICE", "VERSION", "third_party")
@@ -96,9 +131,15 @@ IGNORED = {"__pycache__", ".DS_Store"}
 git = lambda *a: subprocess.run(["git", "-C", origin, *a], capture_output=True, check=True).stdout
 owned = {e["path"]: e for e in json.loads((home / ".agents/mifal/install-manifest.json").read_text())["entries"]}
 want = {}
-for rel in git("ls-tree", "-r", "-z", "--name-only", rev).decode().split("\0"):
+objects = {}
+for item in git("ls-tree", "-r", "-z", rev).split(b"\0"):
+    if not item:
+        continue
+    metadata, name = item.split(b"\t", 1)
+    _file_mode, kind, oid = metadata.split()
+    rel = name.decode()
     parts = rel.split("/")
-    if not rel or IGNORED & set(parts):
+    if kind != b"blob" or IGNORED & set(parts):
         continue
     if parts[0] in ENGINE:
         want[rel] = home / ".agents/mifal" / rel
@@ -106,9 +147,19 @@ for rel in git("ls-tree", "-r", "-z", "--name-only", rev).decode().split("\0"):
         want[rel] = home / ".agents/mifal/AGENTS.md"
     elif parts[0] == "skills" and len(parts) > 2:
         want[rel] = home / ".agents/skills" / "/".join(parts[1:])
+    if rel in want:
+        objects[rel] = oid
+batch = subprocess.run(["git", "-C", origin, "cat-file", "--batch"],
+                       input=b"\n".join(objects.values()) + b"\n", capture_output=True, check=True).stdout
+stream, blobs = io.BytesIO(batch), {}
+for rel, oid in objects.items():
+    sha, kind, size = stream.readline().split()
+    assert sha == oid and kind == b"blob", "unexpected Git batch response"
+    blobs[rel] = stream.read(int(size))
+    assert stream.read(1) == b"\n", "truncated Git batch response"
 gaps = []
 for rel, target in sorted(want.items()):
-    blob = git("show", f"{rev}:{rel}")
+    blob = blobs[rel]
     entry = owned.get(str(target))
     if not target.is_file() or target.read_bytes() != blob:
         gaps.append(f"{rel}: not installed or not byte-equal")
@@ -118,12 +169,17 @@ print(f"audit {rev}: {len(want) - len(gaps)} of {len(want)} files installed, byt
 for line in gaps[:12]:
     print("  " + line)
 sys.exit(1 if gaps and mode == "--complete" else 0)
-PY
+' "$home" "$home/origin.git" "$1" "${2:-}"
 }
 
 echo "-- first update, run by $from's own code"
 run /bin/bash "$mifal" update --yes || fail "first update (old code)"
 [ "$(cat "$home/.agents/mifal/VERSION")" = "$(git -C "$home/origin.git" show main:VERSION)" ] || fail "the first update did not land on main's VERSION"
+[ "$(git -C "$home/clone" rev-parse HEAD)" = "$candidate" ] || fail "the old update did not land on the candidate commit"
+if [ "$branch_following" = 1 ]; then
+  echo "PASS branch-following selection: $from follows origin/main from a main branch initialized at $start"
+  git -C "$home/origin.git" update-ref "refs/tags/v$next" "$candidate"
+fi
 
 echo "-- what the old code left, checked against the candidate's own tree"
 audit main | tee "$home/gap.txt"
@@ -140,7 +196,7 @@ rc=0; out="$(run /bin/bash "$mifal" update --yes 2>&1)" || rc=$?
 echo "$out"
 update_codes=$rc update_out="$out"
 if [ "$rc" -ne 0 ]; then
-  opencode_named <(echo "$out") || fail "the update by the candidate's code stopped, and not on OpenCode's CLAUDE.md fallback"
+  opencode_named "$out" || fail "the update by the candidate's code stopped, and not on OpenCode's CLAUDE.md fallback"
   snap >"$home/after.txt"
   cmp -s "$home/before.txt" "$home/after.txt" || problem "the update that stopped changed files"
   echo "-- the same update with --overwrite-edits"
@@ -157,8 +213,9 @@ opencode="$home/.config/opencode/AGENTS.md"
 if [ "$legacy" = 1 ]; then
   # 0.3.0: a recorded skipped Home whose folder is gone stays skipped on update, nothing created; naming it serves it.
   [ ! -e "$opencode" ] || problem "$opencode was created, but a skipped Home whose folder is gone stays skipped on update"
+  printf '%s\n' "$update_out" >"$home/update-out.txt"
   grep -q "skip opencode: ~/.config/opencode no longer exists, so Mifal keeps it recorded as skipped and writes " \
-    <<<"$update_out" || problem "the update does not keep the gone skipped OpenCode Home skipped, with its note"
+    "$home/update-out.txt" || problem "the update does not keep the gone skipped OpenCode Home skipped, with its note"
   verdict b "the update repairs the files $from's update left out and keeps the gone skipped OpenCode Home skipped until it is named" "$update_codes"
 else
   [ "$(blocks "$opencode")" = 1 ] || problem "$opencode does not hold exactly one Mifal block after the update"
@@ -167,18 +224,19 @@ fi
 
 echo "-- a synthetic next release that reserves one more skill name, and an unreleased commit, then an update by the new code"
 git clone -q "$home/origin.git" "$home/work"
-git="git -C $home/work -c user.name=rehearsal -c user.email=rehearsal@example.com"
+work_git() { git -C "$home/work" -c user.name=rehearsal -c user.email=rehearsal@example.com "$@"; }
 for existing in "$home"/work/skills/*/; do cp -R "$existing" "$home/work/skills/rehearsal-new-skill"; break; done
 echo "99.0.0" >"$home/work/VERSION"
-$git add skills
-$git commit -q -am "release 99.0.0"
-$git tag v99.0.0
+work_git add skills
+work_git commit -q -am "release 99.0.0"
+work_git tag v99.0.0
 echo "unreleased" >"$home/work/UNRELEASED"
-$git add UNRELEASED
-$git commit -q -m "after the release"
-$git push -q origin main v99.0.0
-reserved="$({ diff <(git -C "$home/origin.git" ls-tree --name-only "v$next" skills/) \
-                   <(git -C "$home/origin.git" ls-tree --name-only v99.0.0 skills/) || true; } | sed -n 's#^> skills/##p')"
+work_git add UNRELEASED
+work_git commit -q -m "after the release"
+work_git push -q origin main v99.0.0
+git -C "$home/origin.git" ls-tree --name-only "v$next" skills/ >"$home/skills-before.txt"
+git -C "$home/origin.git" ls-tree --name-only v99.0.0 skills/ >"$home/skills-next.txt"
+reserved="$({ diff "$home/skills-before.txt" "$home/skills-next.txt" || true; } | sed -n 's#^> skills/##p')"
 [ -n "$reserved" ] && [ "$(echo "$reserved" | wc -l)" -eq 1 ] || fail "could not pick the one skill name v99.0.0 newly reserves"
 echo "a skill of mine under a name the next release reserves" >"$home/user-skill.md"
 mkdir -p "$home/.agents/skills/$reserved"
@@ -189,7 +247,8 @@ rc=0; out="$(run /bin/bash "$mifal" update --yes 2>&1)" || rc=$?
 echo "$out"
 update_codes=$rc
 [ "$rc" -ne 0 ] || problem "the update exited 0, so it took over $reserved instead of stopping"
-grep -q "$reserved" <<<"$out" || problem "the output does not name $reserved"
+printf '%s\n' "$out" >"$home/update-out.txt"
+grep -q "$reserved" "$home/update-out.txt" || problem "the output does not name $reserved"
 if [ "$rc" -ne 0 ]; then
   snap >"$home/after.txt"
   cmp -s "$home/before.txt" "$home/after.txt" || problem "the update that stopped changed files"
@@ -257,7 +316,7 @@ echo "$out"
 [ "$rc" -eq 0 ] || problem "the fresh install exited $rc"
 [ -f "$opencode" ] || problem "$opencode was not written"
 [ ! -f "$opencode" ] || [ "$(blocks "$opencode")" = 1 ] || problem "$opencode does not hold exactly one Mifal block"
-opencode_named <(echo "$out") || problem "the install output has no line naming OpenCode and the CLAUDE.md it stops reading"
+opencode_named "$out" || problem "the install output has no line naming OpenCode and the CLAUDE.md it stops reading"
 verdict b "a fresh install writes ~/.config/opencode/AGENTS.md and names the CLAUDE.md OpenCode stops reading" "$rc"
 
 echo "-- rollback to $from: uninstall, then install from a clone of $from"
@@ -268,7 +327,7 @@ for pair in claude:"Claude Code" codex:Codex droid:Droid pi:Pi opencode:OpenCode
 done
 rc=0; run /bin/bash "$mifal" uninstall >"$home/uninstall-rollback.log" 2>&1 || rc=$?
 [ "$rc" -eq 0 ] || problem "the uninstall before the rollback exited $rc"
-git -C "$home/clone" checkout -q -B main "$from"
+git -C "$home/clone" checkout -q -B main "$start"
 rc=0; run /bin/bash "$home/clone/install.sh" $served >"$home/rollback.log" 2>&1 || rc=$?
 cat "$home/rollback.log"
 [ "$rc" -eq 0 ] || problem "the install of $from exited $rc"
@@ -281,6 +340,10 @@ done
 [ "$(cat "$home/.agents/skills/my-own-skill/SKILL.md")" = "my own skill" ] || problem "my own skill changed"
 rc=0; run /bin/bash "$mifal" doctor >"$home/doctor-rollback.txt" 2>&1 || rc=$?
 cat "$home/doctor-rollback.txt"
+if [ "$rc" -ne 0 ]; then
+  echo "GAP rollback to $from: its own doctor exited $rc; no old step was replaced:"
+  grep '^FAIL ' "$home/doctor-rollback.txt" || true
+fi
 [ "$rc" -eq 0 ] || problem "doctor exited $rc after the rollback"
 verdict f "rollback to $from by uninstall and install from its clone leaves doctor clean and my files in place" "$rc"
 
@@ -289,7 +352,8 @@ rc=0; out="$(run /bin/bash "$mifal" update --yes 2>&1)" || rc=$?
 echo "$out"
 update_codes="$rc"
 if [ "$rc" -ne 0 ] && [ "$legacy" = 0 ]; then
-  grep -q "^~/.agents/skills/$reserved: exists and was not installed by Mifal" <<<"$out" \
+  printf '%s\n' "$out" >"$home/update-out.txt"
+  grep -q "^~/.agents/skills/$reserved: exists and was not installed by Mifal" "$home/update-out.txt" \
     || problem "the update run by $from's own code stopped, and not on $reserved, the name v99.0.0 reserves"
   rc=0; out="$(run /bin/bash "$mifal" update --yes --overwrite-edits 2>&1)" || rc=$?
   echo "$out"
@@ -301,7 +365,7 @@ rc2=0; out2="$(run /bin/bash "$mifal" update --yes 2>&1)" || rc2=$?
 echo "$out2"
 update_codes="$update_codes, then $rc2"
 if [ "$rc2" -ne 0 ]; then
-  opencode_named <(echo "$out2") || problem "the second update stopped, and not on OpenCode's CLAUDE.md fallback"
+  opencode_named "$out2" || problem "the second update stopped, and not on OpenCode's CLAUDE.md fallback"
   rc2=0; out3="$(run /bin/bash "$mifal" update --yes --overwrite-edits 2>&1)" || rc2=$?
   echo "$out3"
   update_codes="$update_codes, then $rc2 with --overwrite-edits"
@@ -342,7 +406,7 @@ keyblocks() { local n; n="$(grep -c '^# mifal:begin ' "$1" 2>/dev/null || true)"
 # strip_key FILE: the file's bytes with Mifal's marked key block taken out.
 strip_key() { awk '/^# mifal:begin /{owned=1} owned{if (/^# mifal:end$/) {owned=0}; next} {print}' "$1"; }
 mh_snap() {
-  python3 -I - "$home" "$@" <<'PY'
+  python3 -I -c '
 import hashlib, os, sys
 home = sys.argv[1]
 for top in sys.argv[2:]:
@@ -355,7 +419,7 @@ for top in sys.argv[2:]:
                 print(rel, "->", os.readlink(path))
             else:
                 print(rel, hashlib.sha256(open(path, "rb").read()).hexdigest())
-PY
+' "$home" "$@"
 }
 # mh_assert [VERSION]: every named Home is served, read from the files on disk, not from the installer's records.
 mh_assert() {
@@ -378,7 +442,8 @@ mh_assert() {
   [ "$(readlink "$home/.codex-stray/AGENTS.md")" = "$home/.ai/AGENTS.md" ] || problem "the stray reader's link changed"
   [ "$(keyblocks "$cfg")" = 1 ] || problem "$cfg does not hold exactly one marked key"
   head -n 1 "$cfg" | grep -q '^# mifal:begin ' || problem "the marked key is not at the top of $cfg"
-  cmp -s <(strip_key "$cfg") "$home/config-original.toml" ||
+  strip_key "$cfg" >"$home/config-stripped.toml"
+  cmp -s "$home/config-stripped.toml" "$home/config-original.toml" ||
     problem "$cfg keeps bytes outside the marked key differently than before"
   [ -z "$version" ] || grep -q "^# mifal:begin version=$version " "$cfg" || problem "$cfg does not hold the $version key"
 }
@@ -388,6 +453,7 @@ mh_assert() {
 # resolution. Not any failure that names the Home.
 mh_expected() {
   local item count=0 block=0 link=0 pool=0
+  printf '%s\n' "${1};" >"$home/mh-problems.txt"
   while IFS= read -rd ';' item; do
     item="${item# }"
     [ -n "$item" ] || continue
@@ -398,7 +464,7 @@ mh_expected() {
       *) return 1 ;;
     esac
     count=$((count + 1))
-  done <<<"${1};"
+  done <"$home/mh-problems.txt"
   [ "$count" -eq 3 ] && [ "$block" -eq 1 ] && [ "$link" -eq 1 ] && [ "$pool" -eq 1 ]
 }
 
@@ -439,8 +505,9 @@ rc=0; out="$(run /bin/bash "$home/clone/install.sh" --harness claude --harness c
   --home "codex=$home/.codex-work" --home "codex=$home/.codex-second" 2>&1)" || rc=$?
 echo "$out"
 [ "$rc" -eq 0 ] || problem "the multi-Home install exited $rc"
-grep -qx "Wired: Claude Code, Codex" <<<"$out" || problem "the install does not report exactly Claude Code and Codex wired"
-grep -q "key ~/.codex-second/config.toml: developer_instructions" <<<"$out" ||
+printf '%s\n' "$out" >"$home/install-out.txt"
+grep -qx "Wired: Claude Code, Codex" "$home/install-out.txt" || problem "the install does not report exactly Claude Code and Codex wired"
+grep -q "key ~/.codex-second/config.toml: developer_instructions" "$home/install-out.txt" ||
   problem "the install output does not name the marked key"
 mh_assert
 rc=0; run /bin/bash "$mifal" doctor >"$home/doctor-mh.txt" 2>&1 || rc=$?
@@ -472,9 +539,25 @@ cmp -s "$home/mh-before.txt" "$home/mh-after.txt" ||
   problem "the multi-Home uninstall left a Home different from before the install"
 verdict k "mifal uninstall leaves every Home byte for byte as before the install" "$rc"
 
+echo "-- finish installed at the candidate tree"
+git -C "$home/clone" checkout -q -B main "$candidate"
+run /bin/bash "$home/clone/install.sh" $all || fail "final candidate install"
+audit "$candidate" --complete || fail "final candidate payload"
+python3 -I -c '
+import json, sys
+from pathlib import Path
+data = json.loads((Path(sys.argv[1]) / ".agents/mifal/install-manifest.json").read_text())
+assert data["source"]["revision"] == sys.argv[2], "final Manifest does not identify the candidate"
+print(f"PASS candidate: {sys.argv[2]}")
+' "$home" "$candidate"
+run /bin/bash "$mifal" doctor >"$home/doctor-candidate.txt" 2>&1 || { cat "$home/doctor-candidate.txt"; fail "final candidate doctor"; }
+cat "$home/doctor-candidate.txt"
+! grep -Eq '^(FAIL |WARN engine:)' "$home/doctor-candidate.txt" || fail "final candidate doctor is not healthy"
+echo "PASS candidate doctor: exit 0, no FAIL or missing-payload warning (stub Harnesses and Herdr)"
+
 summary
 if [ "$failures" -ne 0 ]; then
   echo "REHEARSAL FAILED: $failures check(s) failed" >&2
   exit 1
 fi
-echo "REHEARSAL OK: $from -> main -> v99.0.0 (synthetic), then fresh $next and back to $from, then a multi-Home slice: 0.2.x records migrated, two Claude and two Codex Homes served by one install (negative control red), every Home updated, exact uninstall"
+echo "REHEARSAL OK: $from -> main -> v99.0.0 (synthetic), then fresh $next and back to $from, then a multi-Home slice: single-Home records migrated, two Claude and two Codex Homes served by one install (negative control red), every Home updated, exact uninstall; ends at candidate $candidate with doctor exit 0. Named GAP paths above are not passed."
