@@ -3270,6 +3270,7 @@ class LeadTest(unittest.TestCase):
         before = self.lead_state()["tasks"]
         actions = [self.turn() for _ in range(4)]
         self.assertEqual({a["action"] for a in actions}, {"attend-quiet"})
+        self.assertEqual(actions[0]["event"], "quiet/" + current.name, "the actionable event comes before stale ones")
         self.assertEqual(sorted(a["event"] for a in actions if "stale" in a),
                          sorted("quiet/" + p.name for p in (old_attempt, replaced, former)))
         after = self.lead_state()["tasks"]

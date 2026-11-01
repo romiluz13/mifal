@@ -556,6 +556,7 @@ def quiet_events(root, state):
         sessions[stop["pane"]] = stop["session_id"]
     for item in events:
         item["stale"] = quiet_stale(state, item["event"], sessions)
+    events.sort(key=lambda item: item["stale"] is not None)  # actionable events first, for the rows and the turn
     return events, problems
 
 
