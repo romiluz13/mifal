@@ -37,8 +37,8 @@
         },
         "code-review": {
           "upstream": "skills/engineering/code-review",
-          "commit": "49dd158d1076134a641b33efb035946536778336",
-          "tree": "fee7bb5fdddc069d58cbea09b2c36b5a859eac05",
+          "commit": "4ae2317ddb22b046e26455e4f9c9b3aaaf62212d",
+          "tree": "a8ef561571acbb611de8ff19ba6da75b197c63a8",
           "modified": {
             "changed": [
               "SKILL.md"
@@ -47,8 +47,8 @@
         },
         "codebase-design": {
           "upstream": "skills/engineering/codebase-design",
-          "commit": "49dd158d1076134a641b33efb035946536778336",
-          "tree": "07ba1cd60efc12d0d3a083005c1d9651cf15e39a",
+          "commit": "4ae2317ddb22b046e26455e4f9c9b3aaaf62212d",
+          "tree": "4cbe1c131e1ea54109cb1e4e5f3c505810db6606",
           "modified": {
             "changed": [
               "SKILL.md"
@@ -99,8 +99,8 @@
         },
         "grilling": {
           "upstream": "skills/productivity/grilling",
-          "commit": "49dd158d1076134a641b33efb035946536778336",
-          "tree": "28aceb4c9567b985cb47f7db88cf23c9f33af8b8",
+          "commit": "4ae2317ddb22b046e26455e4f9c9b3aaaf62212d",
+          "tree": "f551b6e0d219fdda0b6abf277f8f915b3127d1e9",
           "modified": {
             "changed": [
               "SKILL.md"
@@ -131,8 +131,8 @@
         },
         "implement-spec": {
           "upstream": "skills/engineering/implement-spec",
-          "commit": "49dd158d1076134a641b33efb035946536778336",
-          "tree": "0cfefc751d0cb64f0c948ffcb17e13b94e778f08",
+          "commit": "4ae2317ddb22b046e26455e4f9c9b3aaaf62212d",
+          "tree": "407c196f5c88af53c71efc8f31ee37c02dbb12e7",
           "modified": {
             "changed": [
               "SKILL.md",
@@ -142,8 +142,8 @@
         },
         "improve-codebase-architecture": {
           "upstream": "skills/engineering/improve-codebase-architecture",
-          "commit": "49dd158d1076134a641b33efb035946536778336",
-          "tree": "39bd9cc130f7dfcc4e3ea0b3613f6ebed0d0ad2b",
+          "commit": "4ae2317ddb22b046e26455e4f9c9b3aaaf62212d",
+          "tree": "587147dd230da299cc5e84971cb0a33f6676f8a6",
           "modified": {
             "changed": [
               "SKILL.md",
@@ -168,8 +168,8 @@
         },
         "research": {
           "upstream": "skills/engineering/research",
-          "commit": "49dd158d1076134a641b33efb035946536778336",
-          "tree": "0a6796c5667e95ed2301ba7381c123b4acb2ae1a",
+          "commit": "4ae2317ddb22b046e26455e4f9c9b3aaaf62212d",
+          "tree": "2f8f36af48796faed5c687c75bb650071631a984",
           "modified": {
             "changed": [
               "SKILL.md"
@@ -189,8 +189,8 @@
         },
         "setup-matt-pocock-skills": {
           "upstream": "skills/engineering/setup-matt-pocock-skills",
-          "commit": "49dd158d1076134a641b33efb035946536778336",
-          "tree": "aafaabf96fa3945d8a4069317a7a6d36b7169670",
+          "commit": "4ae2317ddb22b046e26455e4f9c9b3aaaf62212d",
+          "tree": "b644b684781fd5baae57f6be000a180a4d4448d7",
           "modified": {
             "changed": [
               "SKILL.md",
@@ -286,8 +286,8 @@
         },
         "wayfinder": {
           "upstream": "skills/engineering/wayfinder",
-          "commit": "49dd158d1076134a641b33efb035946536778336",
-          "tree": "32b0ce970b1394ede47116e1d3e07f9ccc87591f",
+          "commit": "4ae2317ddb22b046e26455e4f9c9b3aaaf62212d",
+          "tree": "25da74eadc3e388b2f2a2cc716f3d44b2fb9dfe0",
           "modified": {
             "changed": [
               "SKILL.md",
@@ -447,8 +447,8 @@
       "skills": {
         "agent-browser": {
           "upstream": "skills/agent-browser",
-          "commit": "dac13bb87468fe9d74a040d862720f6cc17a9565",
-          "tree": "82def67855a0d2aad7794207951820fa5422fdb0",
+          "commit": "5868f7c05020e047c00e68e4abf9253cce864f41",
+          "tree": "aee3afd3dd9c879a14816dd6dca77c938f8c9c10",
           "modified": {
             "changed": [
               "SKILL.md"
@@ -495,8 +495,8 @@
       "name": "impeccable",
       "repo": "pbakaus/impeccable",
       "licence": "Apache-2.0",
-      "revision": "bbcb29d9dee6c94915d760bcfc36818ad5be66ad",
-      "version": "4.5.0",
+      "revision": "4f956490f0056ae1ff5ea80372cf56e83c001d3c",
+      "version": "4.8.0",
       "paths": [
         "skills/frontend-design/references/interface/design.md",
         "skills/frontend-design/references/interface/motion.md",
@@ -529,8 +529,8 @@
       "skills": {
         "herdr": {
           "upstream": "skills/herdr",
-          "commit": "9c38bbc64e3b7a23176afb2451a067a53fb8d2fd",
-          "tree": "67042ed7910d4177a9000e0679e78b0346060927",
+          "commit": "ee5bfb5041bb3e4a49d591c72308aae3c81ecdde",
+          "tree": "2be0d86d481d1bb29c62e11ef37b78d27d01b478",
           "modified": {
             "changed": [
               "SKILL.md"

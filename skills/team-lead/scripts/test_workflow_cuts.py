@@ -69,8 +69,8 @@ class DebugFixTests(StepFixture):
             lines += f"Procedure: {path}\nLoaded: {path} | worker: sha256:{digest} read event fixture-phase before work\n"
         return text.replace("\n## Phase checklist", "\n" + lines + "\n## Phase checklist", 1)
 
-    def test_a_debug_fix_without_tdd_is_refused_with_the_existing_message(self):
-        self.refused(self.fix("diagnosing-bugs"), "Phase 'fix' needs tdd SKILL.md in Procedure/Loaded")
+    def test_a_debug_fix_without_tdd_is_refused_naming_tdd(self):
+        self.refused(self.fix("diagnosing-bugs"), "Phase 'fix' needs tdd SKILL.md")
 
     def test_a_debug_fix_with_tdd_passes(self):
         self.passes(self.fix("diagnosing-bugs", "tdd"))

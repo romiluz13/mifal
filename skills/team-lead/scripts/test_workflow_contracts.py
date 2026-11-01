@@ -254,6 +254,7 @@ class WorkflowTests(unittest.TestCase):
     def test_griller_cannot_be_the_parent_that_dispatched_the_work(self):
         parent = self.root / "parent.md"
         parent.write_text("## Workflow\nMethodology: matt\nExecutor: lead\nRoute: build\nPhase: implement\n"
+                          "Implement: n/a: coordination: the worker owns the code\n"
                           "\n## Phase checklist\n- [x] Context: sources inspected\n- [ ] Implement: pending\n")
         lead_griller = self.griller_task(owner="lead")
         text = self.accept_with(self.plan_text(griller=self.pin(lead_griller))).replace(
@@ -1244,8 +1245,8 @@ class WorkflowTests(unittest.TestCase):
 
     def test_workers_reuse_the_parent_checklist(self):
         parent = self.root / "state.md"
-        parent.write_text("## Workflow\nExecutor: lead\n\n## Phase checklist\n- [x] Plan: evidence exists\n"
-                          "- [ ] Implement: test pending\n")
+        parent.write_text("## Workflow\nExecutor: lead\nImplement: n/a: coordination: the worker owns the code\n"
+                          "\n## Phase checklist\n- [x] Plan: evidence exists\n- [ ] Implement: test pending\n")
         text = self.workflow().split("\n## Phase checklist")[0] + f"State: {parent}\n"
         result = self.run_check("brief", self.brief() + text, "--matt")
         self.assertEqual(result.returncode, 0, result.stderr)

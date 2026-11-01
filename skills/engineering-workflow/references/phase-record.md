@@ -23,7 +23,12 @@ Resolve placeholders before checking. Example shape:
 This section is reserved for the fields shown below, repeated `Procedure`,
 `Loaded` and `Check`, their documented aliases, and optional `Snapshot`,
 `Scheduler`, `Integration owner`, `Implement`, `Grilling`, `Route decision`, `Cut` and `Retro`. Unknown colon-delimited keys are refused
-to catch typos; put explanatory prose outside this section.
+to catch typos; put explanatory prose outside this section. The section ends
+at the next `## ` heading, so a note heading placed between Workflow lines
+would hide every line below it: a Workflow-field line under a later heading
+is refused at the gates and `brief --matt`, and printed as a `note:` by
+`receipt --matt`. Under `Done means` and `Phase checklist` only an unlisted
+field line counts, since `- <claim>: <check>` and `- [x] <item>` are theirs.
 
 ```text
 ## Workflow
@@ -227,6 +232,19 @@ Team Lead. This exception concerns implement/TDD, not review, DDD, UX or
 acceptance. Compare the actual diff and worker assignments with the reason;
 an agent's exemption declaration is not proof that the work qualifies.
 The executing worker still selects and loads its own required procedures.
+
+The obligation starts with the work, not with the `Phase` word. A build record
+with a passed `Check: start implement` (or `implementation`, `remediate`),
+stamped or not, is held to implement and tdd whatever its `Phase` says, unless
+it has an `Implement: n/a:` line or a cut of `implement`. Stamp that line
+(`Implement: n/a: coordination: <what workers own> at:<UTC time>`): one stamped
+after the earliest such Check is refused, and an unstamped one passes with a
+`note:`. Before an implement dispatch, `brief --matt` on a build brief at
+`implement`, `implementation` or `remediate` reads the lead's `State:` and
+refuses unless that record has an `Implement: n/a:` line or its Executor's
+implement and tdd `Loaded:` lines whose digests match the current bodies. A
+brief with no `State:` is a standalone brief: it passes with a `note:`, since
+no lead is named, so a lead names its record in every brief it dispatches.
 Herdr adapter Matt task JSON forwards the optional `implement` value into
 the brief; tasks under another methodology keep their own contract.
 
@@ -355,6 +373,12 @@ route's own), or the route's phase word where the route has no such step; an
 unknown name such as `start entry` is refused, because it would leave every read
 unheld.
 
+To write a Check with the clock's time instead of a typed one, run
+`validate_contracts.py stamp <record> "<step> | passed | <evidence>"`: it
+appends `Check: <value> at:<UTC now>` as the last line of the record's
+`## Workflow` section and prints it. It refuses a value that is not a passed
+Check or already carries an `at:`.
+
 A body is on time when at least one `Loaded:` line for it is stamped no later
 than the earliest start Check of the step its row governs. A later reload never
 makes an earlier on-time read late; a late read is refused only when no read of
@@ -439,6 +463,18 @@ behaves as before. The pin ends at the first `## Return` line, so the brief's ow
 return instructions and the worker's returns are not pinned; it shows that the
 text above is the text you stamped, not that the worker followed it.
 
+A `Loaded:` line is the worker's own word. For a worker running in Claude Code,
+check it against the harness's record before acceptance:
+`validate_contracts.py loads-proof <brief> --log <the worker's session .jsonl>`.
+The log must have received the brief (a prompt naming its file before the
+first start Check), and each selected body must be loaded completely there
+after the last compaction before that Check and no later than it: a Skill call,
+a Read of every line, `validate_contracts.py read`, or shell output holding the
+whole body. A `Loaded:` time before that load is refused. Locate the log
+yourself from the worker's pane or session id; a worker that can write files
+could write a log too, so this raises the cost of a false claim rather than
+authenticating one. Other harnesses have no adapter yet.
+
 Before review dispatch, add `Snapshot: <absolute review JSON path>` from
 `~/.agents/mifal/tools/review-snapshot.py --repo <repo> --base <fixed point>`
 with explicit owned `--path` scope, including owned untracked files.
@@ -466,8 +502,9 @@ Enter the retrospective phase after loading `retro` and `writing-for-agents`;
 the completed report is required at whole-task acceptance, not before starting it.
 Record `Retro: sha256:<digest> | <retrospective artifact>` and
 `Check: retro | passed | <session review evidence>` in the existing Workflow.
-The artifact contains nonempty `## Sources` and `## Findings`; zero findings
-are valid when explained. Acceptance checks its current bytes and the selected
+The artifact contains nonempty `## Sources` and `## Findings` (a heading may
+go on after a space or punctuation, as in `## Findings, most severe first`);
+zero findings are valid when explained. Acceptance checks its current bytes and the selected
 procedure reads. These declarations do not certify retrospective quality.
 One parent retrospective closes a coordinated build; bounded worker receipts
 still validate their assigned phase without claiming parent completion.

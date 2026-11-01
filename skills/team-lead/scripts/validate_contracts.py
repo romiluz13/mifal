@@ -14,6 +14,8 @@ Usage:
   validate_contracts.py brief-digest path/to/task.md
   validate_contracts.py workflow path/to/state.md --gate entry
   validate_contracts.py read path/to/SKILL.md
+  validate_contracts.py stamp path/to/task.md "start implement | passed | brief exit 0"
+  validate_contracts.py loads-proof path/to/task.md --log path/to/session.jsonl
   validate_contracts.py selfcheck
 
 Exit codes: 0 valid, 1 invalid, 2 usage error.
@@ -28,7 +30,7 @@ import re
 import stat
 import subprocess
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 DOORBELL_TYPES = ("DONE", "HELP", "HELD", "STOPPED")
@@ -73,6 +75,12 @@ DDD_PHASE_SKILL = {
     **dict.fromkeys(("plan", "resolve", "hypothesis"), "ddd-ground"),
     **dict.fromkeys(("review", "verify", "regression", "substantiate", "retro", "report", "deliver"), "ddd-verify"),
 }
+WORKFLOW_LINE_RE = re.compile(r"^\s*(?:- )?([A-Za-z][A-Za-z -]*):\s*(.*)$")
+WORKFLOW_FIELDS = {"methodology", "executor", "route", "phase", "next gate", "start", "ddd", "ux", "state", "snapshot",
+                   "scheduler", "integration owner", "implement", "grilling", "route decision", "retro"}
+WORKFLOW_REPEATED = {"procedure", "procedures", "required skill paths", "loaded", "check", "cut"}
+# Build phases that write behavioural code, so implement and tdd (or an Implement exemption) are due.
+BUILD_IMPLEMENT_PHASES = {"implement", "implementation", "remediate"}
 
 
 # ---------------------------------------------------------------- doorbell
@@ -226,7 +234,7 @@ def validate_workflow(text: str, path: Path, gate="entry", require_loads=True, r
     errors = []
     repeated = {"procedure": [], "loaded": [], "check": [], "cut": []}
     for line in blocks[0].splitlines():
-        m = re.match(r"^\s*(?:- )?([A-Za-z][A-Za-z -]*):\s*(.*)$", line)
+        m = WORKFLOW_LINE_RE.match(line)
         if not m:
             continue
         key, value = m.group(1).lower(), m.group(2).strip()
@@ -234,14 +242,17 @@ def validate_workflow(text: str, path: Path, gate="entry", require_loads=True, r
             repeated["procedure"].extend(v.strip() for v in value.split(","))
         elif key in repeated:
             repeated[key].append(value)
-        elif key in {"methodology", "executor", "route", "phase", "next gate",
-                     "start", "ddd", "ux", "state", "snapshot", "scheduler",
-                     "integration owner", "implement", "grilling", "route decision", "retro"}:
+        elif key in WORKFLOW_FIELDS:
             if key in fields:
                 errors.append(f"duplicate Workflow field '{key}'")
             fields[key] = value
         else:
             errors.append(f"unknown Workflow field '{key}'; keep prose outside this section")
+    hidden = hidden_workflow_errors(body)
+    if receipt:
+        READ_NOTES.extend(hidden)
+    else:
+        errors.extend(hidden)
     for key in ("Methodology", "Executor", "Route", "Phase", "Next gate", "Start", "DDD", "UX"):
         if not workflow_value(fields.get(key.lower(), "")):
             errors.append(f"missing or placeholder Workflow {key}" + placeholder_note(f"{key}: {fields.get(key.lower(), '')}"))
@@ -318,7 +329,7 @@ def validate_workflow(text: str, path: Path, gate="entry", require_loads=True, r
         required.extend(("retro", "writing-for-agents"))
     if retro_required or (phase == "retro" and fields.get("retro")):
         _, evidence_errors, _ = workflow_evidence(
-            fields.get("retro", ""), path, read_text, "Retro", ("Sources", "Findings"))
+            fields.get("retro", ""), path, read_text, "Retro", ("Sources", "Findings"), suffixed=True)
         errors.extend(evidence_errors)
     grilling = re.fullmatch(r"(interview|accepted):\s*(.+)", fields.get("grilling", ""), re.I)
     grilling_needed = (route == "build" and "grilling" not in cut) or (
@@ -372,8 +383,23 @@ def validate_workflow(text: str, path: Path, gate="entry", require_loads=True, r
             repeated["check"]))
     if exemption and exemption.group(1).lower() == "coordination":
         required.append("team-lead")
-    if route == "build" and phase in {"implement", "implementation", "remediate"} and not exemption and "implement" not in cut:
+    because = {}
+    started, earliest = (False, None) if receipt or route != "build" or "implement" in cut else implement_starts(
+        repeated["check"])
+    if earliest and exemption:
+        errors.extend(implement_exemption_order_errors(fields["implement"], *earliest))
+    if route == "build" and not exemption and "implement" not in cut and (phase in BUILD_IMPLEMENT_PHASES or started):
         required.extend(("implement", "tdd"))
+        if phase not in BUILD_IMPLEMENT_PHASES:
+            because = dict.fromkeys(("implement", "tdd"), f"The {earliest[0]:%Y-%m-%dT%H:%M:%SZ} start Check of "
+                                    f"{earliest[1]}" if earliest else "A 'Check: start' line of implement work")
+    if (route == "build" and phase in BUILD_IMPLEMENT_PHASES and not require_loads
+            and not receipt and not exemption and "implement" not in cut):
+        if fields.get("state"):
+            errors.extend(parent_implement_errors(fields, path, read_text, pool, body_digest))
+        else:
+            READ_NOTES.append("this implement brief names no State:, so no lead's ownership of the implement step was "
+                              "checked; a brief a lead dispatches names the lead's record as State:")
     if route == "debug" and phase in {"reproduce", "hypothesis", "diagnose", "fix"}:
         required.append("diagnosing-bugs")
     if route == "debug" and phase == "fix" and not exemption and "implement" not in cut:
@@ -381,9 +407,19 @@ def validate_workflow(text: str, path: Path, gate="entry", require_loads=True, r
     if route == "review" or (route in {"build", "debug"} and (phase == "review" or gate in {"review", "accept"})
                              and "review" not in cut):
         required.append("code-review")
+    loaded_bodies = {workflow_path(v.partition("|")[0].strip(), path).resolve()
+                     for v in repeated["loaded"] if v.partition("|")[0].strip()}
     for name in required:
-        if (pool / name / "SKILL.md").resolve() not in procedures:
-            errors.append(f"Phase '{phase}' needs {name} SKILL.md in Procedure/Loaded")
+        wanted = (pool / name / "SKILL.md").resolve()
+        if wanted in procedures:
+            continue
+        who = because.get(name, f"Phase '{phase}'")
+        if wanted in loaded_bodies:
+            errors.append(f"{who} needs {name} SKILL.md: the record has a Loaded line for {name} SKILL.md but no "
+                          f"'Procedure: {wanted}' line, and only a Procedure line selects a body")
+        else:
+            errors.append(f"{who} needs {name} SKILL.md: add 'Procedure: {wanted}' and a matching "
+                          f"'Loaded: {wanted} | <executor>: sha256:<digest> <read pointer> at:<UTC time>'")
     if require_loads:
         load_values = repeated["loaded"]
         checks = list(repeated["check"])
@@ -1070,6 +1106,268 @@ def route_decision_order_errors(value, inherited, checks):
     return errors
 
 
+def hidden_workflow_errors(body):
+    """Workflow-field lines under a later `## ` heading are outside the section the check reads, so they would count
+    for nothing without a word. Under Done means and Phase checklist, `- <claim>: <check>` and `- [x] <item>` are
+    their own grammar, so only an unlisted field line there is one the writer meant for the Workflow."""
+    errors, after = [], False
+    for heading, block in sections(visible(body), 2):
+        if heading.lower() == "workflow":
+            after = True
+            continue
+        if not after:
+            continue
+        listed_ok = heading.lower().startswith(("done means", "phase checklist"))
+        hidden = [line.strip() for line in block.splitlines()
+                  if (m := WORKFLOW_LINE_RE.match(line)) and m.group(1).lower() in WORKFLOW_FIELDS | WORKFLOW_REPEATED
+                  and not (listed_ok and line.lstrip().startswith("- "))]
+        if hidden:
+            errors.append(f"'## {heading}' hides {len(hidden)} Workflow line(s) from the check, the first "
+                          f"'{hidden[0][:60]}': keep every Workflow line above the next '## ' heading and put notes "
+                          "below them")
+    return errors
+
+
+def implement_starts(checks):
+    """(started, earliest): whether a passed `Check: start <implement phase>` exists, stamped or not, and the earliest
+    stamped one as (time, step). The requirement needs only the line; the order rules need its stamp."""
+    started = False
+    for value in checks:
+        parts = [p.strip() for p in value.split("|", 2)]
+        named = re.fullmatch(r"start[ \t]+(.+)", " ".join(parts[0].casefold().split()))
+        if named and strip_stamp(named.group(1)).strip() in BUILD_IMPLEMENT_PHASES and len(parts) == 3 and parts[1] == "passed":
+            started = True
+    stamped = [(when, step) for step, times in start_times(checks)[0].items() if step in BUILD_IMPLEMENT_PHASES
+               for when in times]
+    return started, min(stamped, default=None)
+
+
+def implement_exemption_order_errors(value, start, step):
+    """An Implement exemption covers a start Check of implement work only when it was recorded first."""
+    state, when = read_stamp(value)
+    if state == "bad":
+        return ["Implement has an at: stamp that is not an ISO-8601 UTC time (2026-10-17T10:00:00Z)"]
+    if state == "none":
+        READ_NOTES.append(f"the Implement exemption has no at: time, so whether it was recorded before the "
+                          f"{start:%Y-%m-%dT%H:%M:%SZ} start Check of {step} is unverified")
+    elif when > start:
+        return [f"Implement exemption is stamped {when:%Y-%m-%dT%H:%M:%SZ}, after the {start:%Y-%m-%dT%H:%M:%SZ} start "
+                f"Check of {step}: record it before the work starts, or record the implement and tdd reads"]
+    return []
+
+
+def parent_implement_errors(fields, record, read_text, pool, body_digest):
+    """Before implement work is dispatched, the lead's State holds its own implement and tdd reads or an exemption."""
+    if any(re.fullmatch(r"n/a:\s*(docs-only|coordination):\s*(.+)", v, re.I)
+           for v in inherited_workflow_lines(fields, record, read_text, "implement")):
+        return []
+    state = workflow_path(fields["state"].split("#", 1)[0], record)
+    leads = {v.strip().casefold() for v in inherited_workflow_lines(fields, record, read_text, "executor")}
+    read = set()
+    for value in inherited_workflow_lines(fields, record, read_text, "loaded"):
+        target, _, evidence = value.partition("|")
+        who, _, proof = evidence.partition(":")
+        digest = re.match(r"\s*sha256:([0-9a-f]{64})\s", proof, re.I)
+        if target.strip() and who.strip().casefold() in leads and digest:
+            body = workflow_path(target.strip(), state).resolve()
+            try:
+                if body_digest(body) == digest.group(1).lower():
+                    read.add(body)
+            except OSError:
+                continue
+    if {(pool / n / "SKILL.md").resolve() for n in ("implement", "tdd")} <= read:
+        return []
+    return [f"State {state} records neither its Executor's implement and tdd reads nor an 'Implement: n/a: "
+            "coordination: <what workers own>' line: record one in the lead's Workflow before dispatching implement work"]
+
+
+def stamp_check(path, value):
+    """Append `Check: <value> at:<now>` after the last nonblank line of the record's one `## Workflow` section, so the
+    time is the clock's, not a typed one. Returns the line written; raises ValueError and writes nothing otherwise."""
+    parts = [p.strip() for p in value.split("|", 2)]
+    if "\n" in value or "\r" in value:
+        raise ValueError("the value must be one line")
+    if len(parts) != 3 or parts[1] != "passed" or not workflow_value(parts[0]) or not workflow_value(parts[2]):
+        raise ValueError("stamp takes '<step or claim> | passed | <evidence>'; a gate that failed gets no passed Check")
+    if STAMP_RE.search(value):
+        raise ValueError("the value already has an at: time; stamp writes the real one")
+    path = path.resolve()
+    with open(path, encoding="utf-8", newline="") as f:
+        text = f.read()
+    lines = text.splitlines(keepends=True)
+    rows, unclosed, _ = scan_markdown(text)
+    if unclosed:
+        raise ValueError(UNCLOSED_MESSAGE.format(path))
+    heads = [i for i, row in enumerate(rows) if not row.fenced and re.match(r"^##\s", row.line)]
+    returns = [i for i in heads if re.match(r"^##\s+Return\b", rows[i].line)]
+    workflow = [i for i in heads if (not returns or i < returns[0]) and rows[i].line[2:].strip().lower() == "workflow"]
+    if len(workflow) != 1:
+        raise ValueError(f"needs exactly one '## Workflow' section before any '## Return', found {len(workflow)}")
+    end = next((i for i in heads if i > workflow[0]), len(lines))
+    last = max(i for i in range(workflow[0], end) if lines[i].strip())
+    line = f"Check: {value.strip()} at:{datetime.now(timezone.utc):%Y-%m-%dT%H:%M:%SZ}"
+    ending = "\r\n" if lines[0].endswith("\r\n") else "\n"
+    if not lines[last].endswith("\n"):
+        lines[last] += ending
+    lines.insert(last + 1, line + ending)
+    temp = path.with_name(f".{path.name}.stamp-{os.getpid()}")
+    try:
+        with open(temp, "w", encoding="utf-8", newline="") as f:
+            f.write("".join(lines))
+        os.chmod(temp, stat.S_IMODE(path.stat().st_mode))
+        os.replace(temp, path)
+    finally:
+        temp.unlink(missing_ok=True)
+    return line
+
+
+def log_time(value):
+    """A Claude Code log timestamp (`2026-10-31T21:25:10.917Z`, UTC) to the second, or None."""
+    try:
+        return datetime.strptime(str(value)[:19], "%Y-%m-%dT%H:%M:%S")
+    except ValueError:
+        return None
+
+
+def log_text(content):
+    if isinstance(content, str):
+        return content
+    return "\n".join(b.get("text", "") for b in content or [] if isinstance(b, dict) and isinstance(b.get("text"), str))
+
+
+def session_loads(log, bodies):
+    """({resolved body: [(time, how)]}, [compaction time], [(time, prompt text)]) from a Claude Code session log, for
+    its own agent. A load is a complete body load.
+    A Skill call counts when the harness injected the body under the skill's folder, a Read when its result covers
+    every line from the first, `validate_contracts.py read` when its printed footer names the body, and any other
+    shell output when it holds the whole current text of one of `bodies` ({path: text}). Events of a subagent
+    (`isSidechain`) are that subagent's, not the agent's."""
+    rows = []
+    for line in log.splitlines():
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(row, dict) and not row.get("isSidechain"):
+            rows.append(row)
+    uses = {}
+    for row in rows:
+        if row.get("type") == "assistant":
+            for block in (row.get("message") or {}).get("content") or []:
+                if isinstance(block, dict) and block.get("type") == "tool_use":
+                    uses[block.get("id")] = (log_time(row.get("timestamp")), block.get("name"))
+    if not uses:
+        raise ValueError("the log records no tool calls, so it is not a Claude Code session log (.jsonl)")
+    loads, compactions, prompts = {}, [], []
+    for row in rows:
+        if row.get("type") == "system" and row.get("subtype") == "compact_boundary":
+            compactions.append(log_time(row.get("timestamp")))
+        if row.get("type") != "user":
+            continue
+        content = (row.get("message") or {}).get("content")
+        if not row.get("isMeta") and not row.get("isCompactSummary") and (isinstance(content, str) or (
+                isinstance(content, list) and all(isinstance(b, dict) and b.get("type") == "text" for b in content))):
+            prompts.append((log_time(row.get("timestamp")), log_text(content), row.get("cwd") or "."))
+        use = uses.get(row.get("sourceToolUseID"))
+        if row.get("isMeta") and use and use[1] == "Skill":
+            folder = re.match(r"Base directory for this skill: (.+)", log_text(content))
+            if folder:
+                loads.setdefault((Path(folder.group(1).strip()) / "SKILL.md").resolve(), []).append((use[0], "Skill"))
+        for block in content if isinstance(content, list) else []:
+            if not isinstance(block, dict) or block.get("type") != "tool_result" or block.get("is_error"):
+                continue
+            use = uses.get(block.get("tool_use_id"))
+            if not use:
+                continue
+            result = row.get("toolUseResult")
+            file = result.get("file") if use[1] == "Read" and isinstance(result, dict) else None
+            if (isinstance(file, dict) and file.get("filePath") and file.get("startLine") == 1
+                    and file.get("numLines") == file.get("totalLines")):
+                loads.setdefault(Path(file["filePath"]).resolve(), []).append((use[0], "Read"))
+            elif use[1] == "Bash":
+                output = log_text(block.get("content"))
+                for target, digest in re.findall(r"-- end of body (.+?) \| sha256:([0-9a-f]{64}) bytes:[0-9]+ --", output):
+                    body = Path(target).resolve()
+                    if body in bodies and digest == hashlib.sha256(bodies[body].encode("utf-8")).hexdigest():
+                        loads.setdefault(body, []).append((use[0], "the read command"))
+                for body, whole in bodies.items():
+                    if whole.strip() and whole.strip() in output:
+                        loads.setdefault(body, []).append((use[0], "shell output"))
+    return loads, [c for c in compactions if c], [p for p in prompts if p[0]]
+
+
+def names_brief(prompt, cwd, brief):
+    """Whether `prompt` names the file `brief` (resolved), by an absolute path or one relative to `cwd`."""
+    for token in re.findall(rf"(?<![\w./~-])([\w./~-]*{re.escape(brief.name)})(?![\w-])", prompt):
+        path = Path(token).expanduser()
+        if (path if path.is_absolute() else Path(cwd) / path).resolve() == brief:
+            return True
+    return False
+
+
+def load_proof(text, record, log):
+    """(errors, proofs). The log must be the session that received the brief: a prompt there names the brief's file.
+    Each body the brief selects must be loaded completely in it after the last compaction before the first start
+    Check and before that Check, so the body was in context when the work began; and no `Loaded:` line of the latest
+    return may claim a time before that load."""
+    selected = sorted(workflow_procedure_paths(text, record))
+    if not selected:
+        return ["the brief selects no body (no Procedure: line), so there is nothing to prove"], []
+    bodies = {}
+    for body in selected:
+        try:
+            bodies[body] = regular_text(body)
+        except (OSError, UnicodeError):
+            continue
+    loads, compactions, prompts = session_loads(log, bodies)
+    _, portion = split_returns(text)[-1]
+    claims = {}
+    for value in re.findall(r"(?mi)^\s*(?:- )?Loaded:\s*(.+)$", workflow_text(portion)):
+        claims.setdefault(workflow_path(value.partition("|")[0].strip(), record).resolve(), []).append(value)
+    starts = start_times(re.findall(r"(?mi)^\s*(?:- )?Check:\s*(.+)$", workflow_text(text)))[0]
+    work = min((when for times in starts.values() for when in times), default=None)
+    if not work:
+        return ["the brief has no stamped start Check ('Check: start <step> | passed | ... at:<UTC>'), so the time "
+                "the work began, which every load must precede, is unknown"], []
+    brief = Path(record).resolve()
+    if not any(when <= work and names_brief(prompt, cwd, brief) for when, prompt, cwd in prompts):
+        return [f"this log never received {brief.name}: no prompt in it names the brief before the work began, so it "
+                "is not the worker's session"], []
+    cutoff = max((c for c in compactions if c <= work), default=None)
+    errors, proofs = [], []
+    for body in selected:
+        events = sorted(event for event in loads.get(body, []) if event[0])
+        if not events:
+            errors.append(f"{body}: the session log records no complete load of it (a Skill call, a Read of every "
+                          "line, `validate_contracts.py read`, or shell output holding the whole body)")
+            continue
+        held = [event for event in events if (not cutoff or event[0] >= cutoff) and event[0] <= work]
+        if not held:
+            before = [event for event in events if event[0] <= work]
+            if before:
+                errors.append(f"{body}: its last load before the work, {before[-1][0]:%Y-%m-%dT%H:%M:%SZ}, came before "
+                              f"the {cutoff:%Y-%m-%dT%H:%M:%SZ} compaction, so it was out of context when the work began")
+            else:
+                errors.append(f"{body}: first loaded {events[0][0]:%Y-%m-%dT%H:%M:%SZ} by {events[0][1]}, after the "
+                              f"{work:%Y-%m-%dT%H:%M:%SZ} start Check: the read came after the work began")
+            continue
+        first = events[0][0]
+        claim_errors = []
+        for value in claims.get(body, []):
+            stamp = STAMP_RE.search(value.partition("|")[2])
+            state, when = read_stamp(value.partition("|")[2])
+            if state != "ok":
+                claim_errors.append(f"{body}: its Loaded line has no readable at: time, so it cannot be held to the "
+                                    "log")
+            elif when < (first.replace(second=0) if stamp.group(1).count(":") == 1 else first):
+                claim_errors.append(f"{body}: its Loaded line claims at:{stamp.group(1)}, before the log's first load "
+                                    f"at {first:%Y-%m-%dT%H:%M:%SZ}: the stamp was not taken from the read")
+        errors += claim_errors
+        if not claim_errors:
+            proofs.append(f"proven: {body} by {held[0][1]} at {held[0][0]:%Y-%m-%dT%H:%M:%SZ}")
+    return errors, proofs
+
+
 def read_identity(target, record):
     """The body a `Loaded:` path names: the path resolved from the record's folder, as the load check resolves it."""
     path = workflow_path(target, record)
@@ -1349,7 +1647,8 @@ def workflow_path(value, record):
     return target if target.is_absolute() else record.parent / target
 
 
-def workflow_evidence(value, record, read_text, label, headings):
+def workflow_evidence(value, record, read_text, label, headings, suffixed=False):
+    """`suffixed` also accepts a heading that continues after a space or punctuation (`## Findings, most severe first`)."""
     pin = re.fullmatch(r"sha256:([0-9a-f]{64})\s*\|\s*(.+)", value, re.I)
     if not pin:
         return "", [f"{label} needs 'sha256:<digest> | <existing evidence artifact>'"], ""
@@ -1363,9 +1662,11 @@ def workflow_evidence(value, record, read_text, label, headings):
         errors.append(f"{label} evidence changed; reconcile it before proceeding")
     body = visible(text)
     for name in headings:
-        blocks = [b for h, b in sections(body, 2) if h.lower() == name.lower()]
+        blocks = [b for h, b in sections(body, 2) if h.lower() == name.lower()
+                  or (suffixed and re.match(re.escape(name.lower()) + r"\W", h.lower()))]
         if len(blocks) != 1 or not workflow_value(blocks[0].strip()):
             errors.append(f"{label} evidence needs one nonempty '## {name}' section"
+                          + (" (the heading may go on after a space or punctuation)" if suffixed else "")
                           + (placeholder_note(blocks[0].strip()) if len(blocks) == 1 else ""))
     return body, errors, text
 
@@ -1543,7 +1844,9 @@ def validate_brief(text: str, name: str):
             errors.append(f"missing frontmatter '{field}'; {hints[field]}")
     task = fields.get("task", "")
     if task and not re.match(r"^[0-9]+$", task):
-        errors.append(f"bad task id '{task}'; use a plain number like '7'")
+        correction = re.fullmatch(r"([0-9]+)\.[0-9]+", task)
+        errors.append(f"bad task id '{task}': for a correction, keep 'task: {correction.group(1)}' and add "
+                      f"'attempt: {task}'" if correction else f"bad task id '{task}'; use a plain number like '7'")
     attempt = fields.get("attempt", "")
     if attempt:
         m = re.match(r"^([0-9]+)\.([0-9]+)$", attempt)
@@ -1847,9 +2150,39 @@ def main(argv) -> int:
                                                 "line, checkbox ticks ignored")
     p_pin.add_argument("path", type=Path)
 
+    p_stamp = sub.add_parser("stamp", help="append 'Check: <value> at:<now, UTC>' as the last line of the Workflow section")
+    p_stamp.add_argument("path", type=Path)
+    p_stamp.add_argument("value", help="'<step or claim> | passed | <evidence>', without an at: time")
+
+    p_proof = sub.add_parser("loads-proof", help="check the bodies a brief selects against the worker's Claude Code "
+                                                 "session log")
+    p_proof.add_argument("path", type=Path)
+    p_proof.add_argument("--log", type=Path, required=True, help="the worker's session log (.jsonl), located by the lead")
+
     sub.add_parser("selfcheck", help="run the validator against its fixtures")
 
     args = parser.parse_args(argv)
+
+    if args.cmd == "loads-proof":
+        try:
+            errors, proofs = load_proof(regular_text(args.path), args.path, regular_text(args.log.expanduser()))
+        except (OSError, UnicodeError, ValueError) as e:
+            print(f"error: {e}", file=sys.stderr)
+            return 2
+        for proof in proofs:
+            print(proof)
+        for e in errors:
+            print(f"error: {args.path}: {e}", file=sys.stderr)
+        return 1 if errors else 0
+
+    if args.cmd == "stamp":
+        try:
+            line = stamp_check(args.path, args.value)
+        except (OSError, UnicodeError, ValueError) as e:
+            print(f"error: {args.path}: {e}", file=sys.stderr)
+            return 1
+        print(line)
+        return 0
 
     if args.cmd == "design-digest":
         try:
