@@ -2557,5 +2557,73 @@ class RunCheckTests(unittest.TestCase):
         self.assertEqual(list(self.repo.rglob("__pycache__")), [])
 
 
+class RunSymlinkCheckTests(unittest.TestCase):
+    setUp = RunRecordTests.setUp
+    git = RunRecordTests.git
+    run_command = RunRecordTests.run_command
+    run_ok = RunRecordTests.run_ok
+    check_run = RunCheckTests.check_run
+
+    def test_named_symlinks_disclose_target_scope_and_direct_target_edits_are_stale(self):
+        for kind in ("external", "tracked", "directory"):
+            with self.subTest(kind=kind):
+                target = self.root / (kind + "-target")
+                target.write_text("original")
+                if kind == "external":
+                    link = self.root / "external-link"
+                    selected = link
+                elif kind == "tracked":
+                    link = self.repo / "tracked-link"
+                    selected = link
+                else:
+                    selected = self.repo / "ignored-directory"
+                    selected.mkdir()
+                    link = selected / "nested-link"
+                link.symlink_to(target)
+                if kind == "tracked":
+                    self.git("add", "tracked-link")
+                    self.git("commit", "-qm", "tracked link")
+                path, _ = self.run_ok(paths=[selected], name=kind + ".json")
+                target.write_text("changed")
+                result = self.check_run(path)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertTrue(any(line.startswith("note:") and str(link) in line and
+                                    "target contents are not checked" in line and "--path" in line
+                                    for line in result.stdout.splitlines()), result.stdout)
+                direct, _ = self.run_ok(paths=[target], name=kind + "-direct.json")
+                target.write_text("changed again")
+                result = self.check_run(direct)
+                self.assertEqual(result.returncode, 1, result.stderr)
+                self.assertTrue(any(line.startswith("stale:") and str(target) in line
+                                    for line in result.stdout.splitlines()), result.stdout)
+
+    def test_named_fifo_device_and_credential_looking_symlink_targets_are_not_opened(self):
+        fifo = self.root / "pipe"
+        os.mkfifo(fifo)
+        credential = self.root / "credentials.json"
+        credential.write_text("synthetic unreadable contents")
+        credential.chmod(0)
+        try:
+            for index, target in enumerate((fifo, Path("/dev/zero"), credential)):
+                with self.subTest(target=str(target)):
+                    link = self.repo / ("ignored-link-" + str(index))
+                    link.symlink_to(target)
+                    record = self.root / ("hazard-" + str(index) + ".json")
+                    result = subprocess.run(
+                        [sys.executable, "-B", str(SCRIPT), "run", "--out", str(record),
+                         "--path", str(link), "--", sys.executable, "-c", "pass"],
+                        cwd=self.repo, capture_output=True, text=True, timeout=10)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    result = subprocess.run(
+                        [sys.executable, "-B", str(SCRIPT), "run", "--check", str(record)],
+                        cwd=self.repo, capture_output=True, text=True, timeout=10)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertTrue(any(line.startswith("note:") and str(link) in line and
+                                        "target contents are not checked" in line and "--path" in line
+                                        for line in result.stdout.splitlines()), result.stdout)
+        finally:
+            credential.chmod(0o600)
+
+
 if __name__ == "__main__":
     unittest.main()

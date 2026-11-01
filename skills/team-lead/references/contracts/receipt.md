@@ -98,6 +98,10 @@ external inputs are otherwise outside scope. Submodule worktrees are not
 inspected, and collection is not atomic. Claims must state any additional
 limit in what the command checked; the default input limits are in the record.
 
+Every symlink, tracked or explicitly named, is measured by its link text.
+Its target's contents are not opened. This also applies to links inside a
+named directory. Name the target directly with `--path` to measure its contents.
+
 `--out`, `<out>.stdout` and `<out>.stderr` must lie outside the measured scope.
 An ignored output location inside the repository is allowed when it is not
 tracked or explicitly included. Every output is reserved by exclusive create
@@ -195,7 +199,10 @@ after snapshot.
 
 Named external inputs and ignored inputs (including children of a named
 directory) are remeasured. A `note:` names each such input and states that
-only its named raw bytes are checked, without vouching for its dependencies.
+file bytes or symlink link text are checked, without vouching for dependencies.
+Each named symlink gets its own `note:`, including links inside a named
+directory. The note names the link, says its target contents are not checked,
+and explains that naming the target directly with `--path` covers its contents.
 Unreadable inputs are refused. An unnamed ignored input remains outside the
 record's scope and does not change this result.
 
@@ -203,6 +210,15 @@ record's scope and does not change this result.
 tests the claim, authenticate execution, inspect submodule worktrees, or
 detect an edit reverted between collections. Collection remains non-atomic.
 The command's outcome and the enclosing claim still need their own checks.
+
+On a case-insensitive volume, a case-only tracked rename can leave the
+measured identity unchanged and return `ok`, even when case-sensitive imports
+or build rules behave differently. Exact directory-entry spelling is not
+proved. A probe on a normalization-insensitive volume with Git
+`core.precomposeunicode=true` and `core.ignorecase=true` also returned `ok`
+after an NFC-to-NFD-only tracked rename: the entry spelling changed while the
+original spelling still opened the same file. Unicode-normalization spelling
+is likewise outside this proof; other filesystem or Git settings can differ.
 
 A record is editable JSON, not an authenticated attestation. Internal agreement
 does not prove who ran the command, that its input scope contains every relevant

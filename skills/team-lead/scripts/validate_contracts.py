@@ -1962,7 +1962,20 @@ def stream_record(path):
             "tail": tail.decode("utf-8", errors="replace")}
 
 
-def run_output_scope(tool, repo, outputs, paths):
+def run_ignore_checker(tool, repo):
+    env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+
+    def ignored(path):
+        result = subprocess.run(["git", "-C", str(repo), *tool.SAFE, "check-ignore", "-q", "--", str(path)],
+                                capture_output=True, env=env, input=b"")
+        if result.returncode not in (0, 1):
+            raise ValueError(result.stderr.decode(errors="replace").strip())
+        return result.returncode == 0
+
+    return ignored
+
+
+def run_output_scope(tool, repo, outputs, paths, ignored):
     for path in outputs:
         resolved = path.resolve()
         if any(resolved == selected.resolve() or
@@ -1973,10 +1986,7 @@ def run_output_scope(tool, repo, outputs, paths):
             name = str(resolved.relative_to(repo))
             if name == ".git" or name.startswith(".git/") or tool.names(repo, "ls-files", "-z", "--", name):
                 raise ValueError(f"output must lie outside measured scope: {path}")
-            env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
-            ignored = subprocess.run(["git", "-C", str(repo), *tool.SAFE, "check-ignore", "-q", "--", name],
-                                     capture_output=True, env=env, input=b"")
-            if ignored.returncode != 0:
+            if not ignored(name):
                 raise ValueError(f"output must lie outside measured scope: {path}")
 
 
@@ -1991,10 +2001,11 @@ def execute_run(args):
         cwd = Path.cwd().resolve()
         repo = Path(os.fsdecode(tool.git(Path(args.repo or cwd).resolve(), "rev-parse", "--show-toplevel")).strip())
         paths = sorted({(repo / path).parent.resolve() / (repo / path).name for path in args.path})
+        ignored = run_ignore_checker(tool, repo)
         before = run_identity(tool, repo, paths)
         output = args.out.expanduser().parent.resolve() / args.out.name
         stdout, stderr = (output.with_name(output.name + suffix) for suffix in (".stdout", ".stderr"))
-        run_output_scope(tool, repo, (output, stdout, stderr), paths)
+        run_output_scope(tool, repo, (output, stdout, stderr), paths, ignored)
         for path in (output, stdout, stderr):
             reserved.append((path, path.open("xb")))
         started = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
@@ -2003,7 +2014,7 @@ def execute_run(args):
         for _, source in reserved:
             source.close()
         after = run_identity(tool, repo, paths)
-        run_output_scope(tool, repo, (output, stdout, stderr), paths)
+        run_output_scope(tool, repo, (output, stdout, stderr), paths, ignored)
         status = child.returncode
         record = {
             "schemaVersion": 1, "argv": argv, "repo": str(repo), "cwd": str(cwd),
@@ -2140,22 +2151,28 @@ def check_run_record(args):
             print(f"stale: repository differs from run record: {repo} != {record['repo']}")
             return 1
         paths = [Path(path) for path in record["scope"]["paths"]]
+        ignored = run_ignore_checker(tool, repo)
         for path in paths:
             if repo != path and repo not in path.parents:
-                print(f"note: external input {path}; only named raw bytes are checked, dependencies are not vouched for")
+                print(f"note: external input {path}; file bytes or symlink link text are checked, dependencies are not vouched for")
             else:
-                ignored = {repo / name for name in tool.names(
+                ignored_paths = {repo / name for name in tool.names(
                     repo, "ls-files", "--others", "--ignored", "--exclude-standard", "-z", "--", str(path))}
-                env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
-                selected = subprocess.run(["git", "-C", str(repo), *tool.SAFE, "check-ignore", "-q", "--", str(path)],
-                                          capture_output=True, env=env, input=b"")
-                if selected.returncode not in (0, 1):
-                    raise ValueError(selected.stderr.decode(errors="replace").strip())
-                if selected.returncode == 0:
-                    ignored.add(path)
-                for name in sorted(ignored):
-                    print(f"note: ignored input {name}; only named raw bytes are checked, dependencies are not vouched for")
+                if ignored(path):
+                    ignored_paths.add(path)
+                for name in sorted(ignored_paths):
+                    print(f"note: ignored input {name}; file bytes or symlink link text are checked, dependencies are not vouched for")
         current = run_identity(tool, repo, paths)
+        symlinks = set()
+        for name, identity in current["explicitFiles"].items():
+            if identity["kind"] == "symlink":
+                symlinks.add(name)
+            elif identity["kind"] == "directory":
+                symlinks.update(str(Path(name) / nested) for nested, value in identity["files"].items()
+                                if value["kind"] == "symlink")
+        for name in sorted(symlinks):
+            print(f"note: symlink input {name}; link text is checked, target contents are not checked; "
+                  "name the target directly with --path to check its contents")
         stale = False
         if any(current["head"] != record[key]["head"] for key in ("before", "after")):
             print("stale: HEAD differs from run record")
