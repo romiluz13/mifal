@@ -1,11 +1,13 @@
 """The five harnesses: where each one reads its rules today, and how the Guide reaches it."""
 from __future__ import annotations
 
+import errno
 import hashlib
 import os
 import re
 import shlex
 import shutil
+import stat
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -141,56 +143,90 @@ def reads_now(name, home: Path, env, root: Path | None = None):
 
 @dataclass
 class SkillFilters:
-    note: str
+    coverage: str
     warnings: list[tuple[str, str]] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
     unreadable: bool = False
 
 
-def skill_filters(name, home: Path, root: Path, pool: Path, skills, show=str) -> SkillFilters | None:
-    if name != "codex":
-        return None
-    config = root / "config.toml"
-    where = show(config)
-    schema = ("supports Codex 0.166.0 [[skills.config]] (path or name, enabled); "
-              "Codex version and session -c overrides: unknown")
-    result = SkillFilters(f"reads {where} skill keys only ({schema})")
+@dataclass(frozen=True)
+class SettingsFacts:
+    file: str
+    version: str
+    format: str
+    schema: str
+    parser: object
+
+
+@dataclass
+class SettingsRead:
+    text: str | None = None
+    failure: tuple[str, str] | None = None
+    unreadable: bool = False
+    missing: bool = False
+    invalid_utf8: bool = False
+
+
+CREDENTIAL_NAMES = frozenset(("auth", "auth.json", "token", "tokens.json", "credentials.json", ".credentials.json"))
+
+
+def read_settings(config: Path, facts: SettingsFacts, show=str) -> SettingsRead:
+    where, shape = show(config), facts.format
+    linked = False
+    regular = (f"{where} is not a regular {shape} file; exclusions unknown",
+               f"make {where} a regular {shape} file, then run mifal doctor again")
     try:
-        real = os.path.realpath(config)
-        if config.is_symlink():
-            Path(real).stat()
-        if config.exists() and not config.is_file():
-            result.unreadable = True
-            result.warnings.append((f"{where} is not a regular TOML file; exclusions unknown",
-                                    f"make {where} a regular TOML file, then run mifal doctor again"))
-            return result
-        if Path(real).name.lower() in ("auth", "auth.json", "token", "tokens.json", "credentials.json",
-                                      ".credentials.json", "settings.json", "opencode.json"):
-            result.warnings.append((f"{where} resolves to a credential, token or auth path; exclusions unknown",
-                                    f"point {where} at a regular TOML file for Codex settings; doctor never reads credential files"))
-            return result
-        if config.is_symlink() and not Path(real).name.endswith('.toml'):
-            result.unreadable = True
-            result.warnings.append((f"{where} does not point to a regular TOML file; exclusions unknown",
-                                    f"make {where} point to a regular TOML file, then run mifal doctor again"))
-            return result
-        table = cc.parse(cc.read(config)).get("skills", {})
+        linked = config.is_symlink()
+        target = config.resolve(strict=True)
+        # Python 3.9 resolve can leave the original link unresolved during an atomic swap.
+        if linked and target == config.absolute() or target.is_symlink():
+            return SettingsRead(failure=(f"{where} has a looping or changing link; exclusions unknown",
+                f"replace the looping or changing link at {where} with an existing regular {shape} file, then run mifal doctor again"), unreadable=True)
+        credential = target.name.lower() in CREDENTIAL_NAMES
+        wrong_shape = target.suffix.lower() != '.' + shape.lower()
+        if credential or wrong_shape:
+            if not stat.S_ISREG(target.stat().st_mode):
+                return SettingsRead(failure=regular, unreadable=True)
+            if credential:
+                return SettingsRead(failure=(f"{where} resolves to a credential, token or auth path; exclusions unknown",
+                    f"point {where} at a regular {shape} file for {facts.version} settings; doctor never reads credential files"))
+            return SettingsRead(failure=(f"{where} does not point to a regular {shape} file; exclusions unknown",
+                f"make {where} point to a regular {shape} file, then run mifal doctor again"), unreadable=True)
+        fd = os.open(target, os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW)
+        try:
+            if not stat.S_ISREG(os.fstat(fd).st_mode):
+                return SettingsRead(failure=regular, unreadable=True)
+            with os.fdopen(fd, 'rb', closefd=False) as stream:
+                text = stream.read().decode('utf-8')
+        finally:
+            os.close(fd)
+        return SettingsRead(text=text)
     except FileNotFoundError:
-        if not config.is_symlink():
-            result.note = f"no exclusion found in {where}; reads skill keys only ({schema})"
-            return result
-        result.unreadable = True
-        result.warnings.append((f"{where} points to a missing file; Codex 0.166.0 reads no settings from it; exclusions unknown",
-                                f"point {where} at an existing regular TOML file, then run mifal doctor again"))
-        return result
+        if not linked:
+            return SettingsRead(missing=True)
+        return SettingsRead(failure=(f"{where} points to a missing file; {facts.version} reads no settings from it",
+            f"point {where} at an existing regular {shape} file, then run mifal doctor again"), unreadable=True)
+    except RuntimeError:
+        return SettingsRead(failure=(f"{where} has a link loop; exclusions unknown",
+            f"replace the looping link at {where} with an existing regular {shape} file, then run mifal doctor again"), unreadable=True)
+    except UnicodeError:
+        return SettingsRead(failure=(f"{where} is not valid UTF-8 {shape}; exclusions unknown",
+            f"repair the {shape} in {where}, then run mifal doctor again"), invalid_utf8=True)
+    except OSError as error:
+        if error.errno == errno.ELOOP:
+            return SettingsRead(failure=(f"{where} has a link loop or changed to a link during the read; exclusions unknown",
+                f"replace the looping or changing link at {where} with an existing regular {shape} file, then run mifal doctor again"), unreadable=True)
+        return SettingsRead(failure=(f"{where} cannot be read; exclusions unknown",
+            f"restore read access to {where}, then run mifal doctor again"), unreadable=True)
+
+
+def _codex_filters(text, result, facts, home, root, pool, skills, show):
+    where = show(root / facts.file)
+    try:
+        table = cc.parse(text).get("skills", {})
     except cc.Invalid:
         result.warnings.append((f"{where} is not valid UTF-8 TOML; exclusions unknown",
                                 f"repair the TOML in {where}, then run mifal doctor again"))
-        return result
-    except OSError:
-        result.unreadable = True
-        result.warnings.append((f"{where} cannot be read; exclusions unknown",
-                                f"restore read access to {where}, then run mifal doctor again"))
         return result
     entries = table.get("config", []) if isinstance(table, dict) else None
     if not isinstance(entries, list) or any(
@@ -214,7 +250,16 @@ def skill_filters(name, home: Path, root: Path, pool: Path, skills, show=str) ->
                 continue
             if path == "~" or path.startswith("~/"):
                 path = home / path[2:].lstrip("/")
-            skill = documents.get(os.path.realpath(os.path.normpath(root / path)))
+            selector = root / path
+            skill = None
+            for document, candidate in documents.items():
+                try:
+                    matches = os.path.samefile(selector, document)
+                except OSError:
+                    matches = os.path.realpath(os.path.normpath(selector)) == document
+                if matches:
+                    skill = candidate
+                    break
         else:
             skill = entry["name"].strip()
         if skill in skills:
@@ -223,11 +268,34 @@ def skill_filters(name, home: Path, root: Path, pool: Path, skills, show=str) ->
             else:
                 disabled.add(skill)
     if not disabled:
-        result.note = f"no exclusion found in {where}; reads skill keys only ({schema})"
+        result.coverage = f"no exclusion found in {where}; reads skill keys only ({facts.schema})"
     for skill in sorted(disabled):
         result.warnings.append((f"{skill}: configured exclusion detected in {where} at [[skills.config]]",
                                 f"set enabled = true or remove the matching entry in {where}; restart Codex"))
     return result
+
+
+CODEX_SETTINGS = SettingsFacts("config.toml", "Codex 0.166.0", "TOML",
+    "supports Codex 0.166.0 [[skills.config]] (path or name, enabled); Codex version and session -c overrides: unknown",
+    _codex_filters)
+SETTINGS = {"codex": CODEX_SETTINGS}
+
+
+def skill_filters(name, home: Path, root: Path, pool: Path, skills, show=str) -> SkillFilters | None:
+    facts = SETTINGS.get(name)
+    if facts is None:
+        return None
+    config = root / facts.file
+    result = SkillFilters(f"reads {show(config)} skill keys only ({facts.schema})")
+    read = read_settings(config, facts, show)
+    if read.failure:
+        result.warnings.append(read.failure)
+        result.unreadable = read.unreadable
+        return result
+    if read.missing:
+        result.coverage = f"no exclusion found in {show(config)}; reads skill keys only ({facts.schema})"
+        return result
+    return facts.parser(read.text, result, facts, home, root, pool, skills, show)
 
 
 def _open_fence(text: str) -> bool:

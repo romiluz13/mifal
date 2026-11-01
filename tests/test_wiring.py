@@ -1,10 +1,13 @@
 import os
+import io
 import re
 import sys
+import subprocess
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
-from support import REPO, Sandbox, changed, snapshot
+from support import PYTHON, REPO, Sandbox, changed, snapshot
 from test_content import denied
 from test_lifecycle import normalized, planned_paths
 
@@ -487,13 +490,103 @@ class SkillFilters(Wiring):
             (root / "config.toml").write_text(text)
         return read(name, self.home, root, self.home / ".agents/skills", {"tdd", "team-lead"})
 
+    def test_codex_original_link_swap_reads_only_the_resolved_settings(self):
+        root = self.home / '.codex'
+        root.mkdir()
+        config = root / 'config.toml'
+        target = self.home / 'public.toml'
+        target.write_text('[[skills.config]]\nname = "tdd"\nenabled = false\n')
+        credential = self.home / 'auth.json'
+        credential.write_text('secret = "must-not-read"\n')
+        config.symlink_to(target)
+        opens = []
+        io_open, os_open = io.open, os.open
+
+        def swapped(opening, path, *args, **kwargs):
+            if not isinstance(path, int) and Path(path) in (config, target):
+                opens.append(Path(path))
+                if len(opens) == 1:
+                    config.unlink()
+                    config.symlink_to(credential)
+            return opening(path, *args, **kwargs)
+
+        with patch('io.open', side_effect=lambda p, *a, **k: swapped(io_open, p, *a, **k)), \
+                patch('os.open', side_effect=lambda p, *a, **k: swapped(os_open, p, *a, **k)):
+            result = self.audit()
+        self.assertIn('tdd: configured exclusion detected', repr(result.warnings))
+        self.assertEqual(opens, [target])
+        self.assertNotIn('must-not-read', repr(result))
+
+    def test_codex_selectors_match_case_aliases_by_file_identity(self):
+        document = self.home / '.agents/skills/tdd/SKILL.md'
+        document.parent.mkdir(parents=True)
+        document.write_text('a skill')
+        for relative in ('.agents/skills/TDD/SKILL.md', '.agents/skills/tdd/skill.md',
+                         '.AGENTS/skills/tdd/SKILL.md'):
+            with self.subTest(path=relative):
+                alias = self.home / relative
+                if not alias.exists():
+                    alias.parent.mkdir(parents=True, exist_ok=True)
+                    os.link(document, alias)
+                result = self.audit('[[skills.config]]\npath = "' + str(alias) + '"\nenabled = false\n')
+                self.assertIn('tdd: configured exclusion detected', repr(result.warnings))
+        document.unlink()
+        result = self.audit('[[skills.config]]\npath = "' + str(document) + '"\nenabled = false\n')
+        self.assertIn('tdd: configured exclusion detected', repr(result.warnings))
+
+    def test_codex_link_loop_uppercase_and_settings_names_have_fitting_diagnostics(self):
+        root = self.home / '.codex'
+        root.mkdir()
+        config = root / 'config.toml'
+        config.symlink_to(config)
+        result = self.audit()
+        self.assertIn('link loop', repr(result.warnings))
+        self.assertNotIn('restore read access', repr(result.warnings))
+        config.unlink()
+        target = self.home / 'settings.TOML'
+        target.write_text('[[skills.config]]\nname = "tdd"\nenabled = false\n')
+        config.symlink_to(target)
+        self.assertIn('tdd: configured exclusion detected', repr(self.audit().warnings))
+        for name in ('settings.json', 'opencode.json'):
+            config.unlink()
+            target = self.home / name
+            target.write_text('{}')
+            config.symlink_to(target)
+            result = self.audit()
+            self.assertIn('regular TOML file', repr(result.warnings))
+            self.assertNotIn('credential', repr(result.warnings))
+
+    def test_codex_fifo_swap_finishes_as_unknown_within_three_seconds(self):
+        code = '''
+import io, os, sys
+from pathlib import Path
+from unittest.mock import patch
+sys.path.insert(0, sys.argv[1])
+from mifal import harness
+home = Path(sys.argv[2]); root = home / '.codex'; root.mkdir()
+target = root / 'config.toml'; target.write_text('')
+io_open, os_open = io.open, os.open
+swapped = False
+def opening(original, path, *args, **kwargs):
+    global swapped
+    if not isinstance(path, int) and Path(path) == target and not swapped:
+        swapped = True; target.unlink(); os.mkfifo(target)
+    return original(path, *args, **kwargs)
+with patch('io.open', side_effect=lambda p, *a, **k: opening(io_open, p, *a, **k)), patch('os.open', side_effect=lambda p, *a, **k: opening(os_open, p, *a, **k)):
+    result = harness.skill_filters('codex', home, root, home / '.agents/skills', {'tdd'})
+assert result.unreadable and 'regular TOML file' in repr(result.warnings), repr(result)
+'''
+        result = subprocess.run([PYTHON, '-B', '-c', code, str(REPO / 'lib'), str(self.home)],
+                                capture_output=True, text=True, timeout=3)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_codex_setting_file_and_0166_schema_belong_to_each_recorded_root(self):
         moved = self.home / "codex-work"
         result = self.audit(root=moved)
-        self.assertIn(str(moved / "config.toml"), result.note)
-        self.assertIn("supports Codex 0.166.0 [[skills.config]] (path or name, enabled)", result.note)
-        self.assertIn("no exclusion found", result.note)
-        self.assertIn("Codex version and session -c overrides: unknown", result.note)
+        self.assertIn(str(moved / "config.toml"), result.coverage)
+        self.assertIn("supports Codex 0.166.0 [[skills.config]] (path or name, enabled)", result.coverage)
+        self.assertIn("no exclusion found", result.coverage)
+        self.assertIn("Codex version and session -c overrides: unknown", result.coverage)
         self.assertEqual(result.warnings, [])
 
     def test_codex_path_selects_the_skill_document_and_later_name_reenables_it(self):

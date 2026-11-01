@@ -209,7 +209,7 @@ def _skill_filters(r, name, audit, guide_config=False):
     if audit is None:
         return
     check = f"skill filters {name}"
-    r.out(f"note {check}: {audit.note}")
+    r.out(f"note {check}: {audit.coverage}")
     for note in audit.notes:
         r.out(f"note {check}: {note}")
     for detail, fix in audit.warnings:
@@ -241,9 +241,9 @@ def _elsewhere(r, h, data, shell):
 
 def _reads(home: Path, rules: Path) -> set:
     """The realpaths a rules file brings in: its link target, or each whole `@PATH` line outside a code fence."""
-    if rules.is_symlink():
-        return {os.path.realpath(rules)}
     try:
+        if rules.is_symlink():
+            return {os.path.realpath(rules)}
         text = rules.read_text(encoding="utf-8", errors="replace")
     except OSError:
         return set()
@@ -297,13 +297,18 @@ def _readers(r, h, data, shell):
 
 def _guide(r, name, rules: Path, root: Path, entry, guide_sha, h, env):
     show, check = h.show, f"guide {name}"
-    now = harness.reads_now(name, h.home, env, root)
+    try:
+        now = harness.reads_now(name, h.home, env, root)
+        text = rules.read_text(encoding="utf-8") if rules.is_file() else ""
+    except OSError:
+        r.line("WARN", check, f"{show(root)} cannot be read; Guide status unknown",
+               f"restore read access to {show(root)}, then run mifal doctor again")
+        return
     if now is not None and now != rules:
         w = harness.plan(name, h.home, env, root, show)
         r.line("FAIL", check, f"{harness.TITLES[name]} reads {show(now)}, not {show(rules)}",
                (w.skip or "").split(". ", 1)[-1] or REINSTALL)
         return
-    text = rules.read_text(encoding="utf-8") if rules.is_file() else ""
     found = harness.BLOCK.findall(text)
     if entry is None or [b for b in found if harness.digest(b) == entry["sha256"]] == []:
         r.line("FAIL", check, f"the Mifal block in {show(rules)} is missing or edited",
@@ -346,20 +351,20 @@ def _key(r, rec, entry, guide_sha, h):
                    "run mifal update to add it")
         return
     try:
-        now = state(config)
-        if now == mf.MISSING:
+        read = harness.read_settings(config, harness.CODEX_SETTINGS, show)
+        if read.missing:
             r.line("FAIL", check, f"{show(config)} is missing", f"restore it: {REINSTALL}")
             return
-        text = cc.read(config) if now[0] == "file" else None
-        if text is not None:
-            cc.parse(text)
+        if read.invalid_utf8:
+            raise cc.Invalid("invalid UTF-8")
+        if read.failure:
+            r.line("FAIL", check, f"cannot read {show(config)}; Guide is not delivered", read.failure[1])
+            return
+        text = read.text
+        cc.parse(text)
     except cc.Invalid:
         r.line("FAIL", check, f"{show(config)} is not UTF-8 TOML any more",
                f"fix it so Codex can read it, then {REINSTALL}")
-        return
-    except OSError:
-        r.line("FAIL", check, f"cannot read {show(config)}; Guide is not delivered",
-               f"restore read access to {show(config)}, then run mifal doctor again")
         return
     found = cc.split(text, entry["sha256"]) if text is not None and entry else None
     if found is None:

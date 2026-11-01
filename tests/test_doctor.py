@@ -408,7 +408,7 @@ class CodexSkillFilters(Doctor):
                 lines = self.filter_lines(result)
                 self.assertEqual(sum(line.startswith('WARN') for line in lines), warnings, result.stdout)
                 self.assertEqual('tdd: configured exclusion detected' in result.stdout, bool(warnings))
-                self.assertIn('open ' + str(config), log.read_text())
+                self.assertIn('open ' + str(target), log.read_text())
 
     def test_linked_config_to_credentials_is_unknown_without_reading_its_target(self):
         target = self.home / '.codex/auth.json'
@@ -452,8 +452,9 @@ class CodexSkillFilters(Doctor):
         result = self.run_cmd(PYTHON, '-B', '-I', self.clone / 'tests/helpers/audited_doctor.py', log,
                               self.home / '.agents/mifal/lib', config, check=False)
         self.filter_lines(result)
-        self.assertIn('points to a missing file; Codex 0.166.0 reads no settings from it; exclusions unknown',
+        self.assertIn('points to a missing file; Codex 0.166.0 reads no settings from it',
                       result.stdout)
+        self.assertNotIn('reads no settings from it; exclusions unknown', result.stdout)
         self.assertNotIn('open ' + str(config), log.read_text())
         self.assertRegex(result.stdout, r'Codex 0.166.0 reads no settings from it[^\n]*\n     fix: ')
 
@@ -535,6 +536,34 @@ class CodexSkillFilters(Doctor):
                       result.stdout)
         self.assertEqual(result.stdout.count('fix: restore read access to ~/codex-linked/config.toml'), 1,
                          result.stdout)
+
+    def test_mode_zero_codex_home_reports_unknown_with_fix_without_traceback(self):
+        root = self.home / '.codex'
+        root.chmod(0)
+        self.addCleanup(root.chmod, 0o700)
+        result = self.doctor()
+        self.assertNotIn('Traceback', result.stdout + result.stderr)
+        self.assertRegex(result.stdout, r'(?m)^(WARN|FAIL) guide codex: .*unknown[^\n]*\n     fix: ')
+
+    def test_linked_config_delivered_guide_passes_when_key_is_intact(self):
+        root = self.home / 'codex-key'
+        root.mkdir()
+        shared = self.home / 'shared.md'
+        shared.write_text('Personal rules\n')
+        (root / 'AGENTS.md').symlink_to(shared)
+        self.install('--home', 'codex=' + str(root))
+        config = root / 'config.toml'
+        target = self.home / 'key.toml'
+        config.rename(target)
+        config.symlink_to(target)
+        result = self.doctor()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("PASS guide codex: Mifal's developer_instructions key in ~/codex-key/config.toml, as installed",
+                      result.stdout)
+        target.write_bytes(b'\xff')
+        result = self.doctor()
+        self.assertNotIn('Traceback', result.stdout + result.stderr)
+        self.assertIn('FAIL guide codex: ~/codex-key/config.toml is not UTF-8 TOML any more', result.stdout)
 
 
 class AuditGuards(Doctor):
