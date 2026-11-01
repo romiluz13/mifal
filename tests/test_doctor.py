@@ -394,7 +394,7 @@ class CodexSkillFilters(Doctor):
         alias = self.home / 'pool-alias'
         alias.symlink_to(self.home / '.agents/skills')
         for path in ('../.agents/skills/tdd/SKILL.md', '~/.agents/skills/tdd/SKILL.md',
-                     str(alias / 'tdd/SKILL.md')):
+                     str(alias / 'tdd/SKILL.md'), str(alias / '../.agents/skills/tdd/SKILL.md')):
             self.config('[[skills.config]]\npath = "' + path + '"\nenabled = false\n')
             self.assertIn("tdd: configured exclusion detected", "\n".join(self.filter_lines(self.doctor())))
         self.config('[[skills.config]]\npath = "' + str(self.home / '.agents/skills/tdd') +

@@ -247,7 +247,7 @@ def _codex_skill_filters(r, h, root, skills):
             path = entry["path"]
             if path == "~" or path.startswith("~/"):
                 path = h.home / path[2:].lstrip("/")
-            skill = documents.get(os.path.realpath(root / path))
+            skill = documents.get(os.path.realpath(os.path.normpath(root / path)))
         else:
             skill = entry["name"].strip()
         if skill in skills:
