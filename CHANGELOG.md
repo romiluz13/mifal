@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.3.1
+
+**The validator holds implement work to the lead's own record and a worker's skill loads to its session log; ten vendored skills move to their upstream heads, and the interface guidance to Impeccable 4.8.0.**
+
+The method and the validator
+- Implement dispatch needs the lead's record. `brief --matt` on a build brief at implement, implementation or remediate reads the lead's `State:` and refuses it unless that record has an `Implement: n/a:` line or its Executor's implement and tdd reads at the current digest. A standalone brief with no `State:` passes with a note. A passed `Check: start implement`, stamped or not, now requires implement and tdd whatever the Phase says. An exemption stamped after that Check is refused, and an unstamped one gets a note.
+- `validate_contracts.py loads-proof BRIEF --log SESSION.jsonl` holds a Claude Code worker's `Loaded:` lines to its own session log. Every body the brief selects must be loaded completely in that session: by a Skill call, a Read of every line, the `read` command for the current digest, or shell output holding the whole body. The load must come after the last compaction before the first start Check, and no later than that Check. A `Loaded:` time earlier than the logged load is refused, and the log must have received the brief by path before the work began. The lead locates the log. A worker that can write files could also write a log, so this raises the cost of a false claim rather than authenticating one. Other harnesses have no adapter yet.
+- `validate_contracts.py stamp PATH VALUE` appends a passed `Check:` with the clock's UTC time.
+- Workflow field lines under a later `## ` heading are refused at the gates (a note at receipt). Before, they counted for nothing without a word.
+- Retro evidence accepts `## Findings` and `## Sources` headings followed by more text. A missing phase body says whether its Procedure or its Loaded line is missing. An attempt id in `task:` points to the `attempt:` field. Team-lead says how a correction keeps its task id.
+
+Skills
+- From upstream, with Mifal's changes kept:
+  - code-review, codebase-design, grilling, implement-spec, improve-codebase-architecture, research and wayfinder: start every sub-agent with a fresh context window.
+  - setup-matt-pocock-skills: a tracker needs a reachable repo, and issues are filed only into the user's own.
+  - agent-browser: drops the `npx` allowance.
+  - herdr: the 0.9.4 text.
+- frontend-design's interface guidance is re-adapted from Impeccable 4.8.0. Ambition scales with the surface's purpose, and every reachable interactive state is driven and checked for overlap and clipping.
+
+**After updating, reload changed skills.** A skill whose text changed has a new sha256, so a live record whose `Loaded:` line pins the old body fails its next gate until the agent reloads that body and adds a new `Loaded:` line. Update between tasks, not while a team is mid-gate.
+
 Mifal 0.3.0 carries the 0.2.4 notes, because 0.2.4 was never tagged or published, plus the work done since. The public release before this one is 0.2.3. macOS only; alpha.
 
 ## 0.3.0 (unreleased)
