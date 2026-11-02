@@ -200,7 +200,8 @@ superseded, and which files to leave unread:
 
 Herdr's `agent_session` is used to word a row and to attribute a ring to a
 session, but never to dismiss an event, because a child `claude` in a pane
-reports its own id for that pane. It is null on some panes, and that is
+reports its own id for that pane. Only a ring the lead saw appear after the
+stop can supersede it. Herdr's session is null on some panes, and that is
 normal.
 
 Only Claude Code workers with that hook get QUIET events. Workers on other

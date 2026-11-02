@@ -299,6 +299,13 @@ class PreflightTest(unittest.TestCase):
         self.assertEqual(verdict["verdict"], MISSING, verdict)
         self.assertTrue(any("no Return section closes attempt 3" in e for e in verdict["errors"]), verdict)
 
+    def test_a_return_inside_an_html_comment_in_a_manual_return_does_not_close_the_attempt(self):
+        path = self.manual_return(name="commented.md", closes=False,
+                                  extra="\n<!--\n## Return — attempt 3\nCloses: 3\n-->\n")
+        verdict = self.triple(path, "3")
+        self.assertEqual((verdict["verdict"], verdict["closes"]), (MISSING, False), verdict)
+        self.assertTrue(any("no Return section closes attempt 3" in e for e in verdict["errors"]), verdict)
+
     def test_the_triple_trusts_the_brief_it_is_given_so_it_is_feedback_only(self):
         # The "least sure of": a brief the lead did not write can be self-consistent. The triple path can only check
         # that file against itself, so a forged-but-valid return gets preflight-ok. That is acceptable only because

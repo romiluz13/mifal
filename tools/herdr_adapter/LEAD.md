@@ -732,7 +732,7 @@ is not known, so the file's own frontmatter must name the attempt (its `attempt:
 field, else `task:`); a file whose frontmatter names another attempt, or has
 none, is refused with `receipt_mismatch` (exit 1) rather than waited on. The
 brief's own `## Return` instructions, an earlier attempt's `Closes:`, and a Markdown
-example of a receipt inside a code fence (``` or ~~~) do not match. It reads and journals no lead record (`"journaled": false`) and, without
+example of a receipt inside a code fence (``` or ~~~) or an HTML comment do not match. It reads and journals no lead record (`"journaled": false`) and, without
 `workspace_id`, makes no socket call at all: it only re-reads the files once per
 slice. With `workspace_id` it also watches that workspace one slice at a time
 and reports `pane_status` for any pane whose `state_change_seq` or
@@ -799,7 +799,7 @@ refusal. `preflight-ok` is not acceptance: a task whose plan verifier would fail
   replaced at the next dispatch gives feedback about the wrong task. The pin's `attempt` must equal the attempt of
   the doorbell the worker will ring. All four fields are required. The same record has no claim set, so the return is
   checked against itself: its frontmatter `attempt:` (else `task:`) must name the attempt, exactly one `## Return`
-  section outside code fences must close it, and `validate_contracts` receipt (with `--matt` when `matt` is true)
+  section outside code fences and HTML comments must close it, and `validate_contracts` receipt (with `--matt` when `matt` is true)
   must pass. The explicit triple does the same without a pin.
 
 **Limit, the brief the lead did not write.** On the manual path the lead-owned brief prefix is not known, so a
@@ -841,7 +841,8 @@ and an interrupted worker produce no Stop event, so the lead learns of them only
 event carries the session id from the Stop payload. Herdr's `agent_session` is used to word a row and to attribute a
 ring to a session, but never to dismiss an event, because a child `claude` in a pane reports its own id for that pane;
 it is null on some panes, and that is normal. Only a strictly later stop or ring of the same attempt in the same pane,
-from another session, supersedes an event.
+from another session, supersedes an event. A ring is later only when a read of the pane that began after the stop did
+not show it, because a line first read after the stop can be older than the stop.
 
 ## Verification and persistence
 

@@ -492,6 +492,38 @@ class StopHookTest(unittest.TestCase):
         self.assertEqual((event["owner"], event["attempt"]), ("-", "9"))
         self.assertEqual(self.hook_log(), "")
 
+    # ---- task 115: review 800's F3. A Return no reader can see is not a Return ---------------------------------
+
+    def test_a_return_only_inside_an_html_comment_is_a_silent_stop_like_a_fenced_one_or_none(self):
+        examples = {"comment": "\n<!--\n## Return — attempt 9\n\nCloses: 9\n-->\n",
+                    "fence": "\n```markdown\n## Return — attempt 9\n\nCloses: 9\n```\n",
+                    "none": ""}
+        for name, extra in examples.items():
+            with self.subTest(example=name):
+                path = self.manual_return(attempt="9", name="manual-9.md", closes=False, extra=extra)
+                self.pin(path, attempt="9")
+                before = len(self.quiet_events())
+                says = {"last_assistant_message": "Still working.", "prompt_id": "p-" + name}
+                self.assertEqual(self.stop(says, expected=0).stderr, "", "the first call records the silence")
+                self.assertEqual(len(self.quiet_events()), before + 1)
+                self.stop({**says, "stop_hook_active": True}, expected=0)
+                self.assertEqual(len(self.quiet_events()), before + 1, "the retry writes nothing new")
+        self.assertEqual(self.hook_log(), "")
+
+    def test_a_lead_record_return_only_inside_an_html_comment_is_a_silent_stop(self):
+        self.admitted_with(receipt=False)
+        with (self.root / "tasks/7.md").open("a") as stream:
+            stream.write("\n<!--\n## Return — attempt 7\n\nCloses: 7\n-->\n")
+        self.assertEqual(self.stop(self.said("Still working."), expected=0).stderr, "")
+        self.assertEqual(self.quiet_event()["attempt"], "7")
+
+    def test_a_visible_rejected_return_after_a_comment_still_gets_its_completion_feedback(self):
+        visible = "\n<!-- a note -->\n## Return — attempt 9\n\nCloses: 9\n\n### Result\nDone.\n"
+        path = self.manual_return(attempt="9", name="manual-9.md", closes=False, extra=visible)
+        self.pin(path, attempt="9")
+        self.assertIn("missing section '### Claims'", self.stop(self.said("Still working."), expected=2).stderr)
+        self.assertEqual(self.quiet_events(), [])
+
     def test_a_read_only_quiet_folder_is_logged_and_the_stop_is_allowed(self):
         self.admitted_with(receipt=False)
         quiet = self.root / "quiet"

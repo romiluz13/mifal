@@ -3645,6 +3645,42 @@ class LeadTest(unittest.TestCase):
         self.rerender()
         self.assertTrue(self.rows_by_event()[same.name].startswith("QUIET 7: alpha stopped without a report"))
 
+    # Task 115: review 800's F1. A ring is first read some time after it was typed, so its sighting proves no order.
+
+    def parent_rang_then_stopped(self, reported):
+        """The parent rings, then its turn ends silently; the lead first reads that older line while Herdr reports
+        `reported` for the pane. Nothing else rings."""
+        self.init()
+        self.live_session("parent")
+        self.turn()
+        self.ring("HELP 7 which greeting")
+        parent = self.quiet(session="parent", prompt="p")
+        self.live_session(reported)
+        self.assertEqual(self.turn()["action"], "answer-help")
+        self.rerender()
+        return parent, self.rows_by_event()[parent.name]
+
+    def assert_attended_next(self, event):
+        attended = self.turn()
+        self.assertEqual((attended["action"], attended["event"], "stale" in attended),
+                         ("attend-quiet", "quiet/" + event.name, False))
+
+    def test_an_old_parent_ring_first_read_under_a_child_session_leaves_the_parents_quiet_actionable(self):
+        parent, row = self.parent_rang_then_stopped("child")
+        self.assertTrue(row.startswith("QUIET 7: alpha's session parent stopped without a report"), row)
+        self.assertNotIn("superseded", row)
+        self.assert_attended_next(parent)
+
+    def test_an_old_ring_first_read_under_the_same_session_leaves_the_quiet_actionable(self):
+        parent, row = self.parent_rang_then_stopped("parent")
+        self.assertTrue(row.startswith("QUIET 7: alpha stopped without a report"), row)
+        self.assert_attended_next(parent)
+
+    def test_an_old_ring_first_read_with_no_reported_session_leaves_the_quiet_actionable(self):
+        parent, row = self.parent_rang_then_stopped(None)
+        self.assertTrue(row.startswith("QUIET 7: alpha stopped without a report"), row)
+        self.assert_attended_next(parent)
+
     def attended_then_returned(self, content):
         self.init()
         self.turn()
