@@ -175,6 +175,15 @@ class StopHookTest(unittest.TestCase):
         self.assertIn("2 background task(s) are still running", result.stderr)
         self.stop(payload={"background_tasks": [{"id": "b1"}], "stop_hook_active": True}, expected=0)
 
+    def test_a_string_or_object_background_tasks_is_not_counted_as_running_tasks_on_a_completion(self):
+        self.admitted_with()
+        for value in ("running", {"b1": "running", "b2": "running"}):
+            with self.subTest(background_tasks=value):
+                result = self.stop(payload={"background_tasks": value}, expected=0)
+                self.assertNotIn("still running", result.stderr)
+        result = self.stop(payload={"background_tasks": [{"id": "b1", "status": "completed"}]}, expected=2)
+        self.assertIn("1 background task(s) are still running", result.stderr)
+
     def test_the_hook_runs_no_plan_verifier_and_writes_only_its_own_log(self):
         (self.project / "verdict").write_text("hang")
         self.init([self.verifier_task(timeout=0.5)])

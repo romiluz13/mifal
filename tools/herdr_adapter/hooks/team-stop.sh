@@ -33,7 +33,7 @@
 # Mapping for a claimed completion, preflight verdict -> hook exit. The validator's own exit status is never
 # forwarded: it exits 1 for an invalid receipt, and a hook exit of 1 is a non-blocking error, so forwarding it would
 # pass every invalid receipt.
-#   preflight-ok      -> exit 0   (exit 2 once only when the Stop payload lists background_tasks still running)
+#   preflight-ok      -> exit 0   (exit 2 once only when the Stop payload's background_tasks is a non-empty list)
 #   missing           -> exit 2   the precise errors on stderr; the worker sees them and may fix its return
 #   cannot-evaluate   -> exit 0   one line in <record-root>/stop-hook.log; the worker is not told
 #   anything else     -> exit 0   (crash, no JSON, missing interpreter or script, unknown verdict) logged the same way
@@ -66,7 +66,7 @@ word = re.match(r"[A-Za-z]+", re.sub(r"^[\s`*_>#-]+", "", msg))
 done = re.findall(r"(?m)^[\s`*_>#-]*DONE[ \t]+([0-9]+(?:\.[0-9]+)*)[.,:;!]*(?![\w.])", msg)
 tasks = d.get("background_tasks")
 print("active" if d.get("stop_hook_active") is True else "inactive",
-      len(tasks) if isinstance(tasks, (list, str, dict)) else 0,
+      len(tasks) if isinstance(tasks, list) else 0,
       word.group(0) if word else "-", ",".join(dict.fromkeys(done)) or "-")' 2>/dev/null)" ||
   { log "cannot-evaluate: unreadable Stop payload"; exit 0; }
 set -- $flags
