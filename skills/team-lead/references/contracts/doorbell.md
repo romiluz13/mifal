@@ -47,8 +47,9 @@ No member rings `QUIET`. The team Stop hook writes one immutable event file
 when an admitted Claude Code worker's turn ends with no `DONE` line, no
 Return closing its attempt, and no `HELP`, `HELD` or `STOPPED`. The event's
 JSON holds the owner, pane, attempt, session, reason and waiting state.
-`QUIET <attempt> <event-path>` is how a lead names that event. A `QUIET`
-line typed in a pane is not a ring, and it is never delivery evidence.
+`QUIET <attempt> <event-path>` is how a lead names that event; its progress
+log keeps the attempt and the path as separate fields. A `QUIET` line typed
+in a pane is not a ring, and it is never delivery evidence.
 
 - **It moves nothing.** `QUIET` never closes or fails a task, grants a
   retry or lifts a hold. It asks the lead to look at the pane and get a
@@ -61,11 +62,22 @@ line typed in a pane is not a ring, and it is never delivery evidence.
 - **Attendance is logged, then counted.** The lead's progress log entry
   naming the event is its consumption. Until that entry is durable, the
   event is still pending. Attending, retrying or resuming again writes
-  nothing more. The lead never edits or deletes an event file.
+  nothing more. An attended event stays on the attention surface for one
+  further turn, marked attended, because a turn killed before its reply
+  loses the only other "look at its pane". The lead never edits or deletes
+  an event file.
 - **Stale events move nothing.** An event whose attempt is not the task's
   active attempt, whose task is no longer in flight, whose owner no longer
-  owns the task, or whose session an even newer stop in the same pane
-  replaced is shown as stale.
+  owns the task, whose pane is not the owner's, or whose session is not the
+  one Herdr reports in that pane is shown as stale. Where Herdr reports no
+  session, which is normal, an event is superseded only by a later stop of
+  the same attempt in the same pane from another session, so each pane
+  keeps one actionable row.
+- **The folder is untrusted.** Only names of the form `<64 hex digits>.json`
+  are read; others are counted in one row. An event must hold exactly the
+  hook's fields, `reason` exactly `no report`, and bounded ids. Anything
+  else, unreadable files included, is a named row that echoes none of its
+  text, and a human may move such a file out of `quiet/`.
 - **Coverage.** Only Claude Code workers with the team Stop hook produce
   events. Other harnesses stay on the manual quiet-worker check, and a
   Stop event never claims a worker exited.
