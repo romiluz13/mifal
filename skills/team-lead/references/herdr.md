@@ -191,10 +191,11 @@ report: one file in `<record>/quiet/`. Attend to it last, after any ring,
 assignment or review that is due: look at the pane and ask for `DONE`, `HELP`
 or `HELD`. Under `lead.py` it is a row in `state.md`'s Lead attention needed,
 and the turn that attends to it writes the `attend-quiet` entry that consumes
-it. Without `lead.py`, list `quiet/` when you wake; your progress log entry
-naming the event is what consumes it. QUIET closes, fails, retries and
-unholds nothing. Which events are stale or superseded, and which files to
-leave unread:
+it. Without `lead.py`, list `quiet/` when you wake; an event from an
+assignment pin carries owner `-`, so match it to its task by pane and
+attempt, and your progress log entry naming the event is what consumes it.
+QUIET closes, fails, retries and unholds nothing. Which events are stale or
+superseded, and which files to leave unread:
 [doorbell contract](contracts/doorbell.md#quiet-is-attention-only).
 
 Herdr's `agent_session` is used to word a row and to attribute a ring to a
