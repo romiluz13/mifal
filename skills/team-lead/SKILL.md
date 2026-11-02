@@ -250,7 +250,10 @@ its own return section say `7.2`, so a late `DONE 7` can't close it.
 Don't message a working teammate. Wait with a named limit. When quiet runs
 long, read a small window: progressing (extend once), thrashing or lost the
 thread (stop, re-brief from the record), or a service failure (the
-environment, not the teammate). If the next cycle would repeat the same
+environment, not the teammate). On Herdr, a Claude Code worker with the team
+Stop hook also leaves a QUIET event when a turn ends with no report; attend to
+it last ([quiet teammates](references/herdr.md#quiet-teammates)). Other
+workers stay on this manual check. If the next cycle would repeat the same
 attempt without new evidence, redirect or name the unblock condition.
 
 **Record:** the diagnosis and the one action you took.
@@ -283,7 +286,8 @@ on verified evidence under existing authority. When a hold lifts:
 
 ### M5. A report comes in
 
-**When:** the doorbell rings, or a teammate settles after a task.
+**When:** the doorbell rings, a teammate settles after a task, or CI or a
+reviewer reports on the team's pull request.
 
 Read the declared receipt surface: the return file, existing journal, or
 structured native return named in the brief. A completion signal alone is
@@ -299,12 +303,21 @@ affected behavior with the selected procedures; investigate omissions and
 request a missing check or an evidenced equivalent. A read declaration is
 not proof of application, and a late read cannot repair earlier timing.
 
-Separate findings, hypotheses, and observed results. Reuse passed checks
-while their inputs hold; get an independent check where being wrong matters
-([re-review](references/communication.md#review-and-disagreement)).
-If the revision moved during review, re-check the evidence it affects.
-Accept parallel work on the combined revision, not per branch
-([integration](references/communication.md#parallel-agents-in-one-repository)).
+Separate findings, hypotheses, and observed results. Reuse passed checks while
+their inputs hold. A claim citing a `run:` record is historical: in the
+checkout you accept, `validate_contracts.py run --check <record>` printing
+`ok: candidate matches run record <record>` is the evidence that the reused
+run covers the final revision (a `notes:` count on that line names inputs it
+did not fully check), and a `stale:` line holds acceptance until a new run, or
+until the claim is restated as historical
+([checking the current candidate](references/contracts/receipt.md#checking-the-current-candidate)).
+Get an independent check where being wrong matters
+([re-review](references/communication.md#review-and-disagreement)). If the
+revision moved during review, re-check the evidence it affects. Accept
+parallel work on the combined revision, not per branch
+([integration](references/communication.md#parallel-agents-in-one-repository));
+once it is a pull request, read its CI failures and review comments
+[after the PR](references/communication.md#after-the-pr).
 A code/doc disagreement is a question, not permission to pick one;
 simplicity isn't a reason to ignore a demonstrated defect. Then decide:
 

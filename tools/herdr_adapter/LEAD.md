@@ -575,6 +575,15 @@ stopping the durable index. It holds, in order:
   6. a queued dependent held by an `accepted-bounded` predecessor: `dependent N
      held by accepted-bounded predecessor M; a human decides`. The hold stays;
      this row only makes sure it cannot sit silent;
+  7. QUIET events in `<record-root>/quiet/` (`team-lead/references/contracts/doorbell.md`,
+     "QUIET is attention only"): an actionable row, `QUIET <attempt>: ...`, says to
+     look at its pane and ask for DONE, HELP or HELD, and names both sessions when
+     Herdr reports a different one; an attended row stays for one more turn after
+     the lead's `attend-quiet` progress entry, in case that turn's reply was lost;
+     a stale or superseded row moves nothing and needs no action; a malformed,
+     misnamed or unreadable file, or a `quiet/` that cannot be listed, is a row
+     that echoes none of its text. A lead turn attends to one event, actionable
+     first, only when nothing else is due, and that `attend-quiet` entry consumes it;
 - **Outcomes**, one row per task: owner, scope (the outcome line), source
   identity (`git_base` plus digests named in the receipt's Claims), reviewed
   and installed identity, next permitted action (it says to dispatch exactly
@@ -815,16 +824,24 @@ For a claimed completion it runs the preflight and maps the verdict, never forwa
 | `missing` | 2 | the error list on stderr |
 | `cannot-evaluate`, a crash, no JSON, a missing interpreter or script, an unknown verdict | 0 | nothing; one line in `<record-root>/stop-hook.log` |
 
-The hook never exits 1 (a non-blocking error), never runs a plan verifier, and writes only `stop-hook.log`. Use an
-absolute interpreter in `TEAM_STOP_PYTHON`, not a version-manager shim; without it the hook uses `/usr/bin/python3`.
+The hook never exits 1 (a non-blocking error), never runs a plan verifier, and writes only `stop-hook.log` and QUIET
+events: a stop of an admitted worker that reports nothing writes one immutable QUIET event in `<record-root>/quiet/`
+and still exits 0 (conditions in the hook's header; attention row 7 shows it). Use an absolute interpreter in
+`TEAM_STOP_PYTHON`, not a version-manager shim; without it the hook uses `/usr/bin/python3`.
 
-**What a Stop hook cannot do, observed on Claude Code 2.1.301:** a project Stop hook
-loads under a custom `CLAUDE_CONFIG_DIR`; exit 2 blocks the stop once and the model is shown stderr;
-`stop_hook_active` is true on the next Stop; a missing hook script fails with exit 127 and the session still
-finishes. Not verified natively: `/clear`, Esc and interrupt, interactive sessions, hook timeouts, and
-`team-stop.sh` itself. A cleared or replaced session in the same pane, a worker that never stops, and an
-interrupted worker produce no Stop event, so the lead learns of them only through attention row 4 or 5.
-Session binding through Herdr `agent_session` is deferred: it is not shown to be populated.
+**What a Stop hook cannot do, observed on Claude Code 2.1.301:** a project Stop hook loads under a custom
+`CLAUDE_CONFIG_DIR`; exit 2 blocks the stop once and the model is shown stderr; `stop_hook_active` is true on the next
+Stop; a missing hook script fails with exit 127 and the session still finishes. Not verified natively: `/clear`, Esc
+and interrupt, hook timeouts, and `team-stop.sh` itself. The Stop payloads were captured natively on Claude Code
+2.1.316 with a capture-only hook, in `claude -p` sessions (kept in `tests/fixtures/stop-*.json`, paths anonymized) and
+in one interactive session in a Herdr pane, whose payload had the same fields; a blocked stop's retry carried
+`stop_hook_active: true`. `team-stop.sh` is tested only by replaying those payloads and synthetic ones in its unit
+tests, never as the hook of a live session. A cleared or replaced session in the same pane, a worker that never stops,
+and an interrupted worker produce no Stop event, so the lead learns of them only through attention row 4 or 5. An
+event carries the session id from the Stop payload. Herdr's `agent_session` is used to word a row and to attribute a
+ring to a session, but never to dismiss an event, because a child `claude` in a pane reports its own id for that pane;
+it is null on some panes, and that is normal. Only a strictly later stop or ring of the same attempt in the same pane,
+from another session, supersedes an event.
 
 ## Verification and persistence
 

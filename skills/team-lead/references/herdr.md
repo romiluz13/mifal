@@ -46,9 +46,10 @@ name, give them short, stable ones with `herdr agent rename <pane> <name>`,
 and note it in `agreement.md`. Name your own pane too, so workers can reach
 you.
 
-A new `agent_session` value in a known pane means a new session with none of
-the old context. Re-brief it from the record. Don't assume it remembers
-anything.
+A new `agent_session` value in a known pane may be a replaced worker, with
+none of the old context, or a child `claude` running in that pane, which
+reports its own id. Look at the pane before you re-brief: re-brief a replaced
+worker from the record, and don't assume it remembers anything.
 
 ## The attention loop
 
@@ -182,6 +183,30 @@ hasn't changed. Accept work only after checking its evidence.
 Never approve a dialog just to keep things moving.
 
 ## Quiet teammates
+
+A Claude Code worker with the team Stop hook (a per-project copy of
+`~/.agents/mifal/tools/herdr_adapter/hooks/team-stop.sh`), admitted through
+`lead.py` or an assignment pin, leaves a QUIET event when a turn ends with no
+report: one file in `<record>/quiet/`. Attend to it last, after any ring,
+assignment or review that is due: look at the pane and ask for `DONE`, `HELP`
+or `HELD`. Under `lead.py` it is a row in `state.md`'s Lead attention needed,
+and the turn that attends to it writes the `attend-quiet` entry that consumes
+it. Without `lead.py`, list `quiet/` when you wake; an event from an
+assignment pin carries owner `-`, so match it to its task by pane and
+attempt, and your progress log entry naming the event is what consumes it.
+QUIET closes, fails, retries and unholds nothing. Which events are stale or
+superseded, and which files to leave unread:
+[doorbell contract](contracts/doorbell.md#quiet-is-attention-only).
+
+Herdr's `agent_session` is used to word a row and to attribute a ring to a
+session, but never to dismiss an event, because a child `claude` in a pane
+reports its own id for that pane. It is null on some panes, and that is
+normal.
+
+Only Claude Code workers with that hook get QUIET events. Workers on other
+agents stay on the manual check below, as does anything a Stop event cannot
+see: a cleared or replaced session, a worker that never stops, or one that
+exited.
 
 A teammate that's still `working` past the time you expected, or is in
 `unknown`, isn't evidence of anything yet. Read a small window, then work out
