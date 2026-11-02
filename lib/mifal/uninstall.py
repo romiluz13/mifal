@@ -1,6 +1,7 @@
-"""Reverse an install from its Manifest, keeping anything the user changed since."""
+"""Reverse an install, keeping changed paths and user entries whose backups have already returned."""
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from . import codex_config as cc
@@ -8,7 +9,7 @@ from . import harness
 from .herdr import removal_hint
 from .install import moved_folders
 from .journal import Fs
-from .manifest import Home, diverted, expected, linked_skill_folders, read_rules, state, write_text
+from .manifest import Home, diverted, expected, homes, linked_skill_folders, read_rules, state, write_text
 
 
 def _depth_first(entries):
@@ -35,6 +36,29 @@ def uninstall(h: Home, data: dict, fs: Fs) -> int:
     for link in sorted(links):
         kept.append(f"kept {h.show(link)}: it is a link now, so Mifal leaves it and what it leads to alone")
 
+    backups = [(Path(e["path"]), Path(e["backup"])) for e in entries if e["kind"] == "backup"]
+
+    def under(path, original):
+        physical = Path(os.path.realpath(path.parent)) / path.name
+        base = Path(os.path.realpath(original.parent)) / original.name
+        return path == original or original in path.parents or physical == base or base in physical.parents
+
+    def restored(path):
+        return any(under(path, original) and not fs.exists(saved)
+                   for original, saved in backups)
+
+    active = []
+    for e in entries:
+        path = Path(e["path"])
+        if e["kind"] not in ("backup", "saved") and restored(path):
+            if fs.exists(path):
+                kept.append(f"kept {h.show(path)}: its backup is gone; it may already be restored")
+        else:
+            active.append(e)
+    entries = active
+    claude_skills = {Path(os.path.realpath(Path(r["root"]) / "skills"))
+                     for name, r in homes(data) if name == "claude"}
+
     for e in entries:
         if e["kind"] == "block":
             _remove_block(h, e, fs, kept)
@@ -47,12 +71,21 @@ def uninstall(h: Home, data: dict, fs: Fs) -> int:
         path = Path(e["path"])
         now = fs.state(path)
         if now == expected(e):
+            if (e["kind"] == "symlink" and Path(os.path.realpath(path.parent)) in claude_skills
+                    and not any(under(path, original) for original, _ in backups)):
+                user_skill = next((original for original, saved in backups
+                                   if original.parent == h.pool
+                                   and (saved if fs.exists(saved) else original).is_dir()
+                                   and os.path.realpath(path) == os.path.realpath(original)), None)
+                if user_skill is not None:
+                    kept.append(f"kept {h.show(path)}: links to {h.show(user_skill)}, restored as your skill")
+                    continue
             fs.remove(path, f"remove {h.show(path)}")
         elif fs.exists(path):
             kept.append(f"kept {h.show(path)}: changed since install")
 
     dirs = [Path(e["path"]) for e in _depth_first(entries) if e["kind"] == "dir"]
-    _remove_empty(h, dirs, fs)
+    _remove_empty(h, [path for path in dirs if not restored(path)], fs)
 
     for e in entries:
         if e["kind"] == "backup":
@@ -69,7 +102,7 @@ def uninstall(h: Home, data: dict, fs: Fs) -> int:
             kept.append(f"kept {h.show(e['path'])}: your edited copy of {h.show(e['original'])}")
 
     fs.remove(h.manifest, f"remove {h.show(h.manifest)}")
-    _remove_empty(h, dirs, fs)
+    _remove_empty(h, [path for path in dirs if not restored(path)], fs)
     for line in kept:
         fs.out(line)
     hint = removal_hint(data.get("dependencies", {}).get("herdr"), h.show)

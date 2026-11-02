@@ -18,7 +18,7 @@ After a pull:
 
 1. Resolve any conflict markers. Keep Mifal's scrubs: `tests/test_content.py` fails on a personal string coming back.
 2. `/bin/bash maint/rebuild-inventory.sh`, so the team lead's skill inventory matches the new skills. Run it only after a change under `skills/`; on its own it only moves the inventory's timestamp.
-3. `/bin/bash tests/run.sh -q`, then the full `/bin/bash tests/run.sh` before a release.
+3. `/bin/bash tests/run.sh -q`, then the full `MIFAL_RELEASE_REHEARSAL=1 /bin/bash tests/run.sh` before a release.
 4. Review the diff as any change, commit, release.
 
 `status` also lists skills that sit next to a vendored one upstream but are not shipped, so a new upstream skill is seen. Taking one in is a decision, not a sync: copy the folder, add its record to `provenance.json` (`"repo"`, `"upstream"`, `"commit"`, `"tree"`, `"modified"`), and add it to `SHIPPED` in `tests/test_content.py`.

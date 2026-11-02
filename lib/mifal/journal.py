@@ -1,8 +1,9 @@
 """Run an install's steps under a journal, and roll back a failed or interrupted one.
 
 The Manifest is the journal: it is written with state "installing", listing every step, before the first
-backup or write, and replaced by the complete Manifest last. Every step is undone only when its effect is
-still exactly what the step left, so a path changed since is kept and reported.
+backup or write, and replaced by the complete Manifest last. A write is undone only when its effect still
+matches and any planned displacement has a backup. Changed paths and paths whose displacement may not
+have run are kept and reported.
 """
 from __future__ import annotations
 
@@ -186,6 +187,8 @@ def rollback(h, journal: dict, fs: Fs) -> None:
             path = Path(op["path"])
             if any((path == original or original in path.parents) and not fs.exists(saved)
                    for original, saved in displaced):
+                if fs.exists(path):
+                    fs.out(f"kept {h.show(path)}: its planned displacement has no backup; it may not have run")
                 continue
         _undo(h, op, fs, through)
     if journal["previous"] is None:

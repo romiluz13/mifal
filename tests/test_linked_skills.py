@@ -2,12 +2,68 @@
 links there, keeps the person's link and folder, and uninstall removes only Mifal's links."""
 
 import os
+import shutil
 import unittest
 
-from support import Sandbox, snapshot
+from support import REPO, Sandbox, snapshot
 from test_update import Update
 
 NOTE = "~/.claude-alt/skills is a link to ~/.claude/skills; Mifal writes there"
+
+
+@unittest.skipUnless(os.environ.get("MIFAL_RELEASE_REHEARSAL") == "1",
+                     "historical link upgrades require MIFAL_RELEASE_REHEARSAL=1")
+class HistoricalLinks(Sandbox):
+    def git(self, repo, *args):
+        return self.run_cmd("/usr/bin/git", "-C", repo, "-c", "user.name=t",
+                            "-c", "user.email=t@example.com", *args,
+                            GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL="/dev/null").stdout.strip()
+
+    def test_old_user_and_mifal_links_keep_pointing_to_the_restored_user_skill(self):
+        for tag in ("v0.3.0", "v0.3.1"):
+            for original_link in (True, False):
+                with self.subTest(tag=tag, original_link=original_link):
+                    self.setUp()
+                    origin, old, candidate = self.root / "origin.git", self.root / "old", self.root / "candidate"
+                    self.git(REPO, "clone", "-q", "--bare", "--no-hardlinks", REPO, origin)
+                    start = self.git(origin, "rev-parse", tag + "^{commit}")
+                    self.git(origin, "symbolic-ref", "HEAD", "refs/heads/main")
+                    self.git(self.root, "clone", "-q", origin, candidate)
+                    self.git(candidate, "checkout", "-q", "-B", "main", self.git(REPO, "rev-parse", "HEAD"))
+                    shutil.copytree(self.clone, candidate, dirs_exist_ok=True)
+                    self.git(candidate, "add", "-A")
+                    self.git(candidate, "commit", "-q", "--allow-empty", "-m", "candidate working tree")
+                    target = self.git(candidate, "rev-parse", "HEAD")
+                    self.git(candidate, "push", "-q", "origin", "HEAD:main")
+                    version = (candidate / "VERSION").read_text().strip()
+                    self.git(origin, "update-ref", "refs/tags/v" + version, target)
+                    self.git(self.root, "clone", "-q", origin, old)
+                    self.git(old, "checkout", "-q", "-B", "main", start)
+                    self.git(old, "branch", "-q", "--set-upstream-to=origin/main", "main")
+                    skill = self.their_grilling()
+                    link = self.home / ".claude/skills/grilling"
+                    link.parent.mkdir(parents=True)
+                    if original_link:
+                        link.symlink_to(skill.parent)
+                    before = snapshot(self.home)
+                    self.run_cmd("/bin/bash", old / "install.sh", "--harness", "claude")
+                    self.assertFalse(any(e["kind"] == "backup" and e["path"] == str(link)
+                                         for e in self.manifest()["entries"]))
+                    self.mifal("update", "--yes")
+                    self.assertEqual(self.manifest()["source"]["revision"], target)
+                    preview_state = snapshot(self.home)
+                    preview = self.mifal("uninstall", "--dry-run")
+                    self.assertEqual(snapshot(self.home), preview_state)
+                    result = self.mifal("uninstall")
+                    self.assertTrue(link.is_symlink(), result.stdout)
+                    self.assertEqual(os.readlink(link), str(skill.parent))
+                    self.assertIn("kept ~/.claude/skills/grilling", preview.stdout)
+                    self.assertIn("kept ~/.claude/skills/grilling", result.stdout)
+                    expected = dict(before, **{".claude/skills/grilling": "link:" + str(skill.parent)})
+                    self.assertEqual(snapshot(self.home), expected)
+                    print("PASS historical link kept", tag, "user link" if original_link else "Mifal link")
+                    print(next(line for line in result.stdout.splitlines()
+                               if line.startswith("kept ~/.claude/skills/grilling")))
 
 
 class G2(Sandbox):

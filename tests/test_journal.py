@@ -210,6 +210,18 @@ class DisplacedPaths(Sandbox):
         self.assertFalse(os.path.lexists(link))
         self.assertEqual(snapshot(self.home), before)
 
+    def test_recovery_names_kept_links_whose_planned_displacement_never_ran(self):
+        flags = self.seed()
+        before = snapshot(self.home)
+        result = self.install(*flags, check=False, MIFAL_TEST_FAIL_AT="after-backup:exit")
+        self.assertEqual(result.returncode, 70, result.stdout + result.stderr)
+        recovery = self.clone_mifal("uninstall")
+        self.assertEqual(snapshot(self.home), before)
+        for root in (".claude", ".claude-second"):
+            for name in ("grilling", "tdd"):
+                self.assertIn(f"kept ~/{root}/skills/{name}: its planned displacement has no backup",
+                              recovery.stdout)
+
     @unittest.skipUnless(os.environ.get("MIFAL_RELEASE_REHEARSAL") == "1",
                          "historical journal recovery requires MIFAL_RELEASE_REHEARSAL=1")
     def test_an_unfinished_v031_journal_recovers_without_new_fields(self):
@@ -223,7 +235,7 @@ class DisplacedPaths(Sandbox):
                 tag = self.run_cmd("/usr/bin/git", "-C", old, "rev-parse", "-q", "--verify", "v0.3.1",
                                    check=False)
                 if tag.returncode:
-                    self.skipTest("local historical tag v0.3.1 is unavailable")
+                    self.fail("required local historical tag v0.3.1 is unavailable")
                 self.run_cmd("/usr/bin/git", "-C", old, "checkout", "-q", "v0.3.1")
                 result = self.run_cmd("/bin/bash", old / "install.sh", *flags,
                                       check=False, MIFAL_TEST_FAIL_AT=point + ":exit")

@@ -1,3 +1,4 @@
+import json
 import os
 import re
 import shutil
@@ -108,6 +109,74 @@ class Uninstall(Sandbox):
         shutil.rmtree(self.clone)
         self.mifal("uninstall")
         self.assertEqual(snapshot(self.home), before)
+
+
+class InterruptedUninstall(Sandbox):
+    def setUp(self):
+        super().setUp()
+        journal = self.clone / "lib/mifal/journal.py"
+        text = journal.read_text()
+        hook = '''
+_uninstall_count = [0]
+def _uninstall_kill(line):
+    log = os.environ.get("MIFAL_UNINSTALL_LOG")
+    if log:
+        with open(log, "a") as out:
+            out.write(__import__("json").dumps([_uninstall_count[0], line]) + "\\n")
+    if os.environ.get("MIFAL_UNINSTALL_KILL") == str(_uninstall_count[0]):
+        os._exit(71)
+    _uninstall_count[0] += 1
+'''
+        text = text.replace('FAIL_AT = "MIFAL_TEST_FAIL_AT"\n', 'FAIL_AT = "MIFAL_TEST_FAIL_AT"\n' + hook, 1)
+        for signature in ("    def remove(self, path: Path, line=None):\n",
+                          "    def move(self, src: Path, dst: Path, line):\n",
+                          "    def mkdir(self, path: Path, line):\n"):
+            self.assertEqual(text.count(signature), 1)
+            text = text.replace(signature, signature + '        if not self.dry_run:\n            _uninstall_kill(line)\n', 1)
+        journal.write_text(text)
+
+    def seed_links(self, shared=False):
+        roots = (self.home / ".claude", self.home / ".claude-second")
+        for name in ("grilling", "tdd"):
+            skill = self.home / ".agents/skills" / name
+            skill.mkdir(parents=True)
+            (skill / "SKILL.md").write_bytes((self.clone / "skills" / name / "SKILL.md").read_bytes())
+            for root in roots[:1] if shared else roots:
+                (root / "skills").mkdir(parents=True, exist_ok=True)
+                (root / "skills" / name).symlink_to(skill)
+        if shared:
+            roots[1].mkdir()
+            (roots[1] / "skills").symlink_to("../.claude/skills")
+        return [word for root in roots for word in ("--home", f"claude={root}")]
+
+    def test_every_restore_operation_and_manifest_removal_can_be_interrupted_and_rerun(self):
+        self.check_interrupts(False)
+
+    def test_shared_skills_folder_survives_every_restore_and_manifest_interrupt(self):
+        self.check_interrupts(True)
+
+    def check_interrupts(self, shared):
+        flags = self.seed_links(shared)
+        self.install(*flags)
+        log = self.root / "operations.jsonl"
+        self.mifal("uninstall", MIFAL_UNINSTALL_LOG=str(log))
+        operations = [json.loads(line) for line in log.read_text().splitlines()]
+        first = next(index for index, line in operations if line.startswith("restore "))
+        last = next(index for index, line in operations if line == "remove ~/.agents/mifal/install-manifest.json")
+        points = list(range(first, last + 1))
+        self.assertGreater(len(points), 4)
+        print("uninstall restore-to-Manifest kill points:", points)
+        for point in points:
+            with self.subTest(point=point):
+                self.setUp()
+                flags = self.seed_links(shared)
+                before = snapshot(self.home)
+                self.install(*flags)
+                killed = self.mifal("uninstall", check=False, MIFAL_UNINSTALL_KILL=str(point))
+                self.assertEqual(killed.returncode, 71, killed.stdout + killed.stderr)
+                rerun = self.clone_mifal("uninstall")
+                self.assertEqual(snapshot(self.home), before, rerun.stdout + rerun.stderr)
+                print("PASS uninstall rerun kill point", point)
 
 
 class EditProtection(Sandbox):

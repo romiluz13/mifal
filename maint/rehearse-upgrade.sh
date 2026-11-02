@@ -86,12 +86,18 @@ if [ -d "$repo" ] && [ -n "$(git -C "$repo" status --porcelain)" ]; then
   echo "NOTE candidate uses committed HEAD; dirty worktree edits are excluded"
 fi
 git clone -q --bare --no-hardlinks "$repo" "$home/origin.git"
-start="$(git -C "$home/origin.git" rev-parse -q --verify "refs/tags/$from^{commit}")" || \
-  fail "GAP $from: no local release tag; the promised path was not rehearsed"
-for older in v0.1.0 v0.1.1; do
-  git -C "$home/origin.git" rev-parse -q --verify "refs/tags/$older^{commit}" >/dev/null || \
-    echo "GAP $older: no local release tag; its branch-following upgrade promise remains unrehearsed"
-done
+if ! start="$(git -C "$home/origin.git" rev-parse -q --verify "refs/tags/$from^{commit}")"; then
+  case "$from" in
+    v0.1.0) version_commit=f71698a19a33a1dd53a0e7e6eb9c134f06accbce ;;
+    v0.1.1) version_commit=74cd732ffcda213b1ccc1a7358a3291a5d526460 ;;
+    *) fail "GAP $from: no local release tag; the promised path was not rehearsed" ;;
+  esac
+  start="$(git -C "$home/origin.git" rev-parse -q --verify "$version_commit^{commit}")" || \
+    fail "GAP $from: no local release tag or version commit $version_commit"
+  [ "$(git -C "$home/origin.git" show "$start:VERSION")" = "${from#v}" ] || \
+    fail "GAP $from: version commit $start does not hold VERSION ${from#v}"
+  echo "NOTE $from: using version commit $start because its release tag is absent"
+fi
 for required in install.sh bin/mifal lib/mifal_cli.py; do
   git -C "$home/origin.git" cat-file -e "$start:$required" || \
     fail "GAP $from: required installer layout lacks $required; no replacement step was run"
@@ -349,7 +355,7 @@ done
 rc=0; run /bin/bash "$mifal" doctor >"$home/doctor-rollback.txt" 2>&1 || rc=$?
 cat "$home/doctor-rollback.txt"
 if [ "$rc" -ne 0 ]; then
-  echo "GAP rollback to $from: its own doctor exited $rc; no old step was replaced:"
+  echo "FAIL rollback to $from: doctor exited $rc after this rehearsal's uninstall and historical reinstall:"
   grep '^FAIL ' "$home/doctor-rollback.txt" || true
 fi
 [ "$rc" -eq 0 ] || problem "doctor exited $rc after the rollback"
