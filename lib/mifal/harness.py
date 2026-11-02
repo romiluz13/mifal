@@ -21,6 +21,9 @@ TITLES = {"claude": "Claude Code", "codex": "Codex", "droid": "Droid", "pi": "Pi
 IMPORT = "@~/.agents/mifal/AGENTS.md"
 CODEX_CAP = 32 * 1024
 PI_ORDER = ("AGENTS.override.md", "AGENTS.md", "AGENTS.MD", "CLAUDE.md", "CLAUDE.MD")
+SKILL_PATTERN_LIMIT = 1024
+SKILL_SELECTOR_LIMIT = 1024
+SKILL_PATTERN_BUDGET = 8192
 OPENCODE_FALLBACK_OFF = ("OPENCODE_DISABLE_CLAUDE_CODE", "OPENCODE_DISABLE_CLAUDE_CODE_PROMPT")
 BLOCK = re.compile(r"<!-- mifal:begin [^\n]*-->\n.*?<!-- mifal:end -->\n", re.S)
 FENCE = re.compile(r"^ {0,3}(```|~~~)")
@@ -372,6 +375,17 @@ DROID_SCHEMA = (
     'effective session scope: unknown')
 
 
+def _pattern_limits(patterns, result, where):
+    if len(patterns) <= SKILL_SELECTOR_LIMIT and all(len(pattern) <= SKILL_PATTERN_LIMIT for pattern in patterns) and \
+            sum(map(len, patterns)) <= SKILL_PATTERN_BUDGET:
+        return True
+    result.warnings.append((f"{where} settings patterns or entry list are too large to check; exclusions unknown",
+                            f"reduce {where} to at most {SKILL_PATTERN_LIMIT} characters per pattern, "
+                            f"{SKILL_SELECTOR_LIMIT} selectors and {SKILL_PATTERN_BUDGET} total pattern characters; "
+                            "then run mifal doctor again"))
+    return False
+
+
 def _glob(value, pattern, dot=False):
     if any(token in pattern for token in ('{', '}', '@(', '?(', '*(', '+(', '!(', '[[:', '[^')):
         raise ValueError('unsupported pattern syntax')
@@ -454,6 +468,8 @@ def _ignored(document, folder, text):
             directory_only = pattern.endswith('/')
             if directory_only:
                 pattern = pattern[:-1]
+                if pattern.endswith('/**'):
+                    pattern += '/*'
             anchored = pattern.startswith('/')
             pattern = pattern.lstrip('/')
             target = candidate if anchored or '/' in pattern else pieces[count - 1]
@@ -469,6 +485,8 @@ def _pi_filters(reads, result, home, root, pool, skills, show):
     ignores = {}
     for facts, path, text in reads:
         if facts.format == 'gitignore':
+            if not _pattern_limits(text.splitlines(), result, show(path)):
+                continue
             ignores[path.parent] = (path, text)
             continue
         data = _json(text, result, show(path))
@@ -479,6 +497,8 @@ def _pi_filters(reads, result, home, root, pool, skills, show):
             patterns = patterns.get('customDirectories', [])
         if not isinstance(patterns, list) or any(not isinstance(pattern, str) for pattern in patterns):
             _invalid(result, show(path), 'skills')
+            patterns = []
+        elif not _pattern_limits(patterns, result, show(path)):
             patterns = []
     unknown = set()
     for skill in sorted(skills):
@@ -604,6 +624,10 @@ def _opencode_filters(reads, result, home, root, pool, skills, show):
                 for value in permission.values()):
             _invalid(result, where, 'permission.skill', 'JSONC')
             continue
+        selectors = list(permission) + [pattern for rules in permission.values()
+                                        if isinstance(rules, dict) for pattern in rules]
+        if not _pattern_limits(selectors, result, where):
+            continue
         if any(token in json.dumps(permission) for token in ('{env:', '{file:')):
             _invalid(result, where, 'permission substitutions (not expanded)', 'JSONC')
             continue
@@ -615,6 +639,9 @@ def _opencode_filters(reads, result, home, root, pool, skills, show):
                 rules = previous if isinstance(previous, dict) else {}
                 rules.update({pattern: (action, where) for pattern, action in value.items()})
                 merged[key] = rules
+    selectors = list(merged) + [pattern for rules in merged.values() if isinstance(rules, dict) for pattern in rules]
+    if not _pattern_limits(selectors, result, show(root)):
+        return result
     for skill in sorted(skills):
         winner = None
         for key, value in merged.items():

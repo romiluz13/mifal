@@ -532,6 +532,36 @@ class SkillFilters(Wiring):
                 result = self.other_audit('pi', json.dumps({'skills': [pattern]}))
                 self.assertEqual({message.split(':')[0] for message, _ in result.warnings}, hidden, repr(result))
 
+    def test_skill_pattern_limit_edges_and_merged_opencode_budget(self):
+        for name, pattern in (('pi', '!' + '*' * 1019 + 'tdd'), ('opencode', '*' * 1020 + 'tdd')):
+            with self.subTest(agent=name):
+                data = {'skills': [pattern]} if name == 'pi' else {'permission': {'skill': {pattern: 'deny'}}}
+                result = self.other_audit(name, json.dumps(data), 'settings.json' if name == 'pi' else 'opencode.json')
+                self.assertIn('tdd: configured exclusion detected', repr(result.warnings))
+                pattern += '**'
+                data = {'skills': [pattern]} if name == 'pi' else {'permission': {'skill': {pattern: 'deny'}}}
+                result = self.other_audit(name, json.dumps(data), 'settings.json' if name == 'pi' else 'opencode.json')
+                self.assertIn('too large to check; exclusions unknown', repr(result.warnings))
+                self.assertNotIn('configured exclusion detected', repr(result.warnings))
+        root = self.home / '.config/opencode'
+        for filename, prefix in (('config.json', 'a'), ('opencode.json', 'b')):
+            rules = {prefix + format(i, '07x'): 'deny' for i in range(600)}
+            rules['tdd'] = 'deny'
+            (root / filename).write_text(json.dumps({'permission': {'skill': rules}}))
+        result = harness.skill_filters('opencode', self.home, root, self.home / '.agents/skills', {'tdd'})
+        self.assertIn('too large to check; exclusions unknown', repr(result.warnings))
+        self.assertNotIn('configured exclusion detected', repr(result.warnings))
+
+    def test_pi_descendant_directory_globstar_keeps_root_skill_visible(self):
+        pool = self.home / '.agents/skills'
+        (pool / 'tdd/nested').mkdir(parents=True)
+        (pool / 'tdd/SKILL.md').write_text('a skill')
+        for pattern, hidden in (('tdd/**/', False), ('tdd/nested/', False), ('tdd/', True)):
+            with self.subTest(pattern=pattern):
+                (pool / '.gitignore').write_text(pattern + '\n')
+                result = self.other_audit('pi', '{}')
+                self.assertEqual(any('tdd: configured exclusion detected' in detail for detail, _ in result.warnings), hidden)
+
     def test_pi_pool_patterns_and_ignore_pruning_follow_the_source_order(self):
         pool = self.home / '.agents/skills'
         (pool / 'tdd').mkdir(parents=True)

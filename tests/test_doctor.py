@@ -595,6 +595,60 @@ class CodexSkillFilters(Doctor):
 
 
 class OtherSkillFilters(Doctor):
+    def test_maximum_accepted_skill_pattern_lists_finish_within_five_seconds(self):
+        self.install()
+        pi = ['!' + '*?' * 511 + 'x'] + ['!' + format(i, '06x') for i in range(1023)]
+        pi[-1] += 'x' * (8192 - sum(map(len, pi)))
+        opencode = {'*?' * 511 + 'xz': 'deny', **{format(i, '07x'): 'deny' for i in range(1022)}}
+        last = list(opencode)[-1]
+        padding = 8192 - len('skill') - sum(map(len, opencode))
+        opencode[last + 'x' * padding] = opencode.pop(last)
+        for name, data in (('pi', {'skills': pi}), ('opencode', {'permission': {'skill': opencode}})):
+            with self.subTest(agent=name):
+                config = self.home / RULES[name].rsplit('/', 1)[0] / (
+                    'opencode.json' if name == 'opencode' else 'settings.json')
+                config.write_text(json.dumps(data))
+                try:
+                    started = time.monotonic()
+                    result = subprocess.run(['/bin/bash', str(self.home / '.local/bin/mifal'), 'doctor'],
+                        cwd=self.root, env=self.env(), capture_output=True, text=True, timeout=5)
+                    elapsed = time.monotonic() - started
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                    self.assertNotIn('too large to check', result.stdout)
+                    self.assertNotIn('configured exclusion detected', result.stdout)
+                    print(f'{name} maximum accepted doctor: {elapsed:.3f}s')
+                finally:
+                    config.unlink()
+
+    def test_oversized_skill_patterns_and_lists_are_unknown_within_five_seconds(self):
+        self.install()
+        cases = (
+            ('pi', 'pattern', {'skills': ['!' + '*x' * 524287 + '*z']}),
+            ('pi', 'entries', {'skills': ['!nonexistent-' + str(i) + '*' for i in range(10000)]}),
+            ('pi', 'ignore-pattern', 'tdd/' + '*x' * 524287 + '*z'),
+            ('pi', 'ignore-entries', '\n'.join('nonexistent-' + str(i) + '*' for i in range(10000))),
+            ('opencode', 'literal', {'permission': {'skill': {'x' * (1024 * 1024): 'deny'}}}),
+            ('opencode', 'alternating', {'permission': {'skill': {'*x' * 524288: 'deny'}}}),
+            ('opencode', 'entries', {'permission': {'skill': {'nonexistent-' + str(i) + '*': 'deny' for i in range(10000)}}}))
+        for name, kind, data in cases:
+            with self.subTest(agent=name, kind=kind):
+                config = self.home / RULES[name].rsplit('/', 1)[0] / (
+                    'opencode.json' if name == 'opencode' else 'settings.json')
+                if kind.startswith('ignore-'):
+                    config = self.home / '.agents/skills/.gitignore'
+                config.write_text(data if isinstance(data, str) else json.dumps(data))
+                try:
+                    started = time.monotonic()
+                    result = subprocess.run(['/bin/bash', str(self.home / '.local/bin/mifal'), 'doctor'],
+                        cwd=self.root, env=self.env(), capture_output=True, text=True, timeout=5)
+                    elapsed = time.monotonic() - started
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                    self.assertRegex(result.stdout, r'(?m)^WARN skill filters .*too large to check.*exclusions unknown\n     fix: ')
+                    self.assertNotIn('configured exclusion detected', result.stdout)
+                    print(f'{name} {kind} size-bound doctor: {elapsed:.3f}s')
+                finally:
+                    config.unlink()
+
     def test_pathological_skill_patterns_finish_doctor_within_five_seconds(self):
         self.install()
         for name, data in (
