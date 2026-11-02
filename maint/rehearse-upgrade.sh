@@ -304,8 +304,7 @@ else
 fi
 
 echo "KNOWN LIMIT: a user's Claude link recorded as Mifal's by 0.3.0 or 0.3.1 is removed; its Pool skill is restored."
-link_saved="$(python3 - "$home/.agents/mifal/install-manifest.json" "$home/.claude/skills/$reserved" <<'PYLINK'
-import json, sys
+link_saved="$(python3 -B -c 'import json, sys
 entries = json.load(open(sys.argv[1]))["entries"]
 link = sys.argv[2]
 if any(e["kind"] == "backup" and e["path"] == link for e in entries):
@@ -313,9 +312,7 @@ if any(e["kind"] == "backup" and e["path"] == link for e in entries):
 elif any(e["kind"] == "symlink" and e["path"] == link for e in entries):
     print("recorded")
 else:
-    print("unknown")
-PYLINK
-)"
+    print("unknown")' "$home/.agents/mifal/install-manifest.json" "$home/.claude/skills/$reserved")"
 echo "-- uninstall"
 rc=0; run /bin/bash "$mifal" uninstall >"$home/uninstall.log" 2>&1 || rc=$?
 cat "$home/uninstall.log"
