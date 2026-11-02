@@ -184,19 +184,22 @@ Never approve a dialog just to keep things moving.
 ## Quiet teammates
 
 A Claude Code worker with the team Stop hook (a per-project copy of
-`~/.agents/mifal/tools/herdr_adapter/hooks/team-stop.sh`), admitted through `lead.py` or an assignment pin, leaves a QUIET
-event when a turn ends with no report: one file in `<record>/quiet/`. Under
-`lead.py` it is a row in `state.md`'s Lead attention needed; without it, list
-`quiet/` when you wake. Attend to it last, after any ring, assignment or
-review that is due: look at the pane, ask for `DONE`, `HELP` or `HELD`, then
-write a progress log entry naming the event, which is what consumes it.
-QUIET closes, fails, retries and unholds nothing. Which events are stale or
-superseded, and which files to leave unread:
+`~/.agents/mifal/tools/herdr_adapter/hooks/team-stop.sh`), admitted through
+`lead.py` or an assignment pin, leaves a QUIET event when a turn ends with no
+report: one file in `<record>/quiet/`. Attend to it last, after any ring,
+assignment or review that is due: look at the pane and ask for `DONE`, `HELP`
+or `HELD`. Under `lead.py` it is a row in `state.md`'s Lead attention needed,
+and the turn that attends to it writes the `attend-quiet` entry that consumes
+it. Without `lead.py`, list `quiet/` when you wake; your progress log entry
+naming the event is what consumes it. QUIET closes, fails, retries and
+unholds nothing. Which events are stale or superseded, and which files to
+leave unread:
 [doorbell contract](contracts/doorbell.md#quiet-is-attention-only).
 
-Herdr's `agent_session` words a row and attributes a ring to a session, but
-never dismisses an event, because a child `claude` in a pane reports its own
-id for that pane. It is null on some panes, and that is normal.
+Herdr's `agent_session` is used to word a row and to attribute a ring to a
+session, but never to dismiss an event, because a child `claude` in a pane
+reports its own id for that pane. It is null on some panes, and that is
+normal.
 
 Only Claude Code workers with that hook get QUIET events. Workers on other
 agents stay on the manual check below, as does anything a Stop event cannot

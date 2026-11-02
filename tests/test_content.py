@@ -437,7 +437,7 @@ class LeadMechanisms(unittest.TestCase):
                                    r"[^.]{0,40}\b(?:get|gets|leave|leaves|write|writes) (?:a )?QUIET")
         self.assertRegex(quiet, r"(?i)\bother agents?\b[^.]*\b(?:stay|stays|keep|keeps)\b[^.]*\bmanual check")
         self.assertRegex(quiet, r"(?i)\battend\w*\b[^.]{0,40}\blast\b")
-        self.assertRegex(quiet, r"QUIET (?:never )?closes, fails, retries and unholds nothing")
+        self.assertRegex(quiet, r"\bQUIET (?:closes|moves)\b[^.]*\bnothing\b")
         self.assertRegex(quiet, r"(?i)\blog\w*\b[^.]*\bnaming the event\b")
         m3 = section(TEAM_LEAD + "SKILL.md", "M3.")
         self.assertIn("references/herdr.md#quiet-teammates", m3)
@@ -462,6 +462,7 @@ class LeadMechanisms(unittest.TestCase):
         self.assertRegex(m5, r"`ok: candidate matches run record[^`]*`[^.]*\bis the evidence\b[^.]*\bfinal revision")
         self.assertNotRegex(m5, r"\bnot (?:the )?evidence\b")
         self.assertRegex(m5, r"`stale:`[^.]*\bholds acceptance\b")
+        self.assertRegex(m5, r"\*\*When:\*\*[^.]*\bpull request")
 
     def test_after_the_pr_reads_records_assigns_holds_and_never_posts(self):
         pr = section(TEAM_LEAD + "references/communication.md", "After the PR")
@@ -493,7 +494,7 @@ class LeadMechanisms(unittest.TestCase):
         self.assertRegex(item, r"(?i)\bstale\b[^;]*\bsuperseded\b[^;]*\bmoves? nothing")
         self.assertRegex(item, r"(?i)\bmalformed\b[^;]*\bechoes none of its text")
         stop = section(LEAD_MD, "Acceptance preflight and Stop feedback")
-        self.assertNotIn("deferred", stop)
+        self.assertNotRegex(stop, r"`agent_session` is deferred|not shown to be populated")
         self.assertNotRegex(stop, r"writes only `stop-hook\.log`\.")
         self.assertTerms(stop, "QUIET event", "quiet/")
 

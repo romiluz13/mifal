@@ -825,11 +825,9 @@ For a claimed completion it runs the preflight and maps the verdict, never forwa
 | `cannot-evaluate`, a crash, no JSON, a missing interpreter or script, an unknown verdict | 0 | nothing; one line in `<record-root>/stop-hook.log` |
 
 The hook never exits 1 (a non-blocking error), never runs a plan verifier, and writes only `stop-hook.log` and QUIET
-events: a stop of an admitted worker that reports nothing (no `DONE` line for its attempt, no Return closing it, a
-last message not starting `HELP`, `HELD` or `STOPPED`, and no background work running or scheduled) writes one
-immutable QUIET event in `<record-root>/quiet/` and still exits 0 (rules in the hook's header; attention row 7 shows
-it). Use an absolute interpreter in `TEAM_STOP_PYTHON`, not a version-manager shim; without it the hook uses
-`/usr/bin/python3`.
+events: a stop of an admitted worker that reports nothing writes one immutable QUIET event in `<record-root>/quiet/`
+and still exits 0 (conditions in the hook's header; attention row 7 shows it). Use an absolute interpreter in
+`TEAM_STOP_PYTHON`, not a version-manager shim; without it the hook uses `/usr/bin/python3`.
 
 **What a Stop hook cannot do, observed on Claude Code 2.1.301:** a project Stop hook
 loads under a custom `CLAUDE_CONFIG_DIR`; exit 2 blocks the stop once and the model is shown stderr;
@@ -837,10 +835,10 @@ loads under a custom `CLAUDE_CONFIG_DIR`; exit 2 blocks the stop once and the mo
 finishes. Not verified natively: `/clear`, Esc and interrupt, interactive sessions, hook timeouts, and
 `team-stop.sh` itself. A cleared or replaced session in the same pane, a worker that never stops, and an
 interrupted worker produce no Stop event, so the lead learns of them only through attention row 4 or 5.
-An event carries the session id from the Stop payload. Herdr's `agent_session` words a row and attributes a ring to a
-session, but never dismisses an event, because a child `claude` in a pane reports its own id for that pane; it is null
-on some panes, and that is normal. Only a strictly later stop or ring of the same attempt in the same pane, from another
-session, supersedes an event.
+An event carries the session id from the Stop payload. Herdr's `agent_session` is used to word a row and to attribute
+a ring to a session, but never to dismiss an event, because a child `claude` in a pane reports its own id for that
+pane; it is null on some panes, and that is normal. Only a strictly later stop or ring of the same attempt in the same
+pane, from another session, supersedes an event.
 
 ## Verification and persistence
 
