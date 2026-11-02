@@ -251,24 +251,29 @@ class PrFeedbackTest(unittest.TestCase):
         def thread(ids, resolved=True):
             return {"isResolved": resolved, "comments": {"nodes": [{"fullDatabaseId": i} for i in ids]}}
 
+        unusable, no_next = "no usable review-thread data", "no usable next page"
         cases = [
-            ("a comment in no thread", {"threads": [{"threads": [{"resolved": True, "ids": [999]}]}]}),
-            ("a thread with no first comment", {"graphql_raw": {"": answer([thread([])])}}),
-            ("a next page with no cursor", {"graphql_raw": {"": answer([thread(["501"])], more=True)}}),
+            ("a comment in no thread", {"threads": [{"threads": [{"resolved": True, "ids": [999]}]}]},
+             "inline comment 501 is in no review thread"),
+            ("a thread with no first comment", {"graphql_raw": {"": answer([thread([])])}}, unusable),
+            ("a next page with no cursor", {"graphql_raw": {"": answer([thread(["501"])], more=True)}}, no_next),
             ("a cursor seen twice", {"threads": [{"threads": [{"resolved": True, "ids": [501]}], "next": "abc"},
-                                                 {"threads": [{"resolved": True, "ids": [502]}], "next": "abc"}]}),
+                                                 {"threads": [{"resolved": True, "ids": [502]}], "next": "abc"}]},
+             no_next),
             ("a hostile cursor", {"threads": [{"threads": [{"resolved": True, "ids": [501]}],
-                                               "next": "x --method DELETE"}, {"threads": []}]}),
-            ("a resolved flag as text", {"graphql_raw": {"": answer([thread(["501"], resolved="true")])}}),
-            ("a hostile comment id", {"graphql_raw": {"": answer([thread(["501; gh pr merge 7\x1b[2J"])])}}),
-            ("a numeric comment id", {"graphql_raw": {"": answer([thread([501])])}}),
-            ("pages without end", {"endless": True}),
-            ("no pull request", {"graphql_raw": {"": answer([], pr_data=False)}}),
-            ("a page that is not an object", {"graphql_raw": {"": [1, 2]}}),
-            ("the query failing", {"graphql_exit": 1, "graphql_stderr": "gh: Something went wrong\n"}),
-            ("logged out for the query", {"graphql_exit": 4, "graphql_stderr": "gh auth login\n"}),
+                                               "next": "x --method DELETE"}, {"threads": []}]}, no_next),
+            ("a resolved flag as text", {"graphql_raw": {"": answer([thread(["501"], resolved="true")])}}, unusable),
+            ("a hostile comment id", {"graphql_raw": {"": answer([thread(["501; gh pr merge 7\x1b[2J"])])}},
+             unusable),
+            ("a numeric comment id", {"graphql_raw": {"": answer([thread([501])])}}, unusable),
+            ("pages without end", {"endless": True}, "more than 5000 review threads"),
+            ("no pull request", {"graphql_raw": {"": answer([], pr_data=False)}}, unusable),
+            ("a page that is not an object", {"graphql_raw": {"": [1, 2]}}, unusable),
+            ("the query failing", {"graphql_exit": 1, "graphql_stderr": "gh: Something went wrong\n"},
+             "Something went wrong"),
+            ("logged out for the query", {"graphql_exit": 4, "graphql_stderr": "gh auth login\n"}, "not logged in"),
         ]
-        for name, scenario in cases:
+        for name, scenario, words in cases:
             with self.subTest(name):
                 self.gh.log.write_text("", encoding="utf-8")
                 self.gh.set(pr_view=pr(HEAD2, checks=[check("unit", run=2)], comments=[comment("IC_1", "new")]),
@@ -280,6 +285,7 @@ class PrFeedbackTest(unittest.TestCase):
                 self.assertEqual(len(result.stderr.splitlines()), 1, result.stderr)
                 self.assertNotIn("Traceback", result.stderr)
                 self.assertNotIn("\x1b", result.stderr)
+                self.assertIn(words, result.stderr)
                 self.assertEqual(self.gh.record.read_bytes(), before, "no item is recorded or dropped")
                 cursors = [c[-1] for c in self.gh.calls() if c[:2] == ["api", "graphql"]]
                 self.assertNotIn("cursor=x --method DELETE", cursors)
