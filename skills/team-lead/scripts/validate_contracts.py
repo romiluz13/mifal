@@ -2155,8 +2155,8 @@ def complete_run_record(path):
 
 
 def shown(line):
-    # Every error: and note: line goes through here once. Worker text can reach these lines, and no message the
-    # validator writes spans lines, so any nonprintable character, newline included, is printed escaped.
+    # Every error:, note: and ok: line, read's footer and stamp's output go through here once. Worker text can reach
+    # them, and no line the validator writes spans lines, so any nonprintable character, newline included, is escaped.
     return "".join(c if c.isprintable() else ascii(c)[1:-1] for c in str(line))
 
 
@@ -2558,7 +2558,7 @@ def main(argv) -> int:
         except (OSError, UnicodeError, ValueError) as e:
             print(shown(f"error: {args.path}: {e}"), file=sys.stderr)
             return 1
-        print(line)
+        print(shown(line))
         return 0
 
     if args.cmd == "design-digest":
@@ -2596,8 +2596,8 @@ def main(argv) -> int:
         except (OSError, UnicodeError) as e:
             print(shown(f"error: {e}"), file=sys.stderr)
             return 2
-        footer = f"\n-- end of body {target} | sha256:{hashlib.sha256(data).hexdigest()} bytes:{len(data)} --\n"
-        sys.stdout.buffer.write(data + footer.encode("utf-8"))
+        footer = shown(f"-- end of body {target} | sha256:{hashlib.sha256(data).hexdigest()} bytes:{len(data)} --")
+        sys.stdout.buffer.write(data + f"\n{footer}\n".encode("utf-8"))
         return 0
 
     if args.cmd == "doorbell":
@@ -2645,7 +2645,7 @@ def main(argv) -> int:
                 print(shown(f"error: {e}"), file=sys.stderr)
             return 1
         suffix = " (record checks only; execution needs evidence)" if args.cmd == "workflow" or args.matt else ""
-        print(f"ok: {args.cmd} {path}{suffix}")
+        print(shown(f"ok: {args.cmd} {path}{suffix}"))
         for note in READ_NOTES:
             print(shown(f"note: {note}"), file=sys.stderr)
         return 0

@@ -2758,6 +2758,28 @@ class RunDisplayTests(unittest.TestCase):
                 self.assertTrue(all(line.startswith(("error: ", "note: ")) for line in result.stderr.splitlines()),
                                 result.stderr)
 
+    def test_a_path_with_controls_reaches_ok_read_footer_and_stamp_escaped(self):
+        folder = self.root / "d\x1b[31m\u2028ok: FORGED"
+        folder.mkdir()
+        brief = folder / "task-7.md"
+        body = (SCRIPT.parent / "fixtures" / "brief" / "good" / "task-7.md").read_text(encoding="utf-8")
+        brief.write_text(body, encoding="utf-8")
+        stamp = folder / "stamp.md"
+        stamp.write_text("## Workflow\nMethodology: matt\n", encoding="utf-8")
+        for argv in (["brief", brief], ["read", brief], ["stamp", stamp, "start review | passed | evidence\x1b[31m"]):
+            with self.subTest(command=argv[0]):
+                result = subprocess.run([sys.executable, "-B", str(SCRIPT), *map(str, argv)],
+                                        capture_output=True, text=True, encoding="utf-8")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                shown = result.stdout
+                if argv[0] == "read":
+                    self.assertTrue(shown.startswith(body), "read's body stays byte-for-byte")
+                    shown = shown[len(body):]
+                self.assertNotIn("\x1b", shown)
+                self.assertNotIn("\u2028", shown)
+                self.assertIn("\\x1b[31m", shown)
+                self.assertEqual(len(shown.strip("\n").splitlines()), 1, shown)
+
     def test_run_success_and_wrapper_error_lines_cannot_forge_a_second_line(self):
         folder = self.root / "out-g\nok: FORGED\x1b[2K"
         folder.mkdir()
