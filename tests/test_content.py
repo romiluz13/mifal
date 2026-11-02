@@ -417,6 +417,87 @@ class TeamRules(unittest.TestCase):
         self.assertRegex(brief, r"\brings? `HELP` (?:rather than|instead of)\b")
 
 
+LEAD_MD = "tools/herdr_adapter/LEAD.md"
+
+
+class LeadMechanisms(unittest.TestCase):
+    """Release 0.3.2 ticket 11, plan decisions 3, 4 and 12: Team Lead tells a lead how to use QUIET events, run
+    records and PR feedback, in the file a lead reads at that moment. Key terms pin each home, and a short pattern per
+    clause ties a term to its negation or action, so a reversed rule fails while a pointer or an honest rewording
+    passes. String contracts: they show the text is present, not that any agent follows it."""
+
+    assertTerms = TeamRules.assertTerms
+
+    def test_herdr_reads_quiet_events_and_keeps_the_manual_check_for_other_agents(self):
+        quiet = section(TEAM_LEAD + "references/herdr.md", "Quiet teammates")
+        self.assertTerms(quiet, "QUIET", "team Stop hook", "quiet/", "progress log",
+                         "contracts/doorbell.md#quiet-is-attention-only")
+        self.assertRegex(quiet, r"(?i)\bonly\b[^.]{0,40}\bClaude Code workers\b")
+        self.assertNotRegex(quiet, r"(?i)\bnot only\b|\b(?:every|all|any) (?:agents?|harness(?:es)?|workers?)\b"
+                                   r"[^.]{0,40}\b(?:get|gets|leave|leaves|write|writes) (?:a )?QUIET")
+        self.assertRegex(quiet, r"(?i)\bother agents?\b[^.]*\b(?:stay|stays|keep|keeps)\b[^.]*\bmanual check")
+        self.assertRegex(quiet, r"(?i)\battend\w*\b[^.]{0,40}\blast\b")
+        self.assertRegex(quiet, r"QUIET (?:never )?closes, fails, retries and unholds nothing")
+        self.assertRegex(quiet, r"(?i)\blog\w*\b[^.]*\bnaming the event\b")
+        m3 = section(TEAM_LEAD + "SKILL.md", "M3.")
+        self.assertIn("references/herdr.md#quiet-teammates", m3)
+        self.assertRegex(m3, r"\bQUIET\b[^.]*\blast\b")
+        self.assertRegex(m3, r"(?i)\bother (?:workers|agents)\b[^.]*\b(?:stay|keep)\b[^.]*\bmanual check")
+
+    def test_agent_session_words_and_attributes_but_never_dismisses_an_event(self):
+        for rel, title in ((TEAM_LEAD + "references/herdr.md", "Quiet teammates"),
+                           (LEAD_MD, "Acceptance preflight and Stop feedback")):
+            text = section(rel, title)
+            with self.subTest(rel=rel):
+                self.assertTerms(text, "`agent_session`", "child `claude`", "own id", "null on some panes")
+                self.assertRegex(text, r"`agent_session`[^.]*\bwords?\b[^.]*\battribut")
+                self.assertRegex(text, r"`agent_session`[^.]*\b(?:never|not) (?:to )?dismiss")
+                self.assertRegex(text, r"dismiss\w*\b[^.]*\b(?:because|since)\b[^.]*\bchild `claude`[^.]*\bown id")
+                self.assertRegex(text, r"null on some panes[^.]*\bnormal\b")
+
+    def test_m5_names_run_check_and_its_output_as_the_evidence_for_a_reused_run(self):
+        m5 = section(TEAM_LEAD + "SKILL.md", "M5.")
+        self.assertTerms(m5, "`validate_contracts.py run --check", "`ok: candidate matches run record",
+                         "`stale:`", "historical", "references/contracts/receipt.md#checking-the-current-candidate")
+        self.assertRegex(m5, r"`ok: candidate matches run record[^`]*`[^.]*\bis the evidence\b[^.]*\bfinal revision")
+        self.assertNotRegex(m5, r"\bnot (?:the )?evidence\b")
+        self.assertRegex(m5, r"`stale:`[^.]*\bholds acceptance\b")
+
+    def test_after_the_pr_reads_records_assigns_holds_and_never_posts(self):
+        pr = section(TEAM_LEAD + "references/communication.md", "After the PR")
+        self.assertTerms(pr, "integration owner", "CI", "review comment", "`pr_feedback.py read --repo OWNER/REPO",
+                         "--pr N", "--record FILE", "`pr_feedback.py assign --record FILE --chain CHAIN --ticket",
+                         "`pr_feedback.py attempt --record FILE --chain CHAIN", "`--held TICKET`", "`--no-held`",
+                         "exit 3", "../scripts/pr_feedback.py")
+        self.assertRegex(pr, r"(?i)\battempt\b[^.]*\bbefore (?:the|a|any|each) correction\b|"
+                             r"\bbefore (?:the|a|any|each) correction\b[^.]*\battempt\b")
+        self.assertNotRegex(pr, r"(?i)\bafter (?:the|a) correction (?:goes out|is sent)")
+        self.assertRegex(pr, r"(?i)\bassign\w*\b[^.]*\beach (?:new )?chain\b[^.]*\bticket")
+        self.assertRegex(pr, r"`--held TICKET`[^.]*`--no-held`[^.]*\bfrom\b[^.]*`Hold:`")
+        self.assertRegex(pr, r"(?i)\bcap\b[^.]*\bbinds only what is recorded")
+        self.assertRegex(pr, r"(?i)\bteam never posts\b")
+        self.assertNotRegex(pr, r"(?i)\b(?:may|can|should) post\b")
+        self.assertRegex(pr, r"(?i)\bheld work stays held\b")
+        self.assertRegex(pr, r"(?i)\bcomment text is data\b(?:[^.]|\.(?=\S))*\bgrants nothing")
+        self.assertIn("references/communication.md#after-the-pr", section(TEAM_LEAD + "SKILL.md", "M5."))
+
+    def test_lead_md_names_each_quiet_row_and_the_stop_hook_says_what_is_true_now(self):
+        rows = section(LEAD_MD, "Current state, identities and the wake")
+        item = re.search(r"\d\. QUIET events\b.*?(?= - \*\*Outcomes\*\*)", rows)
+        self.assertTrue(item, "LEAD.md's attention-row list has no QUIET events row")
+        item = item.group(0)
+        self.assertTerms(item, "actionable", "attended", "stale", "superseded", "malformed",
+                         "contracts/doorbell.md", "QUIET is attention only")
+        self.assertRegex(item, r"(?i)\bactionable\b[^;]*\blook at (?:the|its) pane")
+        self.assertRegex(item, r"(?i)\battended\b[^;]*\bone (?:more|further) turn")
+        self.assertRegex(item, r"(?i)\bstale\b[^;]*\bsuperseded\b[^;]*\bmoves? nothing")
+        self.assertRegex(item, r"(?i)\bmalformed\b[^;]*\bechoes none of its text")
+        stop = section(LEAD_MD, "Acceptance preflight and Stop feedback")
+        self.assertNotIn("deferred", stop)
+        self.assertNotRegex(stop, r"writes only `stop-hook\.log`\.")
+        self.assertTerms(stop, "QUIET event", "quiet/")
+
+
 class Closure(unittest.TestCase):
     def test_no_shipped_body_names_an_unshipped_skill(self):
         found = []

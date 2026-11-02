@@ -183,6 +183,26 @@ Never approve a dialog just to keep things moving.
 
 ## Quiet teammates
 
+A Claude Code worker with the team Stop hook (a per-project copy of
+`~/.agents/mifal/tools/herdr_adapter/hooks/team-stop.sh`), admitted through `lead.py` or an assignment pin, leaves a QUIET
+event when a turn ends with no report: one file in `<record>/quiet/`. Under
+`lead.py` it is a row in `state.md`'s Lead attention needed; without it, list
+`quiet/` when you wake. Attend to it last, after any ring, assignment or
+review that is due: look at the pane, ask for `DONE`, `HELP` or `HELD`, then
+write a progress log entry naming the event, which is what consumes it.
+QUIET closes, fails, retries and unholds nothing. Which events are stale or
+superseded, and which files to leave unread:
+[doorbell contract](contracts/doorbell.md#quiet-is-attention-only).
+
+Herdr's `agent_session` words a row and attributes a ring to a session, but
+never dismisses an event, because a child `claude` in a pane reports its own
+id for that pane. It is null on some panes, and that is normal.
+
+Only Claude Code workers with that hook get QUIET events. Workers on other
+agents stay on the manual check below, as does anything a Stop event cannot
+see: a cleared or replaced session, a worker that never stops, or one that
+exited.
+
 A teammate that's still `working` past the time you expected, or is in
 `unknown`, isn't evidence of anything yet. Read a small window, then work out
 which it is:
