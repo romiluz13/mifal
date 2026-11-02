@@ -72,6 +72,19 @@ anything.
   check `agent get <pane-id>` for detection/readiness; use
   `agent explain <pane-id>` if detection is unclear, then
   `agent rename <pane-id> <name>` for its live name before prompting.
+- Start a worker with the same or narrower approval, filesystem and network
+  permissions as yours, because a worker can do whatever its launch allows,
+  including what you could not authorize. Compare effective capabilities, not
+  mode names: actions requiring approval, writable paths and network access,
+  including tools and child processes. Record your own effective capabilities;
+  before each launch, establish the worker's from the installed version's
+  documented flags and settings, or its documented defaults when no settings
+  exist, and record the actual launch arguments, without credentials, with its
+  roster entry in `state.md`. Pass a flag that skips approvals only when you
+  run that way too and the agreement allows it. A dimension whose effective
+  behavior stays unestablished counts as not equal: name it, and it holds the
+  dispatch. An approval mode, project-trust choice or enabled bypass option is
+  not proof of a sandbox or of an active bypass.
 - Put the brief in `<record>/tasks/<id>.md`, where `<record>` is the
   record root's absolute path
   ([communication](communication.md#parallel-agents-in-one-repository)), and
@@ -208,6 +221,9 @@ feedback you've already given it are an asset. Start a fresh session, with
 authority, for unrelated work or once a teammate has lost the thread. The
 development record belongs to the member, not the session, so carry it into
 the next brief.
+
+A re-review after a fix is the exception: it goes to a new reviewer session,
+as [review and disagreement](communication.md#review-and-disagreement) says.
 
 ## House rules inherited from the herdr skill
 

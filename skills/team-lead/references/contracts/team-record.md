@@ -12,7 +12,7 @@ mandatory schema, and they are checked by review, not by the validator.
 
 | Artifact | Holds | Writer |
 |----------|-------|--------|
-| `state.md` | Mission with a pass/fail finish condition, authority boundary, roster (member, pane, agent kind, session id, role), active work (owner, latitude, expected time, return path), progress log, first resume action | Lead |
+| `state.md` | `## Waiting on you` first, then mission with a pass/fail finish condition, authority boundary, roster (member, pane, agent kind, session id, role), active work (owner, latitude, expected time, return path), progress log, first resume action | Lead |
 | `agreement.md` | How this team works: channel, doorbell format, latitude words, brief additions, definition of done, reserved vs authorized with the Consult matrix, record root. **Versioned** (v1, v2, …); retros diff it; scars noted as comments | Lead (authority boundary changes only with the human) |
 | `people/<member>.md` | Capacity ledger: strengths, tool ledger, one development target, recognition with evidence | Lead |
 | `lessons.md` | "When <trigger>, do <rule>" plus the incident it came from | Lead (members propose via receipts) |

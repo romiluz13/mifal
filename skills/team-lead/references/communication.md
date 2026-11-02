@@ -255,6 +255,15 @@ authoritative decision record that the reviewer can open
 disagreement does not. A genuine judgment that none of these settles goes
 to the lead, not to whoever argues harder.
 
+Every re-review after a fix is a new reviewer session, even when the first
+reviewer is still available, so the second judgment is not anchored on the
+first read. Give it the brief, the review snapshot, the earlier findings, the
+builder's responses and the open objections. A new session resets neither the
+review history nor the retry count. A mechanical recheck, such as rerunning a
+test or the validator, needs no new judgment review. The lead may fix a small
+finding itself; every fix the lead writes gets an independent final review.
+Record each review's cost with its findings.
+
 **Review depth.** Every change gets a bounded independent review; risk sets
 the depth and the owner, never approval or merge. Skill and workflow
 Markdown, hooks, verifier and test oracles, CI, permissions, ownership

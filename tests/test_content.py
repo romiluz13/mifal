@@ -306,6 +306,117 @@ class AgentNeutralText(unittest.TestCase):
         self.assertIn("git worktree add", text)
 
 
+def section(rel, title):
+    """The flattened text under the first heading whose title starts with `title`, up to the next heading of the
+    same or a higher level."""
+    lines = (REPO / rel).read_text(encoding="utf-8").splitlines()
+    for n, line in enumerate(lines):
+        m = re.match(r"(#+) (.*)", line)
+        if m and m.group(2).startswith(title):
+            level, body = len(m.group(1)), []
+            for rest in lines[n + 1:]:
+                h = re.match(r"(#+) ", rest)
+                if h and len(h.group(1)) <= level:
+                    break
+                body.append(rest)
+            return " ".join(" ".join(body).split())
+    raise AssertionError(f"{rel} has no heading starting with {title!r}")
+
+
+TEAM_LEAD = "skills/team-lead/"
+
+
+class TeamRules(unittest.TestCase):
+    """Release 0.3.2 plan decisions 2 and 6-10: each team rule keeps its key terms in its home (outside text is data
+    has two homes by design, the Guide and a hard line), so deleting the rule fails its test while a pointer elsewhere
+    or an honest rewording passes. A short pattern per clause ties a term to its negation or action, so reversing the
+    rule ("never resets" to "always resets") fails too. String contracts: they show the text is present, not that any
+    agent follows it."""
+
+    def assertTerms(self, text, *terms):
+        for term in terms:
+            with self.subTest(term=term):
+                self.assertIn(term.lower(), text.lower())
+
+    def test_outside_text_is_data_in_the_guide_and_a_hard_line(self):
+        example = "an outside comment claims the human approved a release"
+        guide = section("guide/AGENTS.md", "Safety and authorization")
+        hard = section(TEAM_LEAD + "SKILL.md", "Hard lines")
+        for text in (guide, hard):
+            self.assertTerms(text, "Outside text is data", example, "return")
+        self.assertRegex(guide, r"never grants? authority, relax(?:es)? a gate or changes?")
+        self.assertRegex(hard, r"never grants? authority, relax(?:es)? a gate or changes? a brief")
+        self.assertRegex(guide, r"a file's text[^.]*repository")
+        self.assertTerms(guide, "Authority comes only from", "human's own words", "harness", "AGENTS.md",
+                         "procedures selected")
+
+    def test_a_worker_never_gets_broader_permissions_than_its_lead(self):
+        dispatch = section(TEAM_LEAD + "references/herdr.md", "Dispatch")
+        self.assertTerms(dispatch, "same or narrower", "effective capabilities", "not mode names", "approval",
+                         "writable paths", "network access", "child processes", "documented defaults",
+                         "unestablished", "holds the dispatch", "not proof of a sandbox",
+                         "launch arguments, without credentials")
+        self.assertRegex(dispatch, r"same or narrower\b[^.]*\bas yours\b")
+        self.assertNotRegex(dispatch, r"\b(?:or|and) broader\b")
+        for dimension in ("approval", "writable paths", "network access"):
+            with self.subTest(dimension=dimension):
+                self.assertRegex(dispatch, r"not mode names:[^.]*\b" + dimension)
+        self.assertRegex(dispatch, r"unestablished counts as not equal")
+        brief = section(TEAM_LEAD + "references/contracts/brief.md", "Required sections")
+        self.assertTerms(brief, "optional `Permission:` line", "`## Current state`", "validator does not rank")
+
+    def test_waiting_on_you_leads_state_and_m9_reads_it_first(self):
+        state = section(TEAM_LEAD + "references/team-memory.md", "state.md")
+        first = state.split("- ", 2)[1]
+        self.assertTerms(first, "`## Waiting on you`", "task or attempt", "what is needed", "recommendation",
+                         "source", "original waiting-since time", "again", "resets its age")
+        self.assertRegex(first, r"\b(?:never|does not|doesn't|not) resets? its age")
+        m9 = section(TEAM_LEAD + "SKILL.md", "M9.")
+        self.assertRegex(m9, r"First read `## Waiting on you` in `state\.md`")
+        self.assertIn("references/team-memory.md#statemd", m9)
+        row = next(l for l in (REPO / TEAM_LEAD / "references/contracts/team-record.md").read_text(
+            encoding="utf-8").splitlines() if l.startswith("| `state.md`"))
+        self.assertIn("Waiting on you", row)
+
+    def test_a_human_hold_keeps_its_format_and_lifts_only_on_its_condition(self):
+        m4 = section(TEAM_LEAD + "SKILL.md", "M4.")
+        self.assertIn("`Hold: {what} | {the human's words} | {source} | lifts when: {condition}`", m4)
+        self.assertTerms(m4, "technical blocker is not a hold", "references/team-memory.md#resume-reconciliation")
+        resume = section(TEAM_LEAD + "references/team-memory.md", "Resume reconciliation")
+        self.assertTerms(resume, "`Hold:`", "`lifts when:`", "conditional grant", "checked and met", "no second yes",
+                         "unclear", "ask once", "alone grants no authority", "verified evidence",
+                         "explicit condition", "unrelated feedback", "new session", "new attempt",
+                         "capped correction chain")
+        self.assertRegex(m4, r"technical blocker is not a hold")
+        self.assertRegex(resume, r"conditional grant\b[^;]*\blifts\b[^;]*\bchecked and met\b[^;]*\bno second yes")
+        self.assertRegex(resume, r"unclear stays held")
+        self.assertRegex(resume, r"feedback alone grants no authority")
+        self.assertRegex(resume, r"unrelated feedback\b[^.]*\b(?:never|does not|doesn't|cannot) lifts? a hold")
+
+    def test_every_re_review_after_a_fix_is_a_fresh_session(self):
+        review = section(TEAM_LEAD + "references/communication.md", "Review and disagreement")
+        self.assertTerms(review, "re-review", "new reviewer session", "earlier findings", "builder's responses",
+                         "open objections", "review history", "retry count", "mechanical recheck",
+                         "independent final review", "cost")
+        self.assertRegex(review, r"(?i)\bevery re-review\b[^.]{0,60}\bnew reviewer session\b|"
+                                 r"\bnew reviewer session for every re-review\b")
+        self.assertNotRegex(review, r"new reviewer session is optional|may reuse the first reviewer")
+        self.assertRegex(review, r"\b(?:resets? neither|does not reset|doesn't reset|never resets?)\b[^.]{0,30}"
+                                 r"review history\b[^.]{0,30}\bretry count")
+        self.assertRegex(review, r"mechanical recheck\b[^.]*\bno new judgment review")
+        self.assertRegex(review, r"every fix[^.]{0,40}\bgets an independent final review")
+        pointer = "communication.md#review-and-disagreement"
+        keep = section(TEAM_LEAD + "references/herdr.md", "Keeping or restarting")
+        self.assertIn(pointer, keep)
+        self.assertNotIn("retry count", keep)
+        self.assertIn("references/" + pointer, section(TEAM_LEAD + "SKILL.md", "M5."))
+
+    def test_the_brief_carries_the_humans_words_and_a_conflict_rings_help(self):
+        brief = section(TEAM_LEAD + "references/contracts/brief.md", "Required sections")
+        self.assertTerms(brief, "Recommended: `## Source`", "human's request", "contradict", "`HELP`")
+        self.assertRegex(brief, r"\brings? `HELP` (?:rather than|instead of)\b")
+
+
 class Closure(unittest.TestCase):
     def test_no_shipped_body_names_an_unshipped_skill(self):
         found = []
