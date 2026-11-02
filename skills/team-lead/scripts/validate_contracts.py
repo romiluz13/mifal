@@ -453,7 +453,7 @@ def validate_workflow(text: str, path: Path, gate="entry", require_loads=True, r
             reported = [m["claim"].strip() for m in (CLAIM_RE.match(line.strip()) for line in claims.splitlines()) if m]
             declared = [claim for claim, _, _ in workflow_claims(body)]
             for claim in sorted(set(reported) - set(declared)):
-                errors.append(f"latest return reports claim '{claim}' absent from Done means")
+                errors.append(f"latest return reports claim '{run_display_path(claim)}' absent from Done means")
             for claim in declared:
                 if claim not in reported:
                     errors.append(f"latest return has no status for Done means claim '{claim}'")
@@ -2056,10 +2056,10 @@ def execute_run(args):
             os.fsync(destination.fileno())
         os.replace(temporary, output)
         temporary = None
-        print(f"ok: run record {output}")
+        print(f"ok: run record {run_display_path(output)}")
         return status if status >= 0 else 128 - status
     except (OSError, RuntimeError, ValueError) as error:
-        print(f"error: run wrapper: {error}", file=sys.stderr)
+        print(f"error: run wrapper: {run_display_path(error)}", file=sys.stderr)
         return RUN_WRAPPER_ERROR
     finally:
         for _, source in reserved:
@@ -2155,8 +2155,11 @@ def complete_run_record(path):
 
 
 def run_display_path(path):
+    # A shown name is printable, holds no backslash and starts with no quote; anything else is shown quoted, so a
+    # printable name can never read as another name's quoted form, even after backslashreplace.
     value = str(path)
-    return value if value.isprintable() else ascii(value)
+    plain = value.isprintable() and "\\" not in value and not value.startswith(("'", '"'))
+    return value if plain else ascii(value)
 
 
 def check_run_record(args):
@@ -2233,7 +2236,7 @@ def validate_run_citations(claims, task):
         if not claim:
             continue
         tail = item[claim.end():]
-        name, status = claim["claim"].strip(), claim["status"]
+        name, status = run_display_path(claim["claim"].strip()), claim["status"]
         if not re.search(r"(?:^|[\s|])run:", tail):
             if status == "passed":
                 READ_NOTES.append(f"passed claim '{name}' has no run record")
@@ -2255,9 +2258,10 @@ def validate_run_citations(claims, task):
                 raise ValueError("run record HEAD differs from claim")
             if record["before"]["snapshotSha256"] != citation["identity"].lower():
                 raise ValueError("run record identity differs from claim")
-            READ_NOTES.append(f"claim '{name}' run record {target} is historical; use run --check for the current candidate")
+            READ_NOTES.append(f"claim '{name}' run record {run_display_path(target)} is historical; "
+                              "use run --check for the current candidate")
         except (OSError, UnicodeError, ValueError, TypeError, KeyError) as error:
-            errors.append(f"claim '{name}' run record {target}: {error}")
+            errors.append(f"claim '{name}' run record {run_display_path(target)}: {run_display_path(error)}")
     return errors
 
 
@@ -2527,6 +2531,7 @@ def main(argv) -> int:
     args = parser.parse_args(argv)
 
     if args.cmd == "run":
+        sys.stdout.reconfigure(errors="backslashreplace")
         return check_run_record(args) if args.check is not None else execute_run(args)
 
     if args.cmd == "loads-proof":
