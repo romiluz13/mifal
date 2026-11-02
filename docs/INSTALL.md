@@ -103,6 +103,8 @@ Update protection starts with 0.3.0. An update from 0.2.3 (or from a local 0.2.4
 
 `mifal uninstall` removes unchanged recorded files, links and Marked blocks, keeps edited or diverted paths and says so, and restores a backup only if its original target is free, reporting any material it keeps. It acts on every recorded Home: each one is left byte for byte as it was, a linked Codex Home gets its marked key taken out and keeps every other byte of its `config.toml`, and anything you edited after the install is kept with its backup. `./install.sh` from a clone of Mifal 0.3.0 or later that is older than the installed version refuses and changes nothing, even while an interrupted install is pending (it names both versions; use `mifal update`, install from a newer clone, or run `mifal uninstall` first to install an older one on purpose; see Rollback). A clone of Mifal 0.2.3 or earlier runs its own installer, which has no such check, and installs its older version over the newer one; use `mifal update` instead. A Manifest belongs to the home that installed it, and Mifal refuses to act on another home's: if `~/.agents/mifal` is a link into another home's install, remove the link first.
 
+If Mifal 0.3.0 or 0.3.1 recorded your own Claude link as Mifal's, uninstall removes it while restoring your skill folder; recreate it with `ln -s ~/.agents/skills/NAME ~/.claude/skills/NAME` (installs from 0.3.2 on back up and restore your links).
+
 Herdr stays installed after uninstall, because other tools may use it. If Mifal installed it with Homebrew, remove it with:
 
 ```sh
