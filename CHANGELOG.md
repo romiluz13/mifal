@@ -7,7 +7,7 @@
 If you installed 0.3.0 or 0.3.1, check this before you uninstall
 - If you already had your own skill in `~/.agents/skills` under a name Mifal ships, with your own link to it in `~/.claude/skills`, 0.3.0 and 0.3.1 recorded that link as Mifal's. Updating keeps that record, so `mifal uninstall` removes the link while it puts your skill folder back, and Claude Code stops seeing that skill.
 - To tell which links are yours, run `stat -f '%SB %N' ~/.agents/mifal ~/.claude/skills/*`. Each line starts with the time that item was made. The first line is when you first installed Mifal, and a skill link made before then is yours.
-- After uninstalling, for each line it printed that starts `restore ~/.agents/skills/NAME`, run `ln -s ~/.agents/skills/NAME ~/.claude/skills/NAME` if that link is missing.
+- After uninstalling, look at each line it printed that starts `restore ~/.agents/skills/NAME`. If the `stat` check showed that `~/.claude/skills/NAME` was yours and the link is now missing, run `ln -s ~/.agents/skills/NAME ~/.claude/skills/NAME`. Don't recreate a link that Mifal made.
 - Installs from 0.3.2 on save such a link before replacing it and put it back on uninstall.
 
 Team leading (experimental, on Herdr)
