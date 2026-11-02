@@ -303,6 +303,19 @@ else
   verdict c "doctor claims no unchecked native reading and is clean after the update" "$doctor_rc"
 fi
 
+echo "KNOWN LIMIT: a user's Claude link recorded as Mifal's by 0.3.0 or 0.3.1 is removed; its Pool skill is restored."
+link_saved="$(python3 - "$home/.agents/mifal/install-manifest.json" "$home/.claude/skills/$reserved" <<'PYLINK'
+import json, sys
+entries = json.load(open(sys.argv[1]))["entries"]
+link = sys.argv[2]
+if any(e["kind"] == "backup" and e["path"] == link for e in entries):
+    print("saved")
+elif any(e["kind"] == "symlink" and e["path"] == link for e in entries):
+    print("recorded")
+else:
+    print("unknown")
+PYLINK
+)"
 echo "-- uninstall"
 rc=0; run /bin/bash "$mifal" uninstall >"$home/uninstall.log" 2>&1 || rc=$?
 cat "$home/uninstall.log"
@@ -315,9 +328,17 @@ done
 [ ! -f "$opencode" ] || ! grep -q 'mifal:begin' "$opencode" || problem "a Mifal block is left in $opencode"
 [ "$(cat "$home/.agents/skills/my-own-skill/SKILL.md")" = "my own skill" ] || problem "uninstall removed the user's own skill"
 cmp -s "$home/user-skill.md" "$home/.agents/skills/$reserved/SKILL.md" || problem "my $reserved skill was not restored"
-[ -L "$home/.claude/skills/$reserved" ] && \
-  [ "$(cd -P "$home/.claude/skills/$reserved" 2>/dev/null && pwd)" = "$home/.agents/skills/$reserved" ] || \
-  problem "restored Claude link for $reserved does not lead to the Pool"
+if [ "$link_saved" = saved ]; then
+  [ -L "$home/.claude/skills/$reserved" ] && \
+    [ "$(cd -P "$home/.claude/skills/$reserved" 2>/dev/null && pwd)" = "$home/.agents/skills/$reserved" ] || \
+    problem "restored Claude link for $reserved does not lead to the Pool"
+elif [ "$link_saved" = recorded ]; then
+  [ ! -e "$home/.claude/skills/$reserved" ] && [ ! -L "$home/.claude/skills/$reserved" ] || \
+    problem "the recorded Mifal link for $reserved was not removed"
+  echo "KNOWN LIMIT (e): $reserved link has no saved copy in the Manifest; recorded link removed, Pool skill restored."
+else
+  problem "Claude link ownership for $reserved is not recorded"
+fi
 verdict e "uninstall leaves my rules lines and my skills" "$rc"
 
 echo "-- a fresh install of the candidate"

@@ -1,4 +1,4 @@
-"""Reverse an install, keeping changed paths and user entries whose backups have already returned."""
+"""Remove unchanged recorded entries, keeping changed paths and entries under a missing saved copy."""
 from __future__ import annotations
 
 import os
@@ -9,7 +9,7 @@ from . import harness
 from .herdr import removal_hint
 from .install import moved_folders
 from .journal import Fs
-from .manifest import Home, diverted, expected, homes, linked_skill_folders, read_rules, state, write_text
+from .manifest import Home, diverted, expected, linked_skill_folders, read_rules, state, write_text
 
 
 def _depth_first(entries):
@@ -51,13 +51,10 @@ def uninstall(h: Home, data: dict, fs: Fs) -> int:
     for e in entries:
         path = Path(e["path"])
         if e["kind"] not in ("backup", "saved") and restored(path):
-            if fs.exists(path):
-                kept.append(f"kept {h.show(path)}: its backup is gone; it may already be restored")
+            continue
         else:
             active.append(e)
     entries = active
-    claude_skills = {Path(os.path.realpath(Path(r["root"]) / "skills"))
-                     for name, r in homes(data) if name == "claude"}
 
     for e in entries:
         if e["kind"] == "block":
@@ -71,27 +68,22 @@ def uninstall(h: Home, data: dict, fs: Fs) -> int:
         path = Path(e["path"])
         now = fs.state(path)
         if now == expected(e):
-            if (e["kind"] == "symlink" and Path(os.path.realpath(path.parent)) in claude_skills
-                    and not any(under(path, original) for original, _ in backups)):
-                user_skill = next((original for original, saved in backups
-                                   if original.parent == h.pool
-                                   and (saved if fs.exists(saved) else original).is_dir()
-                                   and os.path.realpath(path) == os.path.realpath(original)), None)
-                if user_skill is not None:
-                    kept.append(f"kept {h.show(path)}: links to {h.show(user_skill)}, restored as your skill")
-                    continue
             fs.remove(path, f"remove {h.show(path)}")
         elif fs.exists(path):
             kept.append(f"kept {h.show(path)}: changed since install")
 
     dirs = [Path(e["path"]) for e in _depth_first(entries) if e["kind"] == "dir"]
+    # Skip folders already returned on a retry, then check again after this run returns backups.
     _remove_empty(h, [path for path in dirs if not restored(path)], fs)
 
     for e in entries:
         if e["kind"] == "backup":
             original, saved = Path(e["path"]), Path(e["backup"])
             if not fs.exists(saved):
-                kept.append(f"missing backup {h.show(saved)} for {h.show(original)}")
+                if fs.exists(original):
+                    kept.append(f"kept {h.show(original)}: its saved copy is missing; leaving the existing path alone")
+                else:
+                    kept.append(f"missing backup {h.show(saved)} for {h.show(original)}")
             elif fs.exists(original):
                 kept.append(f"kept backup {h.show(saved)}: {h.show(original)} exists again")
             else:

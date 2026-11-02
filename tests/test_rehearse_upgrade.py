@@ -212,12 +212,15 @@ class ReleaseRehearsal(RehearsalFixture, unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn(f"PASS candidate: {self.candidate}", result.stdout)
 
-    def test_an_unfixed_install_and_uninstall_fail_both_link_preservation_verdicts(self):
-        for name in ("install", "uninstall"):
-            path = f"lib/mifal/{name}.py"
-            (self.repo / path).write_text(self.git(self.repo, "show", f"v0.3.1:{path}").stdout)
-            self.git(self.repo, "add", path)
-        self.git(self.repo, "commit", "-q", "--allow-empty", "-m", "restore the unfixed install and uninstall")
+    def test_an_uninstall_that_loses_a_backed_up_link_fails_both_verdicts(self):
+        path = self.repo / "lib/mifal/uninstall.py"
+        text = path.read_text()
+        target = '    fs.remove(h.manifest, f"remove {h.show(h.manifest)}")'
+        self.assertEqual(text.count(target), 1)
+        path.write_text(text.replace(target,
+                       '    fs.remove(h.home / ".claude/skills/rehearsal-new-skill")\n' + target))
+        self.git(self.repo, "add", "lib/mifal/uninstall.py")
+        self.git(self.repo, "commit", "-q", "-m", "remove the user link after restoring its backup")
         result = self.rehearse("v0.2.1")
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         self.assertRegex(result.stdout, r"(?m)^FAIL \(e\).*restored Claude link")

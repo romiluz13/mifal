@@ -1,5 +1,4 @@
-"""An agent's skills folder that is a link to a real folder in the person's home (fixture G2): the install writes its
-links there, keeps the person's link and folder, and uninstall removes only Mifal's links."""
+"""Claude skills-folder links are preserved; recorded skill links are removed and user-link backups restored."""
 
 import os
 import shutil
@@ -19,7 +18,7 @@ class HistoricalLinks(Sandbox):
                             "-c", "user.email=t@example.com", *args,
                             GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL="/dev/null").stdout.strip()
 
-    def test_old_user_and_mifal_links_keep_pointing_to_the_restored_user_skill(self):
+    def test_old_manifests_remove_claimed_links_as_the_known_limit(self):
         for tag in ("v0.3.0", "v0.3.1"):
             for original_link in (True, False):
                 with self.subTest(tag=tag, original_link=original_link):
@@ -55,15 +54,16 @@ class HistoricalLinks(Sandbox):
                     preview = self.mifal("uninstall", "--dry-run")
                     self.assertEqual(snapshot(self.home), preview_state)
                     result = self.mifal("uninstall")
-                    self.assertTrue(link.is_symlink(), result.stdout)
-                    self.assertEqual(os.readlink(link), str(skill.parent))
-                    self.assertIn("kept ~/.claude/skills/grilling", preview.stdout)
-                    self.assertIn("kept ~/.claude/skills/grilling", result.stdout)
-                    expected = dict(before, **{".claude/skills/grilling": "link:" + str(skill.parent)})
+                    self.assertFalse(os.path.lexists(link), result.stdout)
+                    self.assertIn("remove ~/.claude/skills/grilling", preview.stdout)
+                    self.assertIn("remove ~/.claude/skills/grilling", result.stdout)
+                    expected = dict(before)
+                    if original_link:
+                        del expected[".claude/skills/grilling"]
                     self.assertEqual(snapshot(self.home), expected)
-                    print("PASS historical link kept", tag, "user link" if original_link else "Mifal link")
-                    print(next(line for line in result.stdout.splitlines()
-                               if line.startswith("kept ~/.claude/skills/grilling")))
+                    print("KNOWN LIMIT" if original_link else "PASS Mifal link removed", tag,
+                          "link recorded as Mifal's removed; user's Pool skill restored")
+
 
 
 class G2(Sandbox):

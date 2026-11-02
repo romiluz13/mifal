@@ -70,11 +70,30 @@ class Uninstall(Sandbox):
     def test_a_colliding_skill_is_backed_up_and_restored(self):
         theirs = self.their_grilling()
         before = snapshot(self.home)
-        preview = self.install("--dry-run")
+        preview = self.install("--harness", "claude", "--dry-run")
         self.assertRegex(preview.stdout, r"backup ~/.agents/skills/grilling -> ~/.agents/mifal/backup/")
-        self.install()
+        self.install("--harness", "claude")
         self.assertNotEqual(theirs.read_text(), "a different grilling skill\n")
         self.mifal("uninstall")
+        self.assertEqual(snapshot(self.home), before)
+        self.install("--harness", "claude")
+        self.mifal("uninstall")
+        self.assertEqual(snapshot(self.home), before)
+
+    def test_two_claude_homes_restore_only_the_users_link(self):
+        skill = self.their_grilling().parent
+        first, second = self.home / ".claude", self.home / ".claude-second"
+        (first / "skills").mkdir(parents=True)
+        (first / "skills/grilling").symlink_to(skill)
+        second.mkdir()
+        before = snapshot(self.home)
+        self.install("--home", f"claude={first}", "--home", f"claude={second}")
+        installed = snapshot(self.home)
+        self.mifal("uninstall", "--dry-run")
+        self.assertEqual(snapshot(self.home), installed)
+        self.mifal("uninstall")
+        self.assertEqual(os.readlink(first / "skills/grilling"), str(skill))
+        self.assertFalse(os.path.lexists(second / "skills/grilling"))
         self.assertEqual(snapshot(self.home), before)
 
     def test_a_file_the_user_edited_is_kept(self):
@@ -148,6 +167,37 @@ def _uninstall_kill(line):
             roots[1].mkdir()
             (roots[1] / "skills").symlink_to("../.claude/skills")
         return [word for root in roots for word in ("--home", f"claude={root}")]
+
+    def test_a_retry_reports_one_existing_folder_without_claiming_it_was_restored(self):
+        flags = self.seed_links()
+        self.install(*flags)
+        log = self.root / "operations.jsonl"
+        self.mifal("uninstall", MIFAL_UNINSTALL_LOG=str(log))
+        point = next(index for index, line in map(json.loads, log.read_text().splitlines())
+                     if line == "remove ~/.agents/mifal/install-manifest.json")
+        self.setUp()
+        flags = self.seed_links()
+        before = snapshot(self.home)
+        self.install(*flags)
+        self.assertEqual(self.mifal("uninstall", check=False,
+                                   MIFAL_UNINSTALL_KILL=str(point)).returncode, 71)
+        result = self.clone_mifal("uninstall")
+        self.assertEqual(snapshot(self.home), before)
+        self.assertNotIn("missing backup", result.stdout)
+        lines = [line for line in result.stdout.splitlines()
+                 if line.startswith("kept ~/.agents/skills/grilling")]
+        self.assertEqual(lines, ["kept ~/.agents/skills/grilling: its saved copy is missing; leaving the existing path alone"])
+        self.assertNotIn("restored", "\n".join(lines))
+
+    def test_a_missing_original_and_saved_copy_are_reported(self):
+        self.seed_links()
+        self.install("--harness", "claude")
+        backup = next(e for e in self.manifest()["entries"]
+                      if e["kind"] == "backup" and e["path"].endswith("/skills/grilling"))
+        shutil.rmtree(backup["backup"])
+        shutil.rmtree(backup["path"])
+        result = self.clone_mifal("uninstall")
+        self.assertIn("missing backup", result.stdout)
 
     def test_every_restore_operation_and_manifest_removal_can_be_interrupted_and_rerun(self):
         self.check_interrupts(False)
