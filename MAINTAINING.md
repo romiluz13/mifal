@@ -52,13 +52,13 @@ The vendored `herdr` skill updates through `maint/upstream.py` like any other.
 2. Change the test first, then `harness.py`.
 3. The doctor re-checks the precedence rules Mifal knows on every run and reports the mismatches it recognises, with the fix; it does not start the agent or discover every change in its behaviour.
 
-| Agent | Rules file Mifal writes | Read first instead, when present | Skills |
-|---|---|---|---|
-| Claude Code | `$CLAUDE_CONFIG_DIR/CLAUDE.md` (a block that imports the Guide) | | links in `$CLAUDE_CONFIG_DIR/skills/` |
-| Codex | `$CODEX_HOME/AGENTS.md` | `AGENTS.override.md` | native |
-| Droid | `~/.factory/AGENTS.md` | | native |
-| Pi | `$PI_CODING_AGENT_DIR/AGENTS.md` | `AGENTS.override.md`, then `AGENTS.md`, `AGENTS.MD`, `CLAUDE.md`, `CLAUDE.MD` | native |
-| OpenCode | `AGENTS.md` in its config folder | `~/.claude/CLAUDE.md` is its fallback when its own file is absent, unless `OPENCODE_DISABLE_CLAUDE_CODE` or `..._PROMPT` is `true` or `1` | native |
+| Agent | Rules file Mifal writes | Read first instead, when present | Skills | Doctor skill-setting audit |
+|---|---|---|---|---|
+| Claude Code | `$CLAUDE_CONFIG_DIR/CLAUDE.md` (a block that imports the Guide) | | links in `$CLAUDE_CONFIG_DIR/skills/` | 2.1.316: `settings.json` skillOverrides |
+| Codex | `$CODEX_HOME/AGENTS.md` | `AGENTS.override.md` | native | 0.166.0: `config.toml` skills.config |
+| Droid | `~/.factory/AGENTS.md` | | native | 1.1.0: recorded Home's `settings.json` disabledSkills |
+| Pi | `$PI_CODING_AGENT_DIR/AGENTS.md` | `AGENTS.override.md`, then `AGENTS.md`, `AGENTS.MD`, `CLAUDE.md`, `CLAUDE.MD` | native | 1.4.0: `settings.json` skills and root skills-folder `.gitignore`, including the shared Pool |
+| OpenCode | `AGENTS.md` in its config folder | `~/.claude/CLAUDE.md` is its fallback when its own file is absent, unless `OPENCODE_DISABLE_CLAUDE_CODE` or `..._PROMPT` is `true` or `1` | native | 1.19.4: global `config.json` then `opencode.json`/`.jsonc`; overridden directory omits `config.json`; permission.skill |
 
 ## The routine
 

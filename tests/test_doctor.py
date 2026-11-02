@@ -2,6 +2,8 @@ import json
 import os
 import re
 import shutil
+import subprocess
+import time
 import unittest
 
 import test_update
@@ -13,9 +15,9 @@ HARNESSES = ("claude", "codex", "droid", "pi", "opencode")
 RULES = {"claude": ".claude/CLAUDE.md", "codex": ".codex/AGENTS.md", "droid": ".factory/AGENTS.md",
          "pi": ".pi/agent/AGENTS.md", "opencode": ".config/opencode/AGENTS.md"}
 NETWORK = ("curl", "wget", "git", "nc", "ssh")
-# Settings outside the declared Codex allowance, and credential, token and auth files.
-PRIVATE = (".claude/settings.json", ".claude/.credentials.json", ".codex/auth.json",
-           ".factory/settings.json", ".pi/agent/auth.json", ".config/opencode/opencode.json",
+# Credential, token and auth files; settings have a separate declared allowance.
+PRIVATE = (".claude/.credentials.json", ".codex/auth.json", ".factory/auth.json", ".factory/credentials.json",
+           ".pi/agent/auth.json", ".pi/agent/oauth.json", ".config/opencode/auth.json",
            ".local/share/opencode/auth.json", ".config/herdr/token")
 
 
@@ -408,7 +410,7 @@ class CodexSkillFilters(Doctor):
                 lines = self.filter_lines(result)
                 self.assertEqual(sum(line.startswith('WARN') for line in lines), warnings, result.stdout)
                 self.assertEqual('tdd: configured exclusion detected' in result.stdout, bool(warnings))
-                self.assertIn('open ' + str(config), log.read_text())
+                self.assertIn('open ' + str(target), log.read_text())
 
     def test_linked_config_to_credentials_is_unknown_without_reading_its_target(self):
         target = self.home / '.codex/auth.json'
@@ -452,8 +454,9 @@ class CodexSkillFilters(Doctor):
         result = self.run_cmd(PYTHON, '-B', '-I', self.clone / 'tests/helpers/audited_doctor.py', log,
                               self.home / '.agents/mifal/lib', config, check=False)
         self.filter_lines(result)
-        self.assertIn('points to a missing file; Codex 0.166.0 reads no settings from it; exclusions unknown',
+        self.assertIn('points to a missing file; Codex 0.166.0 reads no settings from it',
                       result.stdout)
+        self.assertNotIn('reads no settings from it; exclusions unknown', result.stdout)
         self.assertNotIn('open ' + str(config), log.read_text())
         self.assertRegex(result.stdout, r'Codex 0.166.0 reads no settings from it[^\n]*\n     fix: ')
 
@@ -536,8 +539,290 @@ class CodexSkillFilters(Doctor):
         self.assertEqual(result.stdout.count('fix: restore read access to ~/codex-linked/config.toml'), 1,
                          result.stdout)
 
+    def test_mode_zero_codex_home_reports_unknown_with_fix_without_traceback(self):
+        root = self.home / '.codex'
+        root.chmod(0)
+        self.addCleanup(root.chmod, 0o700)
+        result = self.doctor()
+        self.assertNotIn('Traceback', result.stdout + result.stderr)
+        self.assertRegex(result.stdout, r'(?m)^(WARN|FAIL) guide codex: .*unknown[^\n]*\n     fix: ')
+
+    def test_deep_toml_warns_without_traceback_on_both_doctor_parse_paths(self):
+        self.install()
+        root = self.home / '.codex'
+        for delivery in ('rules', 'config'):
+            with self.subTest(delivery=delivery):
+                if delivery == 'config':
+                    root = self.home / 'codex-key'
+                    root.mkdir()
+                    shared = self.home / 'shared.md'
+                    shared.write_text('Personal rules\n')
+                    (root / 'AGENTS.md').symlink_to(shared)
+                    self.install('--home', 'codex=' + str(root))
+                config = root / 'config.toml'
+                original = config.read_text() if config.exists() else None
+                config.write_text('a = ' + '[' * 100000 + ']' * 100000)
+                try:
+                    result = self.doctor()
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                    self.assertNotIn('Traceback', result.stdout + result.stderr)
+                    self.assertRegex(result.stdout, r'(?m)^WARN .*TOML[^\n]*\n     fix: .*repair.*TOML')
+                finally:
+                    if original is None:
+                        config.unlink()
+                    else:
+                        config.write_text(original)
+
+    def test_linked_config_delivered_guide_passes_when_key_is_intact(self):
+        root = self.home / 'codex-key'
+        root.mkdir()
+        shared = self.home / 'shared.md'
+        shared.write_text('Personal rules\n')
+        (root / 'AGENTS.md').symlink_to(shared)
+        self.install('--home', 'codex=' + str(root))
+        config = root / 'config.toml'
+        target = self.home / 'key.toml'
+        config.rename(target)
+        config.symlink_to(target)
+        result = self.doctor()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("PASS guide codex: Mifal's developer_instructions key in ~/codex-key/config.toml, as installed",
+                      result.stdout)
+        target.write_bytes(b'\xff')
+        result = self.doctor()
+        self.assertNotIn('Traceback', result.stdout + result.stderr)
+        self.assertIn('FAIL guide codex: ~/codex-key/config.toml is not UTF-8 TOML any more', result.stdout)
+
+
+class OtherSkillFilters(Doctor):
+    def test_maximum_accepted_skill_pattern_lists_finish_within_five_seconds(self):
+        self.install()
+        pi = ['!' + '*?' * 511 + 'x'] + ['!' + format(i, '06x') for i in range(1023)]
+        pi[-1] += 'x' * (8192 - sum(map(len, pi)))
+        opencode = {'*?' * 511 + 'xz': 'deny', **{format(i, '07x'): 'deny' for i in range(1022)}}
+        last = list(opencode)[-1]
+        padding = 8192 - len('skill') - sum(map(len, opencode))
+        opencode[last + 'x' * padding] = opencode.pop(last)
+        for name, data in (('pi', {'skills': pi}), ('opencode', {'permission': {'skill': opencode}})):
+            with self.subTest(agent=name):
+                config = self.home / RULES[name].rsplit('/', 1)[0] / (
+                    'opencode.json' if name == 'opencode' else 'settings.json')
+                config.write_text(json.dumps(data))
+                try:
+                    started = time.monotonic()
+                    result = subprocess.run(['/bin/bash', str(self.home / '.local/bin/mifal'), 'doctor'],
+                        cwd=self.root, env=self.env(), capture_output=True, text=True, timeout=5)
+                    elapsed = time.monotonic() - started
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                    self.assertNotIn('too large to check', result.stdout)
+                    self.assertNotIn('configured exclusion detected', result.stdout)
+                    print(f'{name} maximum accepted doctor: {elapsed:.3f}s')
+                finally:
+                    config.unlink()
+
+    def test_oversized_skill_patterns_and_lists_are_unknown_within_five_seconds(self):
+        self.install()
+        cases = (
+            ('pi', 'pattern', {'skills': ['!' + '*x' * 524287 + '*z']}),
+            ('pi', 'entries', {'skills': ['!nonexistent-' + str(i) + '*' for i in range(10000)]}),
+            ('pi', 'ignore-pattern', 'tdd/' + '*x' * 524287 + '*z'),
+            ('pi', 'ignore-entries', '\n'.join('nonexistent-' + str(i) + '*' for i in range(10000))),
+            ('opencode', 'literal', {'permission': {'skill': {'x' * (1024 * 1024): 'deny'}}}),
+            ('opencode', 'alternating', {'permission': {'skill': {'*x' * 524288: 'deny'}}}),
+            ('opencode', 'entries', {'permission': {'skill': {'nonexistent-' + str(i) + '*': 'deny' for i in range(10000)}}}))
+        for name, kind, data in cases:
+            with self.subTest(agent=name, kind=kind):
+                config = self.home / RULES[name].rsplit('/', 1)[0] / (
+                    'opencode.json' if name == 'opencode' else 'settings.json')
+                if kind.startswith('ignore-'):
+                    config = self.home / '.agents/skills/.gitignore'
+                config.write_text(data if isinstance(data, str) else json.dumps(data))
+                try:
+                    started = time.monotonic()
+                    result = subprocess.run(['/bin/bash', str(self.home / '.local/bin/mifal'), 'doctor'],
+                        cwd=self.root, env=self.env(), capture_output=True, text=True, timeout=5)
+                    elapsed = time.monotonic() - started
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                    self.assertRegex(result.stdout, r'(?m)^WARN skill filters .*too large to check.*exclusions unknown\n     fix: ')
+                    self.assertNotIn('configured exclusion detected', result.stdout)
+                    print(f'{name} {kind} size-bound doctor: {elapsed:.3f}s')
+                finally:
+                    config.unlink()
+
+    def test_pathological_skill_patterns_finish_doctor_within_five_seconds(self):
+        self.install()
+        for name, data in (
+                ('pi', {'skills': ['!' + '**/' * 25 + 'x']}),
+                ('opencode', {'permission': {'skill': {'*?' * 20 + 'x': 'deny'}}})):
+            with self.subTest(agent=name):
+                config = self.home / RULES[name].rsplit('/', 1)[0] / (
+                    'opencode.json' if name == 'opencode' else 'settings.json')
+                config.write_text(json.dumps(data))
+                try:
+                    started = time.monotonic()
+                    result = subprocess.run(['/bin/bash', str(self.home / '.local/bin/mifal'), 'doctor'],
+                        cwd=self.root, env=self.env(), capture_output=True, text=True, timeout=5)
+                    elapsed = time.monotonic() - started
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                    self.assertLess(elapsed, 5)
+                    self.assertNotIn('configured exclusion detected', result.stdout)
+                    print(f'{name} pathological doctor: {elapsed:.3f}s')
+                finally:
+                    config.unlink()
+
+    def setUp(self):
+        Sandbox.setUp(self)
+        self.herdr_schema(SCHEMA.read_text())
+        self.harness_fakes(*HARNESSES)
+        self.fake('agent-browser', 'exit 0')
+
+    def five_fixtures(self, name, version, key, hidden, filename='settings.json', variable=None):
+        self.install()
+        root = self.home / RULES[name].rsplit('/', 1)[0]
+        config = root / filename
+        hidden['unrelated'] = 'sk-secret-other-value'
+        config.write_text(json.dumps(hidden))
+        log = self.root / 'settings-audit.log'
+        allowed = [root / filename]
+        result = self.run_cmd(PYTHON, '-B', '-I', self.clone / 'tests/helpers/audited_doctor.py', log,
+                              self.home / '.agents/mifal/lib', *allowed, check=False)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertRegex(result.stdout, rf'WARN skill filters {name}: tdd: configured exclusion detected[^\n]*{filename}[^\n]*{key}')
+        self.assertRegex(result.stdout, r'configured exclusion detected[^\n]*\n     fix: ')
+        self.assertIn(version, result.stdout)
+        self.assertNotIn('sk-secret', result.stdout + result.stderr)
+        self.assertIn('open ' + str(config), log.read_text())
+        self.assertNotIn('connect ', log.read_text())
+        processes = [line for line in log.read_text().splitlines() if line.startswith('exec ')]
+        config.write_text('{"unrelated":"sk-secret-other-value"}')
+        clear_log = self.root / 'clear-audit.log'
+        clear = self.run_cmd(PYTHON, '-B', '-I', self.clone / 'tests/helpers/audited_doctor.py', clear_log,
+                             self.home / '.agents/mifal/lib', *allowed)
+        self.assertNotIn('configured exclusion detected', clear.stdout)
+        self.assertEqual(processes, [line for line in clear_log.read_text().splitlines() if line.startswith('exec ')])
+        if name == 'droid':
+            config.write_text('{/* ordinary comment */"unrelated":"https://sk-secret/"}')
+            commented = self.doctor()
+            self.assertEqual(commented.returncode, 0, commented.stdout + commented.stderr)
+            self.assertNotIn('WARN skill filters droid:', commented.stdout)
+            self.assertNotIn('sk-secret', commented.stdout + commented.stderr)
+        config.write_text('{bad json')
+        malformed = self.doctor()
+        self.assertEqual(malformed.returncode, 0, malformed.stdout + malformed.stderr)
+        self.assertRegex(malformed.stdout, rf'WARN skill filters {name}:.*unknown[^\n]*\n     fix: ')
+        self.assertNotIn('Traceback', malformed.stderr)
+        config.chmod(0)
+        try:
+            denied = self.doctor()
+            self.assertEqual(denied.returncode, 0, denied.stdout + denied.stderr)
+            self.assertRegex(denied.stdout, rf'WARN skill filters {name}:.*unknown[^\n]*\n     fix: ')
+            self.assertNotIn('Traceback', denied.stderr)
+        finally:
+            config.chmod(0o600)
+        self.setUp()
+        custom = self.home / ('custom-' + name)
+        if variable:
+            self.install(**{variable: str(custom)})
+        else:
+            self.install('--home', name + '=' + str(custom))
+        (custom / filename).write_text(json.dumps(hidden))
+        default = self.home / RULES[name].rsplit('/', 1)[0] / filename
+        default.parent.mkdir(parents=True, exist_ok=True)
+        default.write_text('{bad default must not be opened')
+        override_log = self.root / 'override-audit.log'
+        overridden = self.run_cmd(PYTHON, '-B', '-I', self.clone / 'tests/helpers/audited_doctor.py', override_log,
+                                 self.home / '.agents/mifal/lib', custom / filename, check=False)
+        self.assertEqual(overridden.returncode, 0, overridden.stdout + overridden.stderr)
+        self.assertIn('tdd: configured exclusion detected', overridden.stdout)
+        self.assertIn('custom-' + name, overridden.stdout)
+        self.assertNotIn('open ' + str(default) + '\n', override_log.read_text())
+        self.assertNotIn('sk-secret', overridden.stdout + overridden.stderr)
+
+    def test_claude_five_user_settings_fixtures(self):
+        self.five_fixtures('claude', 'Claude Code 2.1.316', 'skillOverrides',
+                           {'skillOverrides': {'tdd': 'off'}}, variable='CLAUDE_CONFIG_DIR')
+
+    def test_droid_five_user_settings_fixtures(self):
+        self.five_fixtures('droid', 'Droid 1.1.0', 'disabledSkills', {'disabledSkills': ['TDD']})
+
+    def test_pi_five_user_settings_fixtures(self):
+        self.five_fixtures('pi', 'Pi 1.4.0', 'skills', {'skills': ['!tdd']}, variable='PI_CODING_AGENT_DIR')
+
+    def test_opencode_five_user_settings_fixtures(self):
+        self.five_fixtures('opencode', 'OpenCode 1.19.4', 'permission.skill',
+                           {'permission': {'skill': {'t*': 'deny'}}}, 'opencode.json', 'OPENCODE_CONFIG_DIR')
+
+    def test_all_five_plain_homes_keep_the_baseline_warn_set_and_state_coverage(self):
+        self.install()
+        for have_settings in (False, True):
+            if have_settings:
+                for name in HARNESSES:
+                    root = self.home / RULES[name].rsplit('/', 1)[0]
+                    (root / ('config.toml' if name == 'codex' else 'opencode.json' if name == 'opencode' else 'settings.json')).write_text(
+                        'model = "sk-secret"' if name == 'codex' else '{"unrelated":"sk-secret"}')
+            result = self.doctor()
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual([line for line in result.stdout.splitlines() if line.startswith('WARN')],
+                             ['WARN engine: completeness could not be checked: the Manifest records no clone or revision'])
+            for name, version in zip(HARNESSES, ('Claude Code 2.1.316', 'Codex 0.166.0', 'Droid 1.1.0', 'Pi 1.4.0', 'OpenCode 1.19.4')):
+                self.assertRegex(result.stdout, rf'note skill filters {name}:.*supports {re.escape(version)}')
+            self.assertNotIn('sk-secret', result.stdout + result.stderr)
+
+    def test_pi_gitignore_reads_are_declared_and_failures_are_unknown(self):
+        self.install()
+        ignore = self.home / '.agents/skills/.gitignore'
+        ignore.write_text('TDD/\n!tdd/SKILL.md\n')
+        log = self.root / 'ignore-audit.log'
+        result = self.run_cmd(PYTHON, '-B', '-I', self.clone / 'tests/helpers/audited_doctor.py', log,
+                              self.home / '.agents/mifal/lib', ignore)
+        self.assertRegex(result.stdout, r'WARN skill filters pi: tdd: configured exclusion detected[^\n]*\.gitignore')
+        self.assertIn('open ' + str(ignore), log.read_text())
+        ignore.write_text('tdd/\n!tdd/\n')
+        self.assertNotIn('configured exclusion detected', self.doctor().stdout)
+        ignore.write_bytes(b'\xff')
+        self.assertRegex(self.doctor().stdout, r'WARN skill filters pi:.*UTF-8.*unknown')
+        ignore.chmod(0)
+        try:
+            result = self.doctor()
+            self.assertRegex(result.stdout, r'WARN skill filters pi:.*cannot be read.*unknown[^\n]*\n     fix: ')
+            self.assertNotIn('Traceback', result.stderr)
+        finally:
+            ignore.chmod(0o600)
+
 
 class AuditGuards(Doctor):
+    def test_credentials_in_each_recorded_custom_home_are_independently_refused(self):
+        paths, args = [], []
+        for name in HARNESSES:
+            root = self.home / ('alternate-' + name)
+            args.extend(['--home', name + '=' + str(root)])
+            paths.append(root / ('.credentials.json' if name == 'claude' else 'auth.json'))
+        self.install(*args)
+        configs = [os.path.join(rec['root'], 'config.toml') for rec in self.manifest()['harnesses']['codex']
+                   if rec['status'] == 'wired']
+        for path in paths:
+            with self.subTest(path=path.name):
+                path.write_text('placeholder')
+                result = self.probe('print("doctor reached the probe")\nopen(' + repr(str(path)) + ').read()', configs)
+                self.assertIn('doctor reached the probe', result.stdout)
+                self.assertIn('forbidden settings or credential read', result.stderr)
+
+    def test_new_settings_names_are_forbidden_without_a_declared_allowance(self):
+        for rel in ('.config/opencode/config.json', '.config/opencode/opencode.jsonc', '.agents/skills/.gitignore'):
+            with self.subTest(path=rel):
+                path = self.home / rel
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text('{}')
+                self.probe('open(' + repr(str(path)) + ').read()')
+                path.unlink()
+
+    def test_new_agent_credentials_are_independently_refused(self):
+        for rel in ('.factory/auth.json', '.factory/credentials.json', '.pi/agent/oauth.json', '.config/opencode/auth.json'):
+            with self.subTest(path=rel):
+                path = self.home / rel
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text('placeholder')
+                self.probe('open(' + repr(str(path)) + ').read()')
     def test_audit_independently_refuses_review_306_credential_fixtures(self):
         for rel in ('.aws/credentials', '.claude.json', '.netrc', '.config/gh/hosts.yml', '.ssh/id_ed25519'):
             with self.subTest(path=rel):
@@ -546,11 +831,12 @@ class AuditGuards(Doctor):
                 path.write_text('placeholder\n')
                 self.probe('open(' + repr(str(path)) + ').read()')
 
-    def probe(self, operation):
+    def probe(self, operation, config=None):
         helper = str(self.clone / 'tests/helpers/audited_doctor.py')
         log = self.root / 'probe-audit.log'
+        configs = config if isinstance(config, list) else [config or self.home / '.codex/config.toml']
         argv = [helper, str(log), str(self.home / '.agents/mifal/lib'),
-                str(self.home / '.codex/config.toml')]
+                *map(str, configs)]
         script = ('import runpy, sys\nsys.argv = ' + repr(argv) + '\n'
                   'try:\n    runpy.run_path(sys.argv[0])\n'
                   'except SystemExit as e:\n    assert e.code == 0\n' + operation)
@@ -579,7 +865,7 @@ class AuditGuards(Doctor):
         self.assertIn('resolved target read', result.stdout)
 
     def test_audit_refuses_credentials_and_undeclared_settings_even_through_a_link(self):
-        for rel in PRIVATE:
+        for rel in PRIVATE + ('.claude/settings.json', '.factory/settings.json', '.config/opencode/opencode.json'):
             path = self.home / rel
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text('secret\n')
