@@ -91,7 +91,7 @@ class Readme(Sandbox):
     def test_the_support_section_states_its_limits(self):
         section = support_section(text())
         for phrase in ("entry gate", "edited before asking", "not a measure of reliability",
-                       "experimental", "fake agents", "invisible to `mifal doctor`", "`disabledSkills`",
+                       "experimental", "fake agents", "audited passively by `mifal doctor`", "`disabledSkills`",
                        "`[[skills.config]]`", "`permission.skill`", "no sandbox or isolation",
                        "not live-checked", "never edits or runs a hook"):
             with self.subTest(phrase=phrase):
