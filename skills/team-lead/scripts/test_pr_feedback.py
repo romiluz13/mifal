@@ -30,6 +30,31 @@ if "stdout" in scenario:
     sys.stdout.write(scenario["stdout"])
 elif sys.argv[1:3] == ["pr", "view"]:
     sys.stdout.write(json.dumps(scenario["pr_view"]))
+elif sys.argv[1:3] == ["api", "graphql"] and scenario.get("endless"):
+    cursor = next((a[len("cursor=c"):] for a in sys.argv[3:] if a.startswith("cursor=")), "0")
+    connection = {"pageInfo": {"hasNextPage": True, "endCursor": f"c{int(cursor) + 1}"}, "nodes": []}
+    sys.stdout.write(json.dumps({"data": {"repository": {"pullRequest": {"reviewThreads": connection}}}}))
+elif sys.argv[1:3] == ["api", "graphql"]:
+    cursor = next((a[len("cursor="):] for a in sys.argv[3:] if a.startswith("cursor=")), "")
+    if scenario.get("graphql_exit"):
+        sys.stderr.write(scenario.get("graphql_stderr", ""))
+        sys.exit(scenario["graphql_exit"])
+    if "graphql_raw" in scenario:
+        sys.stdout.write(json.dumps(scenario["graphql_raw"][cursor]))
+        sys.exit(0)
+    pages = scenario.get("threads")
+    if pages is None:
+        roots = {}
+        for page in scenario.get("review_comment_pages", [[]]):
+            for c in page:
+                roots.setdefault(c.get("in_reply_to_id") or c["id"], []).append(c["id"])
+        pages = [{"threads": [{"resolved": False, "ids": ids} for ids in roots.values()]}]
+    page = pages[0 if not cursor else [p.get("next") for p in pages].index(cursor) + 1]
+    nodes = [{"isResolved": t["resolved"], "comments": {"nodes": [{"fullDatabaseId": str(t["ids"][0])}]}}
+             for t in page["threads"]]
+    connection = {"pageInfo": {"hasNextPage": page.get("next") is not None, "endCursor": page.get("next")},
+                  "nodes": nodes}
+    sys.stdout.write(json.dumps({"data": {"repository": {"pullRequest": {"reviewThreads": connection}}}}))
 elif sys.argv[1:2] == ["api"]:
     sys.stdout.write(json.dumps(scenario.get("review_comment_pages", [[]])))
 '''
@@ -40,7 +65,13 @@ ALLOWED = [
     re.compile(r"pr view [1-9][0-9]* --repo [A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9._-]+ --json [a-zA-Z,]+"),
     re.compile(r"api --method GET repos/[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9._-]+/pulls/[1-9][0-9]*"
                r"/comments\?per_page=100 --paginate --slurp"),
+    re.compile(r"api graphql -f query=query\(\$owner: String!, \$name: String!, \$number: Int!, \$cursor: String\) "
+               r"\{ repository\(owner: \$owner, name: \$name\) \{ pullRequest\(number: \$number\) \{ "
+               r"reviewThreads\(first: 100, after: \$cursor\) \{[a-zA-Z(): 0-9{}]+\} \} \} \} "
+               r"-f owner=[A-Za-z0-9][A-Za-z0-9._-]* -f name=[A-Za-z0-9._-]+ -F number=[1-9][0-9]*"
+               r"( -f cursor=[A-Za-z0-9+/=_-]+)?"),
 ]
+NEXT_CURSOR = "Y3Vyc29yOnYyOpHOAQ=="
 
 
 def check(name, conclusion="FAILURE", workflow="test", status="COMPLETED", run=1):
@@ -106,14 +137,18 @@ class Fake:
         return subprocess.run([sys.executable, "-I", str(SCRIPT), *args], capture_output=True, text=True,
                               encoding="utf-8", errors="strict", env=self.env(path), timeout=60)
 
+    def holds(self, extra):
+        return extra if "--held" in extra else (*extra, "--no-held")
+
     def read(self, *extra):
-        result = self.run("read", "--repo", REPO, "--pr", "7", "--record", str(self.record), "--json", *extra)
+        result = self.run("read", "--repo", REPO, "--pr", "7", "--record", str(self.record), "--json",
+                          *self.holds(extra))
         if result.returncode != 0:
             raise AssertionError(result.stdout + result.stderr)
         return json.loads(result.stdout)
 
     def attempt(self, chain, *extra):
-        return self.run("attempt", "--record", str(self.record), "--chain", chain, *extra)
+        return self.run("attempt", "--record", str(self.record), "--chain", chain, *self.holds(extra))
 
     def assign(self, chain, ticket):
         return self.run("assign", "--record", str(self.record), "--chain", chain, "--ticket", ticket)
@@ -134,7 +169,7 @@ class PrFeedbackTest(unittest.TestCase):
         second = self.gh.read()
         self.assertEqual(second["items"], [], "a re-run of the same check on the same head is the same item")
         self.assertEqual(second["counts"]["already_recorded"], 2)
-        status = self.gh.run("status", "--record", str(self.gh.record))
+        status = self.gh.run("status", "--record", str(self.gh.record), "--no-held")
         self.assertEqual(status.returncode, 0, status.stderr)
         self.assertEqual(status.stdout.count("CHAIN "), 2, status.stdout)
 
@@ -149,7 +184,7 @@ class PrFeedbackTest(unittest.TestCase):
         self.assertEqual((lint["head"], lint["still_failing_since"], lint["attempts"]), (HEAD2, None, 0))
         self.assertEqual((unit["head"], unit["chain"], unit["still_failing_since"]), (HEAD2, "check:test/unit", HEAD1))
         self.assertEqual((unit["attempts"], unit["ticket"]), (1, "09"), "the same check on a new head keeps its count")
-        text = self.gh.run("read", "--repo", REPO, "--pr", "7", "--record", str(self.gh.record))
+        text = self.gh.run("read", "--repo", REPO, "--pr", "7", "--record", str(self.gh.record), "--no-held")
         self.assertIn("new 0, already recorded 2", text.stdout)
 
     def test_two_checks_whose_names_differ_only_around_a_slash_stay_two_chains(self):
@@ -182,11 +217,125 @@ class PrFeedbackTest(unittest.TestCase):
         replies = {i["identity"]: i["chain"] for i in out["items"] if i["kind"] == "review-comment"}
         self.assertEqual(replies, {"review-comment:501": "thread:501", "review-comment:502": "thread:501"})
 
+    def test_a_comment_in_a_thread_resolved_on_github_is_not_new_work(self):
+        self.gh.set(pr_view=pr(HEAD1),
+                    review_comment_pages=[[inline(501, "fix this"), inline(502, "fix this", reply_to=501),
+                                           inline(503, "rename y")]],
+                    threads=[{"threads": [{"resolved": True, "ids": [501, 502]}], "next": NEXT_CURSOR},
+                             {"threads": [{"resolved": False, "ids": [503]}]}])
+        out = self.gh.read()
+        self.assertEqual([i["identity"] for i in out["items"]], ["review-comment:503"])
+        self.assertEqual(out["counts"]["resolved"], 2)
+        queries = [c for c in self.gh.calls() if c[:2] == ["api", "graphql"]]
+        self.assertEqual([c[-1] for c in queries], ["number=7", "cursor=" + NEXT_CURSOR], "every page is read")
+        text = self.gh.run("read", "--repo", REPO, "--pr", "7", "--record", str(self.gh.record), "--no-held").stdout
+        self.assertNotIn("still shows once", text)
+        self.gh.set(pr_view=pr(HEAD1),
+                    review_comment_pages=[[inline(501, "fix this"), inline(502, "fix this", reply_to=501),
+                                           inline(503, "rename y")]],
+                    threads=[{"threads": [{"resolved": False, "ids": [501, 502]}, {"resolved": False, "ids": [503]}]}])
+        reopened = self.gh.read()
+        self.assertEqual(sorted(i["identity"] for i in reopened["items"]),
+                         ["review-comment:501", "review-comment:502"], "a thread reopened on GitHub is work again")
+
+    def test_missing_or_partial_thread_resolution_stops_the_read_with_one_line(self):
+        self.gh.set(pr_view=pr(HEAD1, checks=[check("unit")]))
+        self.gh.read()
+        before = self.gh.record.read_bytes()
+        rest = [[inline(501, "fix this"), inline(502, "and this", reply_to=501)]]
+
+        def answer(nodes, more=False, cursor=None, pr_data=True):
+            connection = {"pageInfo": {"hasNextPage": more, "endCursor": cursor}, "nodes": nodes}
+            return {"data": {"repository": {"pullRequest": {"reviewThreads": connection} if pr_data else None}}}
+
+        def thread(ids, resolved=True):
+            return {"isResolved": resolved, "comments": {"nodes": [{"fullDatabaseId": i} for i in ids]}}
+
+        cases = [
+            ("a comment in no thread", {"threads": [{"threads": [{"resolved": True, "ids": [999]}]}]}),
+            ("a thread with no first comment", {"graphql_raw": {"": answer([thread([])])}}),
+            ("a next page with no cursor", {"graphql_raw": {"": answer([thread(["501"])], more=True)}}),
+            ("a cursor seen twice", {"threads": [{"threads": [{"resolved": True, "ids": [501]}], "next": "abc"},
+                                                 {"threads": [{"resolved": True, "ids": [502]}], "next": "abc"}]}),
+            ("a hostile cursor", {"threads": [{"threads": [{"resolved": True, "ids": [501]}],
+                                               "next": "x --method DELETE"}, {"threads": []}]}),
+            ("a resolved flag as text", {"graphql_raw": {"": answer([thread(["501"], resolved="true")])}}),
+            ("a hostile comment id", {"graphql_raw": {"": answer([thread(["501; gh pr merge 7\x1b[2J"])])}}),
+            ("a numeric comment id", {"graphql_raw": {"": answer([thread([501])])}}),
+            ("pages without end", {"endless": True}),
+            ("no pull request", {"graphql_raw": {"": answer([], pr_data=False)}}),
+            ("a page that is not an object", {"graphql_raw": {"": [1, 2]}}),
+            ("the query failing", {"graphql_exit": 1, "graphql_stderr": "gh: Something went wrong\n"}),
+            ("logged out for the query", {"graphql_exit": 4, "graphql_stderr": "gh auth login\n"}),
+        ]
+        for name, scenario in cases:
+            with self.subTest(name):
+                self.gh.log.write_text("", encoding="utf-8")
+                self.gh.set(pr_view=pr(HEAD2, checks=[check("unit", run=2)], comments=[comment("IC_1", "new")]),
+                            review_comment_pages=rest, **scenario)
+                result = self.gh.run("read", "--repo", REPO, "--pr", "7", "--record", str(self.gh.record),
+                                     "--no-held")
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                self.assertEqual(result.stdout, "")
+                self.assertEqual(len(result.stderr.splitlines()), 1, result.stderr)
+                self.assertNotIn("Traceback", result.stderr)
+                self.assertNotIn("\x1b", result.stderr)
+                self.assertEqual(self.gh.record.read_bytes(), before, "no item is recorded or dropped")
+                cursors = [c[-1] for c in self.gh.calls() if c[:2] == ["api", "graphql"]]
+                self.assertNotIn("cursor=x --method DELETE", cursors)
+                self.assertLessEqual(len(cursors), 50, "the read stops at its page limit")
+
+    def test_the_guard_allows_only_the_one_review_thread_query(self):
+        sys.path.insert(0, str(HERE))
+        self.addCleanup(sys.path.remove, str(HERE))
+        import pr_feedback
+
+        self.gh.set(pr_view=pr(HEAD1), review_comment_pages=[[inline(501, "fix this")]])
+        self.gh.read()
+        query = next(c for c in self.gh.calls() if c[:2] == ["api", "graphql"])
+        self.assertTrue(any(p.fullmatch(" ".join(query)) for p in ALLOWED), query)
+        self.assertTrue(query[3].startswith("query=query("), query[3])
+        self.assertNotRegex(query[3], r"(?i)\b(mutation|subscription)\b|\b(add|update|delete|remove|resolve|unresolve"
+                                      r"|submit|dismiss|merge|close|mark|minimize)[A-Z]")
+        self.assertTrue(pr_feedback.gh_argv_allowed(query))
+        self.assertTrue(pr_feedback.gh_argv_allowed(query + ["-f", "cursor=" + NEXT_CURSOR]))
+        swap = query[:4] + ["-f", "name=widgets", "-f", "owner=acme"] + query[8:]
+        refused = [
+            query[:3] + ["query=mutation { resolveReviewThread(input: {threadId: \"x\"}) { clientMutationId } }"]
+            + query[4:],
+            query[:3] + [query[3] + " mutation { x }"] + query[4:], query[:3] + [query[3][:-2]] + query[4:],
+            query + ["-f", "cursor=x --method DELETE"], query + ["-f", "cursor=@/etc/passwd"],
+            query + ["-f", "cursor=a\nb"], query + ["-F", "cursor=abc"], query + ["-f", "cursor="],
+            query + ["--method", "POST"], query + ["-X", "DELETE"], query + ["--input", "x"],
+            query + ["-H", "X: y"], query + ["--hostname", "evil.example"], query + ["-f", "operationName=x"],
+            query + ["-f", "cursor=abc", "-f", "cursor=def"], swap,
+            query[:5] + ["owner=acme/x"] + query[6:], query[:5] + ["owner=@/etc/passwd"] + query[6:],
+            query[:5] + ["owner=.."] + query[6:], query[:7] + ["name=.."] + query[8:],
+            query[:7] + ["name=widgets --method DELETE"] + query[8:], query[:8] + ["-f"] + query[9:],
+            query[:9] + ["number=0"], query[:9] + ["number=@x"], query[:9] + ["number=7; gh pr merge 7"],
+            query[:8] + ["-F", "number=07"], ["api", "--method", "GET", "graphql"] + query[2:],
+            ["api", "graphql"] + query[4:], query[:-2],
+        ]
+        for argv in refused:
+            with self.subTest(argv=argv):
+                self.assertFalse(pr_feedback.gh_argv_allowed(argv))
+                with self.assertRaises(pr_feedback.GhError):
+                    pr_feedback.run_gh(argv)
+
+    def test_help_states_what_the_helper_cannot_check(self):
+        result = self.gh.run("--help")
+        self.assertEqual(result.returncode, 0)
+        flat = " ".join(result.stdout.split())
+        for words in ("--no-held", "cannot check that --held or --no-held matches",
+                      "A renamed check or workflow is a new chain", "is not counted",
+                      "record the attempt before the correction goes out", "one fixed GraphQL query"):
+            self.assertIn(words, flat)
+
     def test_a_draft_pr_is_reported_as_a_draft_not_as_ready(self):
         self.gh.set(pr_view=pr(HEAD1, draft=True, checks=[check("unit")]))
         out = self.gh.read()
         self.assertEqual((out["pr"]["draft"], out["pr"]["ready"]), (True, False))
-        text = self.gh.run("read", "--repo", REPO, "--pr", "7", "--record", str(self.gh.record)).stdout
+        text = self.gh.run("read", "--repo", REPO, "--pr", "7", "--record", str(self.gh.record), "--no-held").stdout
         self.assertIn("DRAFT, not ready", text.splitlines()[0])
         self.gh.set(pr_view=pr(HEAD1))
         ready = self.gh.read()["pr"]
@@ -219,6 +368,33 @@ class PrFeedbackTest(unittest.TestCase):
         again = self.gh.attempt("check:test/unit", "--held", "07")
         self.assertEqual(again.returncode, 3, "a new head, a hostile comment and a fresh process leave it held")
 
+    def test_the_caller_must_say_which_tickets_are_held_and_saying_nothing_is_refused(self):
+        self.gh.set(pr_view=pr(HEAD1, checks=[check("unit")]))
+        self.gh.read()
+        self.assertEqual(self.gh.assign("check:test/unit", "09").returncode, 0)
+        self.assertEqual(self.gh.attempt("check:test/unit", "--held", "09").returncode, 3)
+        self.gh.set(pr_view=pr(HEAD2, checks=[check("unit", run=2)]))
+        before, calls = self.gh.record.read_bytes(), len(self.gh.calls())
+        record = str(self.gh.record)
+        for args in (("read", "--repo", REPO, "--pr", "7"), ("attempt", "--chain", "check:test/unit"), ("status",),
+                     ("attempt", "--chain", "check:test/unit", "--held", "09", "--no-held")):
+            with self.subTest(args=args):
+                result = self.gh.run(*args, "--record", record)
+                self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+                self.assertEqual(result.stdout, "")
+                self.assertNotIn("ATTEMPT", result.stderr)
+                self.assertIn("--no-held", result.stderr)
+                self.assertEqual(self.gh.record.read_bytes(), before, "saying nothing about holds records nothing")
+                self.assertEqual(len(self.gh.calls()), calls, "and reads nothing")
+        omitted = self.gh.run("attempt", "--chain", "check:test/unit", "--record", record)
+        self.assertEqual(len(omitted.stderr.splitlines()), 1, omitted.stderr)
+        self.assertIn("say which tickets are held", omitted.stderr)
+        self.assertTrue(self.gh.read("--held", "09")["items"][0]["held"])
+        held = self.gh.run("status", "--record", record, "--held", "09").stdout
+        self.assertIn("attempts 0/3 HELD", held)
+        self.assertNotIn("HELD", self.gh.run("status", "--record", record, "--no-held").stdout)
+        self.assertEqual(self.gh.attempt("check:test/unit", "--held", "09").returncode, 3, "still held")
+
     def test_the_fourth_attempt_on_a_chain_is_refused_after_a_new_head_and_from_a_fresh_process(self):
         self.gh.set(pr_view=pr(HEAD1, checks=[check("unit")]))
         self.gh.read()
@@ -245,7 +421,7 @@ class PrFeedbackTest(unittest.TestCase):
         for head in (HEAD2, HEAD3):
             self.gh.set(pr_view=pr(head, comments=[comment("IC_1", "handle the empty list")]))
             self.assertEqual(self.gh.read()["items"], [], "a comment does not become new work because commits landed")
-        status = self.gh.run("status", "--record", str(self.gh.record)).stdout
+        status = self.gh.run("status", "--record", str(self.gh.record), "--no-held").stdout
         self.assertIn('CHAIN "comment:IC_1" ticket "09" attempts 1/3', status)
 
     def test_two_processes_attempting_at_once_never_exceed_the_cap(self):
@@ -253,7 +429,8 @@ class PrFeedbackTest(unittest.TestCase):
         self.gh.read()
         self.assertEqual(self.gh.assign("check:test/unit", "09").returncode, 0)
         procs = [subprocess.Popen([sys.executable, "-I", str(SCRIPT), "attempt", "--record", str(self.gh.record),
-                                   "--chain", "check:test/unit"], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                   "--chain", "check:test/unit", "--no-held"], stdout=subprocess.PIPE,
+                                  stderr=subprocess.PIPE,
                                   env=self.gh.env()) for _ in range(6)]
         codes = sorted(p.wait(timeout=60) for p in procs)
         for p in procs:
@@ -273,7 +450,8 @@ class PrFeedbackTest(unittest.TestCase):
         with open(str(self.gh.record) + ".lock", "a") as lock:
             fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
             waiting = subprocess.Popen([sys.executable, "-I", str(SCRIPT), "attempt", "--record", str(self.gh.record),
-                                        "--chain", "check:test/unit"], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                        "--chain", "check:test/unit", "--no-held"], stdout=subprocess.PIPE,
+                                       stderr=subprocess.PIPE,
                                        env=self.gh.env())
             self.addCleanup(waiting.kill)
             with self.assertRaises(subprocess.TimeoutExpired):
@@ -289,14 +467,16 @@ class PrFeedbackTest(unittest.TestCase):
         self.gh.read()
         for hostile in ["7; gh pr merge 7", "7 --web", "-1", "0", "7)", "$(id)", "1e3", "--admin", " 7", "٧"]:
             with self.subTest(pr=hostile):
-                result = self.gh.run("read", "--repo", REPO, "--pr", hostile, "--record", str(self.gh.record))
+                result = self.gh.run("read", "--repo", REPO, "--pr", hostile, "--record", str(self.gh.record),
+                                     "--no-held")
                 self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
         for hostile in ["acme/widgets --method POST", "-R/x", "acme/../x", "acme", "acme/widgets/pulls", "acme/.."]:
             with self.subTest(repo=hostile):
-                result = self.gh.run("read", "--repo", hostile, "--pr", "7", "--record", str(self.gh.record))
+                result = self.gh.run("read", "--repo", hostile, "--pr", "7", "--record", str(self.gh.record),
+                                     "--no-held")
                 self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
         calls = self.gh.calls()
-        self.assertEqual(len(calls), 2, calls)
+        self.assertEqual(len(calls), 3, calls)
         for argv in calls:
             self.assertTrue(any(p.fullmatch(" ".join(argv)) for p in ALLOWED), argv)
 
@@ -361,7 +541,7 @@ class PrFeedbackTest(unittest.TestCase):
             out["items"][0].pop("text")
         self.assertEqual(hostile, benign)
         self.assertEqual((h_assign, h_refused), (b_assign, b_refused))
-        self.assertIn(json.dumps(HOSTILE), gh.run("status", "--record", str(gh.record)).stdout,
+        self.assertIn(json.dumps(HOSTILE), gh.run("status", "--record", str(gh.record), "--no-held").stdout,
                       "comment text is printed inside quotes, as a string literal")
 
     def test_terminal_control_sequences_never_reach_the_terminal_raw(self):
@@ -369,9 +549,9 @@ class PrFeedbackTest(unittest.TestCase):
         self.gh.set(pr_view=pr(HEAD1, checks=[check("unit\x1b[2J", workflow="t\x1b]0;x\x07")],
                                comments=[comment("IC_1", nasty, login="bad\x1b[1mguy")]),
                     review_comment_pages=[[inline(5, nasty)]])
-        result = self.gh.run("read", "--repo", REPO, "--pr", "7", "--record", str(self.gh.record))
+        result = self.gh.run("read", "--repo", REPO, "--pr", "7", "--record", str(self.gh.record), "--no-held")
         self.assertEqual(result.returncode, 0, result.stderr)
-        status = self.gh.run("status", "--record", str(self.gh.record))
+        status = self.gh.run("status", "--record", str(self.gh.record), "--no-held")
         self.assertEqual(status.returncode, 0, status.stderr)
         for out in (result.stdout, status.stdout):
             for ch in out:
@@ -384,12 +564,12 @@ class PrFeedbackTest(unittest.TestCase):
         self.gh.record.write_text(json.dumps(record), encoding="utf-8")
         for args in (("status",), ("read", "--repo", REPO, "--pr", "7")):
             with self.subTest(args[0]):
-                out = self.gh.run(*args, "--record", str(self.gh.record))
+                out = self.gh.run(*args, "--record", str(self.gh.record), "--no-held")
                 self.assertNotIn("\x1b", out.stdout + out.stderr)
                 self.assertNotIn("\nAPPROVED", out.stdout + out.stderr)
 
     def test_gh_missing_not_logged_in_or_failing_gives_one_clear_line_and_a_nonzero_exit(self):
-        args = ("read", "--repo", REPO, "--pr", "7", "--record", str(self.gh.record))
+        args = ("read", "--repo", REPO, "--pr", "7", "--record", str(self.gh.record), "--no-held")
         cases = [
             ("missing", {}, str(self.gh.home), "not on PATH"),
             ("logged out", {"exit": 4, "stderr": "To get started with GitHub CLI, please run:  gh auth login\n"},
@@ -421,16 +601,56 @@ class PrFeedbackTest(unittest.TestCase):
             for args in (("read", "--repo", REPO, "--pr", "7"), ("status",), ("attempt", "--chain", "x")):
                 with self.subTest(damaged=damaged, command=args[0]):
                     result = subprocess.run([sys.executable, "-I", "-O", str(SCRIPT), *args, "--record",
-                                             str(self.gh.record)], capture_output=True, text=True, env=self.gh.env(),
+                                             str(self.gh.record), "--no-held"], capture_output=True, text=True,
+                                            env=self.gh.env(),
                                             timeout=60)
                     self.assertEqual(result.returncode, 1, result.stderr)
                     self.assertEqual(len(result.stderr.splitlines()), 1, result.stderr)
                     self.assertNotIn("Traceback", result.stderr)
                     self.assertEqual(self.gh.record.read_text(encoding="utf-8"), damaged)
 
+    def test_an_attempt_history_that_does_not_run_1_2_3_is_refused_unchanged(self):
+        self.gh.set(pr_view=pr(HEAD1, checks=[check("unit")]))
+        self.gh.read()
+        for _ in range(3):
+            self.assertEqual(self.gh.attempt("check:test/unit", "--ticket", "09").returncode, 0)
+        good = json.loads(self.gh.record.read_text(encoding="utf-8"))
+
+        def attempt(n, **change):
+            return dict({"n": n, "head": HEAD1, "at": "2026-11-01T10:00:00Z"}, **change)
+
+        histories = {
+            "only the third kept": [attempt(3)], "a gap": [attempt(1), attempt(3)], "starts at 2": [attempt(2)],
+            "a repeat": [attempt(1), attempt(1)], "out of order": [attempt(2), attempt(1)],
+            "past the cap": [attempt(n) for n in (1, 2, 3, 4)], "a number as text": [attempt("1")],
+            "a number as true": [attempt(True)], "no number": [{"head": HEAD1, "at": "2026-11-01T10:00:00Z"}],
+            "no head": [{"n": 1, "at": "2026-11-01T10:00:00Z"}], "head not text": [attempt(1, head=None)],
+            "no time": [{"n": 1, "head": HEAD1}], "not an object": [1],
+        }
+        for name, history in histories.items():
+            good["chains"]["check:test/unit"]["attempts"] = history
+            damaged = json.dumps(good)
+            self.gh.record.write_text(damaged, encoding="utf-8")
+            commands = [("attempt", "--chain", "check:test/unit")]
+            if name == "only the third kept":
+                commands += [("read", "--repo", REPO, "--pr", "7"), ("status",)]
+            for args in commands:
+                with self.subTest(history=name, command=args[0]):
+                    result = self.gh.run(*args, "--record", str(self.gh.record), "--no-held")
+                    self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                    self.assertEqual(result.stdout, "")
+                    self.assertEqual(len(result.stderr.splitlines()), 1, result.stderr)
+                    self.assertIn("check:test/unit", result.stderr)
+                    self.assertIn("ask the human", result.stderr)
+                    self.assertNotIn("new record", result.stderr, "a fresh record is no way out of the cap")
+                    self.assertEqual(self.gh.record.read_text(encoding="utf-8"), damaged)
+        good["chains"]["check:test/unit"]["attempts"] = [attempt(1), attempt(2)]
+        self.gh.record.write_text(json.dumps(good), encoding="utf-8")
+        self.assertIn("ATTEMPT 3/3", self.gh.attempt("check:test/unit").stdout)
+
     def test_a_record_belongs_to_one_pull_request(self):
         self.gh.read()
-        result = self.gh.run("read", "--repo", REPO, "--pr", "8", "--record", str(self.gh.record))
+        result = self.gh.run("read", "--repo", REPO, "--pr", "8", "--record", str(self.gh.record), "--no-held")
         self.assertEqual(result.returncode, 2)
         self.assertIn("acme/widgets#7", result.stderr)
 
@@ -445,7 +665,8 @@ class PrFeedbackTest(unittest.TestCase):
         env = {"PATH": f"{self.gh.bin}:/usr/bin:/bin", "HOME": str(self.gh.root / "no-such-home"),
                "FAKE_GH_LOG": str(self.gh.log), "FAKE_GH_SCENARIO": str(self.gh.scenario)}
         result = subprocess.run([sys.executable, "-I", str(bare / "pr_feedback.py"), "read", "--repo", REPO,
-                                 "--pr", "7", "--record", str(self.gh.record)], capture_output=True, text=True, env=env,
+                                 "--pr", "7", "--record", str(self.gh.record), "--no-held"], capture_output=True,
+                                text=True, env=env,
                                 timeout=60, cwd=str(bare))
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("NEW check", result.stdout)
