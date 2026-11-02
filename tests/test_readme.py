@@ -121,7 +121,7 @@ class Readme(Sandbox):
 
 
 class Release(unittest.TestCase):
-    """A version bump has to carry its notes, and no test may pin the version it was written at."""
+    """A version bump carries its notes and reaches every place that names it; no test may pin the version it was written at."""
 
     def version(self):
         return text(REPO / "VERSION").strip()
@@ -130,6 +130,13 @@ class Release(unittest.TestCase):
         first = re.search(r"(?m)^## (.*)$", text(REPO / "CHANGELOG.md"))
         self.assertEqual(first.group(1).strip() if first else None, self.version(),
                          "the newest CHANGELOG heading must be exactly VERSION, with nothing after it")
+
+    def test_the_readme_status_line_and_bug_template_name_the_version(self):
+        for name, pattern in (("README.md", r"(?m)^\*\*\w+\*\*, version (\S+?)\.(?:\s|$)"),
+                              (".github/ISSUE_TEMPLATE/bug.yml", r'(?m)^\s*placeholder: "Mifal (\S+?),')):
+            with self.subTest(name=name):
+                found = re.findall(pattern, text(REPO / name))
+                self.assertEqual(found, [self.version()], f"{name} must name VERSION exactly once")
 
     def test_no_test_file_holds_the_current_version(self):
         literal = re.compile(r"(?<![\d.])" + re.escape(self.version()) + r"(?!\.?\d)")
