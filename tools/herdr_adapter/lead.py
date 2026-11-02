@@ -499,9 +499,9 @@ def quiet_stale(state, event, stops):
     """Why an event no longer describes the current work, as ("stale", why) for a fact or ("superseded", why), or
     None. Judged at consumption, not at write time: the hook records the owner and attempt it saw then, and both can
     have moved on since. A session mismatch alone never dismisses: Herdr's reported session can be a child `claude`
-    in the pane or a passing value. Only a strictly later stop or ring of the same attempt in the same pane, from
-    another session, supersedes an event, whether Herdr reports a session or not, so every pane keeps an
-    actionable row. A ring is later only when a read of the pane that began after the stop did not show it."""
+    in the pane or a passing value. Only a strictly later stop of the same attempt in the same pane, from another
+    session, supersedes an event, whether Herdr reports a session or not, so every pane keeps an actionable row. A
+    ring never supersedes: a read shows only what is visible then, so no read proves a ring was typed after a stop."""
     attempt = event["attempt"]
     task = state["tasks"].get(attempt.split(".")[0])
     if task is None:
@@ -520,8 +520,8 @@ def quiet_stale(state, event, stops):
              stop["session_id"] != event["session_id"] and stop["at"] > written]
     if later:
         newest = max(later, key=lambda stop: stop["at"])
-        return "superseded", (f"session {event['session_id']} was superseded by a later {newest['kind']} in this "
-                              f"pane, from session {newest['session_id']}")
+        return "superseded", (f"session {event['session_id']} was superseded by a later stop in this pane, from "
+                              f"session {newest['session_id']}")
     return None
 
 
@@ -563,17 +563,11 @@ def quiet_events(root, state):
                         "QUIET comes from them; a human may move them out of quiet/" if unnamed > 1 else
                         "1 file in quiet/ is not named <64 hex digits>.json, so it was not read and no QUIET comes "
                         "from it; a human may move it out of quiet/")
-    stops = [{"kind": "stop", "pane": e.get("pane"), "attempt": e.get("attempt", e.get("task")),
+    stops = [{"pane": e.get("pane"), "attempt": e.get("attempt", e.get("task")),
               "session_id": e.get("session_id"), "at": parse_stamp(e.get("written_at"))} for e in attended]
-    stops += [{"kind": "stop", "pane": item["event"]["pane"], "attempt": item["event"]["attempt"],
+    stops += [{"pane": item["event"]["pane"], "attempt": item["event"]["attempt"],
                "session_id": item["event"]["session_id"], "at": parse_stamp(item["event"]["written_at"])}
               for item in events]
-    # A ring is first read some time after it was typed, so its sighting orders nothing: a ring counts from absent_at,
-    # and one without it supersedes nothing.
-    stops += [{"kind": "ring", "pane": state["members"].get(e.get("member"), {}).get("pane_id"),
-               "attempt": e.get("attempt") or e.get("task"), "session_id": e["session"],
-               "at": parse_stamp(e["absent_at"])}
-              for e in state["pending"] + state["progress"] if e.get("session") and isinstance(e.get("absent_at"), str)]
     stops = [stop for stop in stops if stop["at"] is not None]
     for item in events:
         item["stale"] = quiet_stale(state, item["event"], stops)
@@ -1216,7 +1210,6 @@ def look(client, root, state):
         if (state["read_states"].get(name) == signature and
                 member["status"] != "blocked" and not unfinished):
             continue
-        started = stamp()
         read = client.request("pane.read", {
             "pane_id": member["pane_id"], "source": "visible", "format": "text", "strip_ansi": True,
         }).get("read", {})
@@ -1239,16 +1232,10 @@ def look(client, root, state):
                     del stale[text]
                 else:
                     stale[text] = now
-        # Herdr cannot say when a line was typed. A line this read shows more often than the previous read did was
-        # typed after that read began; for any other line the order is unknown.
-        before = state.get("read_at", {}).get(name)
-        shown_before = state.get("ring_counts", {}).get(name)
         # The visible count before a human answer is the baseline that answer releases from.
         state.setdefault("ring_counts", {})[name] = counts
-        state.setdefault("read_at", {})[name] = started
         for line in rings:
-            newer = before and shown_before is not None and counts[line] > shown_before.get(line, 0)
-            enqueue(root, state, name, line, "pane", before if newer else None)
+            enqueue(root, state, name, line, "pane")
         state["read_states"][name] = signature
     # A durable receipt still stands when a bell was missed or wrapped offscreen.
     for task in state["tasks"].values():
@@ -1305,7 +1292,7 @@ def new_returns(root, state):
             not in state["seen"]]
 
 
-def enqueue(root, state, member, line, source, absent_at=None):
+def enqueue(root, state, member, line, source):
     ring, errors = contracts.parse_doorbell(line)
     if errors:
         raise Refusal("contract_invalid", "; ".join(errors))
@@ -1319,11 +1306,9 @@ def enqueue(root, state, member, line, source, absent_at=None):
     if key not in state["seen"]:
         state["seen"].append(key)
         session = state["members"].get(member, {}).get("agent_session") if source == "pane" else None
-        # A pane ring keeps the session Herdr reported when the lead saw it and, when known, absent_at: the start of
-        # the previous read of the pane, which did not show it. Only that time orders the ring against a QUIET.
+        # A pane ring keeps the session Herdr reported when the lead saw it, to attribute it in the journal. Herdr
+        # cannot say when a line was typed, so a ring orders nothing against a QUIET.
         seen = {"session": session, "seen_at": stamp()} if session else {}
-        if session and absent_at:
-            seen["absent_at"] = absent_at
         state["pending"].append({**ring, "member": member, "line": line, "source": source, **seen})
 
 
@@ -1623,7 +1608,7 @@ def act_ring(root, state, ring):
     active = ring["attempt"] or ring["task"]
     common = {"moment": "M5" if ring["type"] == "DONE" else "M4",
               "task": active, "member": ring["member"], "doorbell": ring["line"],
-              **{k: ring[k] for k in ("session", "seen_at", "absent_at") if k in ring}}
+              **{k: ring[k] for k in ("session", "seen_at") if k in ring}}
     if (not task or task["owner"] != ring["member"] or task["active"] != active or
             task["status"] in {"queued", "accepted", "refused", "stopped", "review-refused"}):
         return {**common, "action": "reject-doorbell",

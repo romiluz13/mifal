@@ -72,12 +72,13 @@ in a pane is not a ring, and it is never delivery evidence.
   owns the task, or whose pane is not the owner's is shown as stale. A
   session mismatch alone never makes an event stale: the session Herdr
   reports can be a child `claude` in the pane or a passing value. An event
-  is superseded only by a strictly later stop or ring of the same attempt
-  in the same pane from another session, whether Herdr reports a session
-  or not, so each pane keeps one actionable row. A ring counts as later
-  only when a read of the pane that began after the stop did not show it:
-  a line first read after the stop can be older than the stop, so it
-  supersedes nothing. Where Herdr reports a different session, the row
+  is superseded only by a strictly later stop of the same attempt in the
+  same pane from another session, whose time the hook wrote, whether
+  Herdr reports a session or not, so each pane keeps one actionable row.
+  A ring never supersedes an event: a read shows only what is visible
+  then, so a line a read did not show can still be older than the stop
+  and be redrawn later. The ring is attended as itself, and the event
+  stays actionable. Where Herdr reports a different session, the row
   names both and says to look.
 - **The folder is untrusted.** Only names of the form `<64 hex digits>.json`
   are read; others are counted in one row. An event must hold exactly the

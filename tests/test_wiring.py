@@ -490,6 +490,17 @@ class SkillFilters(Wiring):
                 self.assertIn('exclusions unknown', repr(result.warnings))
                 self.assertNotIn('NaN', repr(result))
 
+    def test_settings_deeper_than_mifals_limit_are_unknown_though_this_python_parses_them(self):
+        """Python's decoder gives up at a depth that varies by version, so the answer must not come from it raising."""
+        for name in ('claude', 'droid', 'pi', 'opencode'):
+            filename = 'opencode.json' if name == 'opencode' else 'settings.json'
+            for depth, unknown in ((100, False), (101, True)):
+                text = '{"unrelated":' + '[' * (depth - 1) + '0' + ']' * (depth - 1) + '}'
+                json.loads(text)
+                with self.subTest(name=name, depth=depth):
+                    result = self.other_audit(name, text, filename)
+                    self.assertEqual('exclusions unknown' in repr(result.warnings), unknown, result.warnings)
+
     def other_audit(self, name, text, filename='settings.json'):
         root = self.home / '.config/opencode' if name == 'opencode' else self.home / ('other-' + name)
         root.mkdir(parents=True, exist_ok=True)

@@ -37,6 +37,7 @@ Not in this release
 - The Guide's behaviour isn't proven against real models: no run has measured whether agents follow it. The evaluation harness moved to 0.3.3.
 - Doctor's skill-filter audit covers the files and versions above only. It doesn't read Claude Code's project, local or managed settings, other agents' project or session layers, or Pi's nested ignore files, `.ignore` and `.fdignore`. It reports pattern syntax it doesn't handle as unknown, and "no exclusion found" describes only the files it read.
 - QUIET doesn't notice a worker that crashed or was killed: the Stop hook runs only when a turn ends. The lead's manual check of the pane still covers that case.
+- An inline code span that runs over several lines and holds `<!--` hides a Return below it from the lead's tools and the Stop hook, so that worker's turn reads as a silent stop: the lead is asked to look at the pane, and nothing is closed.
 - A run record identifies bytes. It doesn't prove the command ran as recorded, because whoever ran it wrote the file.
 
 **After updating, reload changed skills.** The team-lead skill changed, so a live record whose `Loaded:` line pins an old body fails its next gate until the agent reloads that body and adds a new `Loaded:` line. Update between tasks, not while a team is mid-gate.

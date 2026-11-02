@@ -20,6 +20,8 @@ NAMES = ("claude", "codex", "droid", "pi", "opencode")
 TITLES = {"claude": "Claude Code", "codex": "Codex", "droid": "Droid", "pi": "Pi", "opencode": "OpenCode"}
 IMPORT = "@~/.agents/mifal/AGENTS.md"
 CODEX_CAP = 32 * 1024
+JSON_DEPTH = 100
+JSON_STRING = re.compile(r'"[^"\\]*(?:\\.[^"\\]*)*"')
 PI_ORDER = ("AGENTS.override.md", "AGENTS.md", "AGENTS.MD", "CLAUDE.md", "CLAUDE.MD")
 SKILL_PATTERN_LIMIT = 1024
 SKILL_SELECTOR_LIMIT = 1024
@@ -303,11 +305,24 @@ def _invalid(result, where, key, shape='JSON'):
                             f"repair {key} in {where} using the supported {shape} schema, then run mifal doctor again"))
 
 
+def _too_deep(text):
+    """Whether JSON text nests arrays and objects more than JSON_DEPTH deep. Python's decoder gives up at a depth that
+    differs by version (3.9 near 1,000 levels, 3.14 not at 10,000), so the limit is Mifal's own."""
+    depth = 0
+    for bracket in re.findall(r'[\[\]{}]', JSON_STRING.sub('', text)):
+        depth += 1 if bracket in '[{' else -1
+        if depth > JSON_DEPTH:
+            return True
+    return False
+
+
 def _json(text, result, where, shape='JSON'):
     def invalid_constant(value):
         raise ValueError('invalid JSON number')
 
     try:
+        if _too_deep(text):
+            raise ValueError('JSON nesting too deep')
         data = json.loads(text.lstrip('\ufeff'), parse_constant=invalid_constant)
         if not isinstance(data, dict):
             raise ValueError()
@@ -386,6 +401,13 @@ def _pattern_limits(patterns, result, where):
     return False
 
 
+@lru_cache(maxsize=None)
+def _segment(pattern):
+    """fnmatch.fnmatchcase's matcher for one pattern segment, kept for the whole run: Python 3.9's fnmatch keeps only
+    256 compiled patterns, so 1,024 Pi selectors were compiled again for every skill."""
+    return re.compile(fnmatch.translate(pattern)).match
+
+
 def _glob(value, pattern, dot=False):
     if any(token in pattern for token in ('{', '}', '@(', '?(', '*(', '+(', '!(', '[[:', '[^')):
         raise ValueError('unsupported pattern syntax')
@@ -414,7 +436,7 @@ def _glob(value, pattern, dot=False):
             return matches(p + 1, v) or v < len(targets) and (
                 dot or not targets[v].startswith('.')) and matches(p, v + 1)
         return v < len(targets) and (dot or not targets[v].startswith('.') or parts[p].startswith('.')) and \
-            fnmatch.fnmatchcase(targets[v], parts[p]) and matches(p + 1, v + 1)
+            _segment(parts[p])(targets[v]) is not None and matches(p + 1, v + 1)
 
     matched = matches(0, 0)
     return not matched if negate else matched

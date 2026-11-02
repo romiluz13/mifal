@@ -2164,8 +2164,9 @@ def complete_run_record(path):
 
 def shown(line):
     # Every error:, note: and ok: line, read's footer and stamp's output go through here once. Worker text can reach
-    # them, so any nonprintable character, newline included, is escaped. Only the validator's own closing example
-    # keeps its lines: it is a fixed constant, matched whole at the end, and everything before it is escaped.
+    # them, so any nonprintable character, newline included, is escaped. A text that ends in one of the two fixed
+    # closing examples keeps that example's lines, wherever the text came from, so a path ending in the exact example
+    # keeps those fixed lines and nothing else; everything before the example is escaped.
     text = str(line)
     example = next((e for e in (FRONTMATTER_EXAMPLE, WORKFLOW_EXAMPLE) if text.endswith(e)), "")
     head = text[:len(text) - len(example)]

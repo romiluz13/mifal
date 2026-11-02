@@ -732,7 +732,7 @@ is not known, so the file's own frontmatter must name the attempt (its `attempt:
 field, else `task:`); a file whose frontmatter names another attempt, or has
 none, is refused with `receipt_mismatch` (exit 1) rather than waited on. The
 brief's own `## Return` instructions, an earlier attempt's `Closes:`, and a Markdown
-example of a receipt inside a code fence (``` or ~~~) or an HTML comment do not match. It reads and journals no lead record (`"journaled": false`) and, without
+example of a receipt inside a code fence (``` or ~~~) or an HTML comment do not match. Limit: the comment rule reads inline code one line at a time, so an inline code span that runs over several lines and holds `<!--` hides a Return a reader can see, and that return reads as a silent stop that asks the lead to look, never as a closed attempt. It reads and journals no lead record (`"journaled": false`) and, without
 `workspace_id`, makes no socket call at all: it only re-reads the files once per
 slice. With `workspace_id` it also watches that workspace one slice at a time
 and reports `pane_status` for any pane whose `state_change_seq` or
@@ -840,9 +840,10 @@ tests, never as the hook of a live session. A cleared or replaced session in the
 and an interrupted worker produce no Stop event, so the lead learns of them only through attention row 4 or 5. An
 event carries the session id from the Stop payload. Herdr's `agent_session` is used to word a row and to attribute a
 ring to a session, but never to dismiss an event, because a child `claude` in a pane reports its own id for that pane;
-it is null on some panes, and that is normal. Only a strictly later stop or ring of the same attempt in the same pane,
-from another session, supersedes an event. A ring is later only when a read of the pane that began after the stop did
-not show it, because a line first read after the stop can be older than the stop.
+it is null on some panes, and that is normal. Only a strictly later stop of the same attempt in the same pane, from
+another session, supersedes an event, because only a stop carries the time the hook wrote it. A ring never supersedes
+one: a read shows only what is visible then, so a line a read did not show can be older than the stop and redrawn
+later. The ring is attended as itself, and the event stays actionable, saying to look at the pane.
 
 ## Verification and persistence
 

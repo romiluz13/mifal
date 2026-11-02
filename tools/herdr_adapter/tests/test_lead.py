@@ -3613,7 +3613,9 @@ class LeadTest(unittest.TestCase):
         self.assertEqual(attended["action"], "attend-quiet")
         self.assertNotIn("stale", attended)
 
-    def test_a_later_ring_of_the_same_attempt_from_another_session_supersedes_an_earlier_stop(self):
+    def test_a_truly_later_ring_from_another_session_is_attended_and_the_quiet_stays_actionable(self):
+        """Task 116, review 815 F1: no read proves when a ring was typed, so a ring never supersedes; only a stop,
+        whose time the hook wrote, does. The ring is still attended as itself."""
         self.init()
         self.live_session("s1")
         self.turn()
@@ -3624,8 +3626,10 @@ class LeadTest(unittest.TestCase):
         self.assertEqual(self.turn()["action"], "answer-help")
         self.rerender()
         row = self.rows_by_event()[old.name]
-        self.assertTrue(row.startswith("superseded QUIET 7 from alpha"), row)
-        self.assertIn("session s1 was superseded by a later ring in this pane, from session s2", row)
+        self.assertTrue(row.startswith("QUIET 7: alpha's session s1 stopped without a report"), row)
+        self.assertIn("look at its pane", row)
+        self.assertNotIn("superseded", row)
+        self.assert_attended_next(old)
 
     def test_where_herdr_reports_another_session_the_row_names_both_and_says_to_look(self):
         self.init()
@@ -3679,6 +3683,27 @@ class LeadTest(unittest.TestCase):
     def test_an_old_ring_first_read_with_no_reported_session_leaves_the_quiet_actionable(self):
         parent, row = self.parent_rang_then_stopped(None)
         self.assertTrue(row.startswith("QUIET 7: alpha stopped without a report"), row)
+        self.assert_attended_next(parent)
+
+    def test_an_old_ring_redrawn_after_a_read_that_did_not_show_it_leaves_the_quiet_actionable(self):
+        """Review 815 F1: the parent rings, the line leaves the viewport, the parent stops silently, a read under a
+        child session shows no ring, then the old line is redrawn. A read that did not show a line does not prove it
+        was not yet written. Another member's ready task keeps the QUIET pending through the read."""
+        self.add_member("beta", "scratch:p2")
+        self.init([self.task(value=20), self.task("8", "beta", value=10)])
+        self.live_session("parent")
+        self.turn()
+        self.ring("HELP 7 which greeting")
+        self.screens["scratch:p1"] = "[INPUT]\n\n[/INPUT]\n"
+        parent = self.quiet(session="parent", prompt="p")
+        self.live_session("child")
+        self.assertNotEqual(self.turn().get("action"), "attend-quiet")
+        self.ring("HELP 7 which greeting")
+        self.assertEqual(self.turn()["action"], "answer-help", "the redrawn ring is attended as itself")
+        self.rerender()
+        row = self.rows_by_event()[parent.name]
+        self.assertTrue(row.startswith("QUIET 7: alpha's session parent stopped without a report"), row)
+        self.assertNotIn("superseded", row)
         self.assert_attended_next(parent)
 
     def attended_then_returned(self, content):
