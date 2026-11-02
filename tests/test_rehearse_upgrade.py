@@ -9,7 +9,7 @@ from pathlib import Path
 from support import PYTHON, REPO
 
 
-class RehearseUpgrade(unittest.TestCase):
+class RehearsalFixture:
     def setUp(self):
         self.root = Path(tempfile.mkdtemp(prefix="mifal rehearsal test-")).resolve()
         self.addCleanup(shutil.rmtree, self.root, True)
@@ -28,9 +28,6 @@ class RehearseUpgrade(unittest.TestCase):
         }
         self.repo = self.root / "candidate"
         self.git(REPO, "clone", "-q", "--no-hardlinks", REPO, self.repo)
-        for tag in ("v0.1.2", "v0.2.1", "v0.2.3", "v0.3.0"):
-            if self.git(self.repo, "rev-parse", "-q", "--verify", tag, check=False).returncode:
-                self.skipTest(f"local historical tag {tag} is unavailable")
         (self.repo / "skills/grilling/REHEARSAL-CANDIDATE.md").write_text("candidate-only payload\n")
         self.git(self.repo, "add", "skills/grilling/REHEARSAL-CANDIDATE.md")
         self.git(self.repo, "commit", "-q", "-m", "candidate at the unchanged VERSION")
@@ -56,33 +53,91 @@ class RehearseUpgrade(unittest.TestCase):
             self.fail(f"rehearsal exceeded 900 seconds\n{stdout}\n{stderr}")
         return subprocess.CompletedProcess(process.args, process.returncode, stdout, stderr)
 
-    def test_branch_following_upgrade_is_not_a_full_pass_when_its_old_doctor_fails(self):
-        result = self.rehearse("v0.1.2")
+    def containment_profile(self):
+        sandbox = shutil.which("sandbox-exec", path="/usr/bin:/bin")
+        if sandbox is None:
+            self.skipTest("sandbox-exec is unavailable; macOS containment was not tested")
+        profile = (f'(version 1) (allow default) (deny network*) '
+                   f'(deny file-write* (require-all (require-not (subpath "{self.runtime}")) '
+                   f'(require-not (literal "/dev/null"))))')
+        control = self.root / "escaped-write"
+        blocked = subprocess.run(
+            [sandbox, "-p", profile, "/bin/bash", "-c", 'echo escaped > "$1"', "--", str(control)],
+            env=self.env, capture_output=True, text=True)
+        if blocked.returncode == 71 and "sandbox_apply: Operation not permitted" in blocked.stderr:
+            self.skipTest("sandbox-exec cannot apply a profile inside the outer sandbox")
+        self.assertEqual(blocked.returncode, 1, blocked.stdout + blocked.stderr)
+        self.assertIn(f"{control}: Operation not permitted", blocked.stderr)
+        self.assertFalse(control.exists())
+        print("PASS containment control:", blocked.stderr.strip())
+        return sandbox, profile
+
+
+class RehearseUpgrade(RehearsalFixture, unittest.TestCase):
+    def test_an_unavailable_promised_tag_is_a_gap_and_fails(self):
+        self.git(self.repo, "tag", "-d", "v0.1.0", check=False)
+        result = self.rehearse("v0.1.0")
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
-        self.assertIn(f"PASS candidate: {self.candidate}", result.stdout)
-        self.assertIn("PASS branch-following selection: v0.1.2 follows origin/main", result.stdout)
-        self.assertIn("GAP rollback to v0.1.2: its own doctor exited 1", result.stdout)
-        self.assertIn("FAIL skills claude: 1 skill link(s) missing or changed", result.stdout)
+        self.assertIn("GAP v0.1.0: no local release tag", result.stderr)
         self.assertNotIn("REHEARSAL OK:", result.stdout)
 
-    def test_oldest_complete_path_reaches_the_candidate_tree(self):
+    def test_a_dirty_worktree_is_named_and_its_edits_are_excluded(self):
+        self.git(self.repo, "tag", "-d", "v0.1.0", check=False)
+        (self.repo / "NOTICE").write_text("uncommitted work\n")
+        result = self.rehearse("v0.1.0")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("NOTE candidate uses committed HEAD; dirty worktree edits are excluded", result.stdout)
+        self.assertEqual(self.git(self.repo, "rev-parse", "HEAD").stdout.strip(), self.candidate)
+        self.assertEqual((self.repo / "NOTICE").read_text(), "uncommitted work\n")
+
+    def test_containment_denies_the_specific_outside_write_without_tags(self):
+        self.containment_profile()
+
+
+@unittest.skipUnless(os.environ.get("MIFAL_RELEASE_REHEARSAL") == "1",
+                     "historical upgrade rehearsals require MIFAL_RELEASE_REHEARSAL=1")
+class ReleaseRehearsal(RehearsalFixture, unittest.TestCase):
+    def setUp(self):
+        super().setUp()
+        for tag in ("v0.1.2", "v0.2.1", "v0.2.3", "v0.3.0"):
+            if self.git(self.repo, "rev-parse", "-q", "--verify", tag, check=False).returncode:
+                self.skipTest(f"local historical tag {tag} is unavailable")
+
+    def test_branch_following_upgrade_and_historical_rollback_keep_the_user_link(self):
+        result = self.rehearse("v0.1.2")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn(f"PASS candidate: {self.candidate}", result.stdout)
+        self.assertIn("PASS branch-following selection: v0.1.2 follows origin/main", result.stdout)
+        self.assertIn("REHEARSAL OK: v0.1.2", result.stdout)
+        self.assertNotIn("GAP rollback", result.stdout)
+
+    def test_a_tag_following_path_reaches_the_candidate_tree(self):
         result = self.rehearse("v0.2.1")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn(f"PASS candidate: {self.candidate}", result.stdout)
         self.assertIn("REHEARSAL OK: v0.2.1", result.stdout)
-        self.assertIn("GAP v0.1.0: no local release tag", result.stdout)
-        self.assertIn("GAP v0.1.1: no local release tag", result.stdout)
-        self.assertIn("GAP full rehearsal from v0.1.2 and v0.2.0", result.stdout)
+        for tag in ("v0.1.0", "v0.1.1"):
+            gap = f"GAP {tag}: no local release tag"
+            if self.git(self.repo, "rev-parse", "-q", "--verify", tag, check=False).returncode:
+                self.assertIn(gap, result.stdout)
+            else:
+                self.assertNotIn(gap, result.stdout)
+        self.assertNotIn("GAP full rehearsal", result.stdout)
 
     def test_recent_tag_reaches_the_candidate_without_a_version_bump(self):
         result = self.rehearse("v0.3.0")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn(f"PASS candidate: {self.candidate}", result.stdout)
 
-    def test_an_unavailable_promised_tag_is_a_gap_and_fails(self):
-        result = self.rehearse("v0.1.0")
+    def test_an_unfixed_installer_fails_both_link_preservation_verdicts(self):
+        install = self.repo / "lib/mifal/install.py"
+        install.write_text(self.git(self.repo, "show", "v0.3.1:lib/mifal/install.py").stdout)
+        self.git(self.repo, "add", "lib/mifal/install.py")
+        self.git(self.repo, "commit", "-q", "--allow-empty", "-m", "restore the unfixed installer")
+        result = self.rehearse("v0.2.1")
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
-        self.assertIn("GAP v0.1.0: no local release tag", result.stderr)
+        self.assertRegex(result.stdout, r"(?m)^FAIL \(e\).*restored Claude link")
+        self.assertRegex(result.stdout, r"(?m)^FAIL \(f\).*restored Claude link")
         self.assertNotIn("REHEARSAL OK:", result.stdout)
 
     def test_a_broken_candidate_update_fails_the_rehearsal(self):
@@ -118,17 +173,9 @@ class RehearseUpgrade(unittest.TestCase):
         for variable in ("CLAUDE_CONFIG_DIR", "CODEX_HOME", "PI_CODING_AGENT_DIR",
                          "FACTORY_HOME_OVERRIDE", "OPENCODE_CONFIG_DIR", "XDG_CONFIG_HOME"):
             self.env[variable] = str(forbidden)
-        profile = (f'(version 1) (allow default) (deny network*) '
-                   f'(deny file-read* (subpath "{forbidden}")) '
-                   f'(deny file-write* (require-all (require-not (subpath "{self.runtime}")) '
-                   f'(require-not (literal "/dev/null"))))')
-        control = self.root / "escaped-write"
-        blocked = subprocess.run(
-            ["/usr/bin/sandbox-exec", "-p", profile, "/bin/bash", "-c", 'echo escaped > "$1"', "--", str(control)],
-            env=self.env, capture_output=True, text=True)
-        self.assertNotEqual(blocked.returncode, 0, "write containment guard is inactive")
-        self.assertFalse(control.exists())
-        result = self.rehearse("v0.2.3", "/usr/bin/sandbox-exec", "-p", profile)
+        sandbox, profile = self.containment_profile()
+        profile += f' (deny file-read* (subpath "{forbidden}"))'
+        result = self.rehearse("v0.2.3", sandbox, "-p", profile)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("PASS isolation: disposable HOME", result.stdout)
         self.assertIn(f"PASS candidate: {self.candidate}", result.stdout)

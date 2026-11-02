@@ -82,6 +82,9 @@ opencode_named() {
   grep -q 'CLAUDE.md' "$home/opencode-lines.txt"
 }
 
+if [ -d "$repo" ] && [ -n "$(git -C "$repo" status --porcelain)" ]; then
+  echo "NOTE candidate uses committed HEAD; dirty worktree edits are excluded"
+fi
 git clone -q --bare --no-hardlinks "$repo" "$home/origin.git"
 start="$(git -C "$home/origin.git" rev-parse -q --verify "refs/tags/$from^{commit}")" || \
   fail "GAP $from: no local release tag; the promised path was not rehearsed"
@@ -89,7 +92,6 @@ for older in v0.1.0 v0.1.1; do
   git -C "$home/origin.git" rev-parse -q --verify "refs/tags/$older^{commit}" >/dev/null || \
     echo "GAP $older: no local release tag; its branch-following upgrade promise remains unrehearsed"
 done
-echo "GAP full rehearsal from v0.1.2 and v0.2.0: their own rollback doctors fail on a restored user Pool skill without a Claude link; the upgrade can reach the candidate, but the full rehearsal is not passed"
 for required in install.sh bin/mifal lib/mifal_cli.py; do
   git -C "$home/origin.git" cat-file -e "$start:$required" || \
     fail "GAP $from: required installer layout lacks $required; no replacement step was run"
@@ -307,6 +309,9 @@ done
 [ ! -f "$opencode" ] || ! grep -q 'mifal:begin' "$opencode" || problem "a Mifal block is left in $opencode"
 [ "$(cat "$home/.agents/skills/my-own-skill/SKILL.md")" = "my own skill" ] || problem "uninstall removed the user's own skill"
 cmp -s "$home/user-skill.md" "$home/.agents/skills/$reserved/SKILL.md" || problem "my $reserved skill was not restored"
+[ -L "$home/.claude/skills/$reserved" ] && \
+  [ "$(cd -P "$home/.claude/skills/$reserved" 2>/dev/null && pwd)" = "$home/.agents/skills/$reserved" ] || \
+  problem "restored Claude link for $reserved does not lead to the Pool"
 verdict e "uninstall leaves my rules lines and my skills" "$rc"
 
 echo "-- a fresh install of the candidate"
@@ -338,6 +343,9 @@ for entry in $rules; do
   grep -qx "my own ${entry%%:*} rule" "$file" || problem "my line is gone from $file"
 done
 [ "$(cat "$home/.agents/skills/my-own-skill/SKILL.md")" = "my own skill" ] || problem "my own skill changed"
+[ -L "$home/.claude/skills/$reserved" ] && \
+  [ "$(cd -P "$home/.claude/skills/$reserved" 2>/dev/null && pwd)" = "$home/.agents/skills/$reserved" ] || \
+  problem "restored Claude link for $reserved does not lead to the Pool"
 rc=0; run /bin/bash "$mifal" doctor >"$home/doctor-rollback.txt" 2>&1 || rc=$?
 cat "$home/doctor-rollback.txt"
 if [ "$rc" -ne 0 ]; then

@@ -84,7 +84,7 @@ Words to give a coding agent:
 `main` is protected: every change goes in by pull request, and the `mifal` check must pass. Release tags `v*` cannot be moved or deleted. Merging to `main` reaches branch-following installs and new `main` clones; an eligible pushed tag advances tag-following installs.
 
 1. `VERSION` holds the release; raise it, in a pull request, for any change users get.
-2. In that pull request, run the full suite, `/bin/bash tests/run.sh`, under both Pythons on macOS, and `/bin/bash maint/rehearse-upgrade.sh <repo> <previous tag>`; the `release` workflow runs both when `VERSION` changes.
+2. In that pull request, run the full suite, `MIFAL_RELEASE_REHEARSAL=1 /bin/bash tests/run.sh`, under both Pythons on macOS, and `/bin/bash maint/rehearse-upgrade.sh <repo> <previous tag>`; the `release` workflow runs both when `VERSION` changes. The opt-in adds the historical upgrade and journal tests that need local release tags; tag-free rehearsal checks always run in the default suite.
 3. Merge it, then tag that merge commit `vX.Y.Z` (the `release` workflow checks that the tag equals `VERSION` and sits on `main`) and push the tag. Tags are permanent, so a release found broken is fixed by the next version.
 4. Users run `mifal update`: it fetches their clone, previews the managed changes before applying them unless `--yes` is set, and installs the revision it showed. An update from 0.2.3 runs 0.2.3's code, which leaves NOTICE and `third_party/` out; a second `mifal update` completes the payload.
 

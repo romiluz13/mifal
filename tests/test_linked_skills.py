@@ -1,6 +1,7 @@
 """An agent's skills folder that is a link to a real folder in the person's home (fixture G2): the install writes its
 links there, keeps the person's link and folder, and uninstall removes only Mifal's links."""
 
+import os
 import unittest
 
 from support import Sandbox, snapshot
@@ -314,6 +315,96 @@ class Outside(G2):
         self.assertTrue(self.link.is_symlink())
         self.assertTrue(self.outside.is_dir())
         self.assertEqual(list(self.outside.iterdir()), [])
+
+
+class UserLink(Sandbox):
+    def test_a_failed_install_keeps_the_users_original_link(self):
+        skill = self.their_grilling()
+        link = self.home / ".claude/skills/grilling"
+        link.parent.mkdir(parents=True)
+        link.symlink_to(skill.parent)
+        before = snapshot(self.home)
+        result = self.install("--harness", "claude", MIFAL_TEST_FAIL_AT="after-backup", check=False)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertEqual(snapshot(self.home), before)
+
+    def test_a_users_absolute_link_under_a_mifal_name_survives_install_and_uninstall(self):
+        skill = self.their_grilling()
+        link = self.home / ".claude/skills/grilling"
+        link.parent.mkdir(parents=True)
+        link.symlink_to(skill.parent)
+        before = snapshot(self.home)
+        self.install("--harness", "claude")
+        self.mifal("uninstall")
+        self.assertEqual(snapshot(self.home), before)
+
+    def test_two_homes_sharing_a_folder_back_up_one_user_link_once(self):
+        skill = self.their_grilling()
+        first, second = self.home / ".claude", self.home / ".claude-second"
+        (first / "skills").mkdir(parents=True)
+        second.mkdir()
+        (second / "skills").symlink_to(first / "skills")
+        (first / "skills/grilling").symlink_to(skill.parent)
+        before = snapshot(self.home)
+        flags = ("--home", f"claude={first}", "--home", f"claude={second}")
+        result = self.install(*flags)
+        moves = [line for line in result.stdout.splitlines()
+                 if line.startswith("backup ") and "/skills/grilling ->" in line
+                 and "/.claude" in line]
+        self.assertEqual(len(moves), 1, result.stdout)
+        for root in (first, second):
+            self.assertEqual(os.readlink(root / "skills/grilling"), str(skill.parent))
+        after = snapshot(self.home)
+        self.assertIn("Nothing to change", self.install(*flags).stdout)
+        self.assertEqual(snapshot(self.home), after)
+        self.mifal("uninstall")
+        self.assertEqual(snapshot(self.home), before)
+
+    def test_separate_homes_keep_their_separate_links_to_one_user_skill(self):
+        skill = self.their_grilling()
+        homes = (self.home / ".claude", self.home / ".claude-second")
+        for root in homes:
+            (root / "skills").mkdir(parents=True)
+            (root / "skills/grilling").symlink_to(skill.parent)
+        before = snapshot(self.home)
+        self.install(*(word for root in homes for word in ("--home", f"claude={root}")))
+        for root in homes:
+            self.assertEqual(os.readlink(root / "skills/grilling"), str(skill.parent))
+        self.mifal("uninstall")
+        self.assertEqual(snapshot(self.home), before)
+
+    def test_a_relative_link_still_stops_install_without_writing(self):
+        self.their_grilling()
+        link = self.home / ".claude/skills/grilling"
+        link.parent.mkdir(parents=True)
+        link.symlink_to("../../.agents/skills/grilling")
+        before = snapshot(self.home)
+        result = self.install("--harness", "claude", check=False)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("exists and was not installed by Mifal", result.stdout)
+        self.assertEqual(snapshot(self.home), before)
+
+
+class UserLinkUpdate(Update):
+    def test_a_users_link_survives_a_release_reserving_its_name_then_uninstall(self):
+        skill = self.home / ".agents/skills/newskill/SKILL.md"
+        skill.parent.mkdir()
+        skill.write_text("my own new skill\n")
+        link = self.home / ".claude/skills/newskill"
+        link.parent.mkdir(parents=True, exist_ok=True)
+        link.symlink_to(skill.parent)
+        self.publish("reserve a user skill name", **{"skills/newskill/SKILL.md": "release skill\n"})
+        before = snapshot(self.home)
+        result = self.update("--yes")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertEqual(snapshot(self.home), before)
+        result = self.update("--yes", "--overwrite-edits")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(skill.read_text(), "release skill\n")
+        self.assertEqual(os.readlink(link), str(skill.parent))
+        self.mifal("uninstall")
+        self.assertEqual(skill.read_text(), "my own new skill\n")
+        self.assertEqual(os.readlink(link), str(skill.parent))
 
 
 if __name__ == "__main__":

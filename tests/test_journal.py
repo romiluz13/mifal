@@ -1,6 +1,7 @@
+import os
 import unittest
 
-from support import Sandbox, changed, snapshot
+from support import REPO, Sandbox, changed, snapshot
 
 POINTS = ("after-backup", "after-write", "before-publication")
 
@@ -158,6 +159,78 @@ class RulesFiles(Sandbox):
         result = self.clone_mifal("uninstall")
         self.assertIn("kept ~/.codex/AGENTS.md: changed after the interrupted install", result.stdout)
         self.assertTrue(rules.read_text().endswith("added while it was broken\n"))
+
+
+class DisplacedPaths(Sandbox):
+    maxDiff = None
+
+    def seed(self):
+        roots = (self.home / ".claude", self.home / ".claude-second")
+        for name in ("grilling", "tdd"):
+            skill = self.home / ".agents/skills" / name
+            skill.mkdir(parents=True)
+            (skill / "SKILL.md").write_bytes((self.clone / "skills" / name / "SKILL.md").read_bytes())
+            for root in roots:
+                (root / "skills").mkdir(parents=True, exist_ok=True)
+                (root / "skills" / name).symlink_to(skill)
+        return [word for root in roots for word in ("--home", f"claude={root}")]
+
+    def test_faults_keep_all_original_files_and_links(self):
+        for point in (*POINTS, "after-publication"):
+            with self.subTest(point=point):
+                self.setUp()
+                flags = self.seed()
+                before = snapshot(self.home)
+                result = self.install(*flags, check=False, MIFAL_TEST_FAIL_AT=point)
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                if point == "after-publication":
+                    self.assertEqual(self.manifest()["state"], "complete")
+                    self.mifal("uninstall")
+                self.assertEqual(snapshot(self.home), before)
+
+    def test_process_death_and_recovery_keep_all_original_files_and_links(self):
+        for point in (*POINTS, "after-publication"):
+            with self.subTest(point=point):
+                self.setUp()
+                flags = self.seed()
+                before = snapshot(self.home)
+                result = self.install(*flags, check=False, MIFAL_TEST_FAIL_AT=point + ":exit")
+                self.assertEqual(result.returncode, 70, result.stdout + result.stderr)
+                self.clone_mifal("uninstall")
+                self.assertEqual(snapshot(self.home), before)
+
+    def test_recovery_removes_mifals_link_when_its_write_ran(self):
+        flags = self.seed()
+        before = snapshot(self.home)
+        result = self.install(*flags, check=False, MIFAL_TEST_FAIL_AT="before-publication:exit")
+        self.assertEqual(result.returncode, 70, result.stdout + result.stderr)
+        link = self.home / ".claude/skills/implement"
+        self.assertEqual(os.readlink(link), str(self.home / ".agents/skills/implement"))
+        self.clone_mifal("uninstall")
+        self.assertFalse(os.path.lexists(link))
+        self.assertEqual(snapshot(self.home), before)
+
+    @unittest.skipUnless(os.environ.get("MIFAL_RELEASE_REHEARSAL") == "1",
+                         "historical journal recovery requires MIFAL_RELEASE_REHEARSAL=1")
+    def test_an_unfinished_v031_journal_recovers_without_new_fields(self):
+        for point in POINTS:
+            with self.subTest(point=point):
+                self.setUp()
+                flags = self.seed()
+                before = snapshot(self.home)
+                old = self.root / "old-release"
+                self.run_cmd("/usr/bin/git", "clone", "-q", "--no-hardlinks", REPO, old)
+                tag = self.run_cmd("/usr/bin/git", "-C", old, "rev-parse", "-q", "--verify", "v0.3.1",
+                                   check=False)
+                if tag.returncode:
+                    self.skipTest("local historical tag v0.3.1 is unavailable")
+                self.run_cmd("/usr/bin/git", "-C", old, "checkout", "-q", "v0.3.1")
+                result = self.run_cmd("/bin/bash", old / "install.sh", *flags,
+                                      check=False, MIFAL_TEST_FAIL_AT=point + ":exit")
+                self.assertEqual(result.returncode, 70, result.stdout + result.stderr)
+                self.assertEqual(self.manifest()["version"], "0.3.1")
+                self.clone_mifal("uninstall")
+                self.assertEqual(snapshot(self.home), before)
 
 
 if __name__ == "__main__":

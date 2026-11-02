@@ -33,6 +33,8 @@ jobs:
           git merge-base --is-ancestor "$GITHUB_SHA" origin/main || { echo "tag $GITHUB_REF_NAME is not on main"; exit 1; }
       - name: Every suite, under both Pythons
         if: steps.need.outputs.run == 'true'
+        env:
+          MIFAL_RELEASE_REHEARSAL: "1"
         run: /bin/bash tests/run.sh
       - name: Upgrade rehearsal from the previous release
         if: steps.need.outputs.run == 'true'
