@@ -497,6 +497,21 @@ class LeadMechanisms(unittest.TestCase):
         self.assertNotRegex(stop, r"`agent_session` is deferred|not shown to be populated")
         self.assertNotRegex(stop, r"writes only `stop-hook\.log`\.")
         self.assertTerms(stop, "QUIET event", "quiet/")
+    def test_a_new_agent_session_may_be_a_child_so_the_lead_looks_before_re_briefing(self):
+        roster = section(TEAM_LEAD + "references/herdr.md", "Know who's on the team")
+        self.assertRegex(roster, r"new `agent_session` value\b[^.]*\bmay be\b[^.]*\breplaced\b[^.]*\bchild `claude`")
+        self.assertNotRegex(roster, r"new `agent_session` value\b[^.]*\bmeans\b")
+        self.assertRegex(roster, r"(?i)\blook at the pane before\b[^.]*\bre-brief")
+
+    def test_lead_md_names_the_native_capture_and_keeps_team_stop_sh_unverified(self):
+        stop = section(LEAD_MD, "Acceptance preflight and Stop feedback")
+        self.assertRegex(stop, r"Not verified natively:[^.]*`team-stop\.sh` itself")
+        self.assertNotRegex(stop, r"Not verified natively:[^.]*\binteractive sessions\b")
+        self.assertTerms(stop, "captured natively", "Claude Code 2.1.316", "capture-only hook", "`claude -p`",
+                         "one interactive session", "tests/fixtures/stop-*.json")
+        self.assertRegex(stop, r"`team-stop\.sh`[^.]*\b(?:only|never)\b[^.]*\breplay")
+        self.assertNotRegex(stop, r"`team-stop\.sh` (?:was|is|has been) (?:run|verified) natively")
+
 
 
 class Closure(unittest.TestCase):

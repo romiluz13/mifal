@@ -829,16 +829,19 @@ events: a stop of an admitted worker that reports nothing writes one immutable Q
 and still exits 0 (conditions in the hook's header; attention row 7 shows it). Use an absolute interpreter in
 `TEAM_STOP_PYTHON`, not a version-manager shim; without it the hook uses `/usr/bin/python3`.
 
-**What a Stop hook cannot do, observed on Claude Code 2.1.301:** a project Stop hook
-loads under a custom `CLAUDE_CONFIG_DIR`; exit 2 blocks the stop once and the model is shown stderr;
-`stop_hook_active` is true on the next Stop; a missing hook script fails with exit 127 and the session still
-finishes. Not verified natively: `/clear`, Esc and interrupt, interactive sessions, hook timeouts, and
-`team-stop.sh` itself. A cleared or replaced session in the same pane, a worker that never stops, and an
-interrupted worker produce no Stop event, so the lead learns of them only through attention row 4 or 5.
-An event carries the session id from the Stop payload. Herdr's `agent_session` is used to word a row and to attribute
-a ring to a session, but never to dismiss an event, because a child `claude` in a pane reports its own id for that
-pane; it is null on some panes, and that is normal. Only a strictly later stop or ring of the same attempt in the same
-pane, from another session, supersedes an event.
+**What a Stop hook cannot do, observed on Claude Code 2.1.301:** a project Stop hook loads under a custom
+`CLAUDE_CONFIG_DIR`; exit 2 blocks the stop once and the model is shown stderr; `stop_hook_active` is true on the next
+Stop; a missing hook script fails with exit 127 and the session still finishes. Not verified natively: `/clear`, Esc
+and interrupt, hook timeouts, and `team-stop.sh` itself. The Stop payloads were captured natively on Claude Code
+2.1.316 with a capture-only hook, in `claude -p` sessions (kept in `tests/fixtures/stop-*.json`, paths anonymized) and
+in one interactive session in a Herdr pane, whose payload had the same fields; a blocked stop's retry carried
+`stop_hook_active: true`. `team-stop.sh` is tested only by replaying those payloads and synthetic ones in its unit
+tests, never as the hook of a live session. A cleared or replaced session in the same pane, a worker that never stops,
+and an interrupted worker produce no Stop event, so the lead learns of them only through attention row 4 or 5. An
+event carries the session id from the Stop payload. Herdr's `agent_session` is used to word a row and to attribute a
+ring to a session, but never to dismiss an event, because a child `claude` in a pane reports its own id for that pane;
+it is null on some panes, and that is normal. Only a strictly later stop or ring of the same attempt in the same pane,
+from another session, supersedes an event.
 
 ## Verification and persistence
 

@@ -46,9 +46,10 @@ name, give them short, stable ones with `herdr agent rename <pane> <name>`,
 and note it in `agreement.md`. Name your own pane too, so workers can reach
 you.
 
-A new `agent_session` value in a known pane means a new session with none of
-the old context. Re-brief it from the record. Don't assume it remembers
-anything.
+A new `agent_session` value in a known pane may be a replaced worker, with
+none of the old context, or a child `claude` running in that pane, which
+reports its own id. Look at the pane before you re-brief: re-brief a replaced
+worker from the record, and don't assume it remembers anything.
 
 ## The attention loop
 
