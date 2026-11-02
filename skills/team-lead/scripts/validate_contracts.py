@@ -453,7 +453,7 @@ def validate_workflow(text: str, path: Path, gate="entry", require_loads=True, r
             reported = [m["claim"].strip() for m in (CLAIM_RE.match(line.strip()) for line in claims.splitlines()) if m]
             declared = [claim for claim, _, _ in workflow_claims(body)]
             for claim in sorted(set(reported) - set(declared)):
-                errors.append(f"latest return reports claim '{claim}' absent from Done means")
+                errors.append(f"latest return reports claim '{run_display_path(claim)}' absent from Done means")
             for claim in declared:
                 if claim not in reported:
                     errors.append(f"latest return has no status for Done means claim '{claim}'")
@@ -2056,10 +2056,10 @@ def execute_run(args):
             os.fsync(destination.fileno())
         os.replace(temporary, output)
         temporary = None
-        print(f"ok: run record {output}")
+        print(f"ok: run record {run_display_path(output)}")
         return status if status >= 0 else 128 - status
     except (OSError, RuntimeError, ValueError) as error:
-        print(f"error: run wrapper: {error}", file=sys.stderr)
+        print(shown(f"error: run wrapper: {run_display_path(error)}"), file=sys.stderr)
         return RUN_WRAPPER_ERROR
     finally:
         for _, source in reserved:
@@ -2154,9 +2154,18 @@ def complete_run_record(path):
     return record
 
 
+def shown(line):
+    # Every error:, note: and ok: line, read's footer and stamp's output go through here once. Worker text can reach
+    # them, and no line the validator writes spans lines, so any nonprintable character, newline included, is escaped.
+    return "".join(c if c.isprintable() else ascii(c)[1:-1] for c in str(line))
+
+
 def run_display_path(path):
+    # A shown name is printable, holds no backslash and starts with no quote; anything else is shown quoted, so a
+    # printable name can never read as another name's quoted form, even after backslashreplace.
     value = str(path)
-    return value if value.isprintable() else ascii(value)
+    plain = value.isprintable() and "\\" not in value and not value.startswith(("'", '"'))
+    return value if plain else ascii(value)
 
 
 def check_run_record(args):
@@ -2233,7 +2242,7 @@ def validate_run_citations(claims, task):
         if not claim:
             continue
         tail = item[claim.end():]
-        name, status = claim["claim"].strip(), claim["status"]
+        name, status = run_display_path(claim["claim"].strip()), claim["status"]
         if not re.search(r"(?:^|[\s|])run:", tail):
             if status == "passed":
                 READ_NOTES.append(f"passed claim '{name}' has no run record")
@@ -2255,9 +2264,10 @@ def validate_run_citations(claims, task):
                 raise ValueError("run record HEAD differs from claim")
             if record["before"]["snapshotSha256"] != citation["identity"].lower():
                 raise ValueError("run record identity differs from claim")
-            READ_NOTES.append(f"claim '{name}' run record {target} is historical; use run --check for the current candidate")
+            READ_NOTES.append(f"claim '{name}' run record {run_display_path(target)} is historical; "
+                              "use run --check for the current candidate")
         except (OSError, UnicodeError, ValueError, TypeError, KeyError) as error:
-            errors.append(f"claim '{name}' run record {target}: {error}")
+            errors.append(f"claim '{name}' run record {run_display_path(target)}: {run_display_path(error)}")
     return errors
 
 
@@ -2527,40 +2537,41 @@ def main(argv) -> int:
     args = parser.parse_args(argv)
 
     if args.cmd == "run":
+        sys.stdout.reconfigure(errors="backslashreplace")
         return check_run_record(args) if args.check is not None else execute_run(args)
 
     if args.cmd == "loads-proof":
         try:
             errors, proofs = load_proof(regular_text(args.path), args.path, regular_text(args.log.expanduser()))
         except (OSError, UnicodeError, ValueError) as e:
-            print(f"error: {e}", file=sys.stderr)
+            print(shown(f"error: {e}"), file=sys.stderr)
             return 2
         for proof in proofs:
             print(proof)
         for e in errors:
-            print(f"error: {args.path}: {e}", file=sys.stderr)
+            print(shown(f"error: {args.path}: {e}"), file=sys.stderr)
         return 1 if errors else 0
 
     if args.cmd == "stamp":
         try:
             line = stamp_check(args.path, args.value)
         except (OSError, UnicodeError, ValueError) as e:
-            print(f"error: {args.path}: {e}", file=sys.stderr)
+            print(shown(f"error: {args.path}: {e}"), file=sys.stderr)
             return 1
-        print(line)
+        print(shown(line))
         return 0
 
     if args.cmd == "design-digest":
         try:
             digest, ambiguous = design_parts(regular_text(args.path.expanduser()))
         except (OSError, UnicodeError) as e:
-            print(f"error: {e}", file=sys.stderr)
+            print(shown(f"error: {e}"), file=sys.stderr)
             return 2
         if ambiguous:
-            print("error: " + UNCLOSED_MESSAGE.format(args.path), file=sys.stderr)
+            print(shown("error: " + UNCLOSED_MESSAGE.format(args.path)), file=sys.stderr)
             return 1
         if digest is None:
-            print(f"error: {args.path}: no '## Design decisions' section", file=sys.stderr)
+            print(shown(f"error: {args.path}: no '## Design decisions' section"), file=sys.stderr)
             return 1
         print(f"sha256:{digest}")
         return 0
@@ -2569,10 +2580,10 @@ def main(argv) -> int:
         try:
             digest, unclosed = brief_parts(regular_text(args.path.expanduser()))
         except (OSError, UnicodeError) as e:
-            print(f"error: {e}", file=sys.stderr)
+            print(shown(f"error: {e}"), file=sys.stderr)
             return 2
         if unclosed:
-            print("error: " + UNCLOSED_MESSAGE.format(args.path), file=sys.stderr)
+            print(shown("error: " + UNCLOSED_MESSAGE.format(args.path)), file=sys.stderr)
             return 1
         print(f"sha256:{digest}")
         return 0
@@ -2583,17 +2594,17 @@ def main(argv) -> int:
             data = target.read_bytes()
             data.decode("utf-8")
         except (OSError, UnicodeError) as e:
-            print(f"error: {e}", file=sys.stderr)
+            print(shown(f"error: {e}"), file=sys.stderr)
             return 2
-        footer = f"\n-- end of body {target} | sha256:{hashlib.sha256(data).hexdigest()} bytes:{len(data)} --\n"
-        sys.stdout.buffer.write(data + footer.encode("utf-8"))
+        footer = shown(f"-- end of body {target} | sha256:{hashlib.sha256(data).hexdigest()} bytes:{len(data)} --")
+        sys.stdout.buffer.write(data + f"\n{footer}\n".encode("utf-8"))
         return 0
 
     if args.cmd == "doorbell":
         record, errors = parse_doorbell(args.line)
         if errors:
             for e in errors:
-                print(f"error: {e}", file=sys.stderr)
+                print(shown(f"error: {e}"), file=sys.stderr)
             return 1
         print("ok: doorbell")
         if args.parse:
@@ -2603,16 +2614,13 @@ def main(argv) -> int:
     if args.cmd in ("brief", "receipt", "workflow"):
         path: Path = args.path
         if not path.is_file():
-            print(f"error: no such file: {path}", file=sys.stderr)
+            print(shown(f"error: no such file: {path}"), file=sys.stderr)
             return 2
         try:
             text = path.read_text(encoding="utf-8")
         except UnicodeDecodeError as e:
-            print(
-                f"error: {path}: not valid UTF-8 (byte offset {e.start}); "
-                f"save the file as UTF-8",
-                file=sys.stderr,
-            )
+            print(shown(f"error: {path}: not valid UTF-8 (byte offset {e.start}); save the file as UTF-8"),
+                  file=sys.stderr)
             return 1
         if args.cmd == "brief":
             errors = validate_brief(text, str(path))
@@ -2634,12 +2642,12 @@ def main(argv) -> int:
                 errors.append(f"{path}: invalid Workflow record: {e}")
         if errors:
             for e in errors:
-                print(f"error: {e}", file=sys.stderr)
+                print(shown(f"error: {e}"), file=sys.stderr)
             return 1
         suffix = " (record checks only; execution needs evidence)" if args.cmd == "workflow" or args.matt else ""
-        print(f"ok: {args.cmd} {path}{suffix}")
+        print(shown(f"ok: {args.cmd} {path}{suffix}"))
         for note in READ_NOTES:
-            print(f"note: {note}", file=sys.stderr)
+            print(shown(f"note: {note}"), file=sys.stderr)
         return 0
 
     return selfcheck(Path(__file__).resolve().parent / "fixtures")

@@ -2146,16 +2146,17 @@ class RunRecordTests(unittest.TestCase):
         self.assertEqual(explicit["repo"], str(self.repo))
         self.assertEqual(explicit["cwd"], str(self.root))
 
-    def receipt(self, path, record, status="passed", head=None, identity=None, citation=None):
+    def receipt(self, path, record, status="passed", head=None, identity=None, citation=None, name="behavior",
+                declared=None, evidence=""):
         fixture = WorkflowTests()
         fixture.setUp()
         self.addCleanup(fixture.temp.cleanup)
         claim = citation if citation is not None else (
             f"run:{path} head:{head or record['candidate']['head']} "
             f"identity:{identity or record['candidate']['identity']}")
-        text = (fixture.brief() + fixture.workflow() +
+        text = (fixture.brief().replace("- behavior:", f"- {declared or name}:") + fixture.workflow() +
                 "\n## Return\nCloses: 1\n### Result\nChecked the fixture.\n### Claims\n" +
-                f"- behavior: {status} | {claim}\n### Evidence\n" + fixture.load_lines())
+                f"- {name}: {status} | {claim}\n### Evidence\n" + fixture.load_lines() + evidence)
         task = self.root / "receipt.md"
         task.write_text(text)
         return subprocess.run([sys.executable, "-B", str(SCRIPT), "receipt", str(task), "--matt"],
@@ -2630,6 +2631,7 @@ class RunDisplayTests(unittest.TestCase):
     git = RunRecordTests.git
     run_command = RunRecordTests.run_command
     run_ok = RunRecordTests.run_ok
+    receipt = RunRecordTests.receipt
     check_run = RunCheckTests.check_run
 
     def test_stale_names_cannot_forge_status_lines_or_terminal_controls(self):
@@ -2723,6 +2725,98 @@ class RunDisplayTests(unittest.TestCase):
                 else:
                     self.assertIn(b"run wrapper", result.stderr)
                     self.assertFalse(marker.exists())
+
+    def test_receipt_notes_and_citation_errors_cannot_carry_terminal_controls(self):
+        path, record = self.run_ok(name="rec\x1b[8m.json")
+        head, identity = record["candidate"]["head"], record["candidate"]["identity"]
+        for citation, status in ((None, 0), ("see the log", 0),
+                                 (f"run:{self.root}/gone\x1b[1A\x1b[2K.json head:{head} identity:{identity}", 1)):
+            with self.subTest(citation=citation):
+                result = self.receipt(path, record, citation=citation, name="tests\x1b[2K")
+                self.assertEqual(result.returncode, status, result.stderr)
+                self.assertNotIn("\x1b", result.stdout + result.stderr)
+                self.assertIn("tests\\x1b[2K", result.stderr)
+                if citation is None:
+                    self.assertIn("rec\\x1b[8m.json' is historical", result.stderr)
+        undeclared = self.receipt(path, record, name="tests\x1b[2K", declared="behavior")
+        self.assertEqual(undeclared.returncode, 1, undeclared.stderr)
+        self.assertIn("tests\\x1b[2K", undeclared.stderr)
+        self.assertNotIn("\x1b", undeclared.stdout + undeclared.stderr)
+
+    def test_worker_text_on_any_error_or_note_line_reaches_the_terminal_escaped(self):
+        path, record = self.run_ok()
+        digest = "0" * 64
+        for line in (f"Loaded: /nope\x1b[2K/x.md | worker: sha256:{digest} partial read\n",
+                     "Check: start ok\x1b[2K\u2028error: FORGED | passed | evidence at:2026-11-02T00:00:00Z\n"):
+            with self.subTest(line=line):
+                result = self.receipt(path, record, evidence=line)
+                self.assertEqual(result.returncode, 1, result.stderr)
+                self.assertNotIn("\x1b", result.stderr)
+                self.assertNotIn("\u2028", result.stderr)
+                self.assertIn("\\x1b[2K", result.stderr)
+                self.assertNotIn("\\\\x1b", result.stderr, "an already-escaped name is escaped once")
+                self.assertTrue(all(line.startswith(("error: ", "note: ")) for line in result.stderr.splitlines()),
+                                result.stderr)
+
+    def test_a_path_with_controls_reaches_ok_read_footer_and_stamp_escaped(self):
+        folder = self.root / "d\x1b[31m\u2028ok: FORGED"
+        folder.mkdir()
+        brief = folder / "task-7.md"
+        body = (SCRIPT.parent / "fixtures" / "brief" / "good" / "task-7.md").read_text(encoding="utf-8")
+        brief.write_text(body, encoding="utf-8")
+        stamp = folder / "stamp.md"
+        stamp.write_text("## Workflow\nMethodology: matt\n", encoding="utf-8")
+        for argv in (["brief", brief], ["read", brief], ["stamp", stamp, "start review | passed | evidence\x1b[31m"]):
+            with self.subTest(command=argv[0]):
+                result = subprocess.run([sys.executable, "-B", str(SCRIPT), *map(str, argv)],
+                                        capture_output=True, text=True, encoding="utf-8")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                shown = result.stdout
+                if argv[0] == "read":
+                    self.assertTrue(shown.startswith(body), "read's body stays byte-for-byte")
+                    shown = shown[len(body):]
+                self.assertNotIn("\x1b", shown)
+                self.assertNotIn("\u2028", shown)
+                self.assertIn("\\x1b[31m", shown)
+                self.assertEqual(len(shown.strip("\n").splitlines()), 1, shown)
+
+    def test_run_success_and_wrapper_error_lines_cannot_forge_a_second_line(self):
+        folder = self.root / "out-g\nok: FORGED\x1b[2K"
+        folder.mkdir()
+        result, record = self.run_command(sys.executable, "-c", "pass", name=folder.name + "/run.json")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(record.is_file())
+        inside, _ = self.run_command(sys.executable, "-c", "pass", name="repo/out\nok: FORGED\x1b[2K.json")
+        self.assertEqual(inside.returncode, 125, inside.stderr)
+        for stream, start in ((result.stdout, b"ok: run record "), (inside.stderr, b"error: run wrapper: ")):
+            self.assertEqual(len(stream.splitlines()), 1, stream)
+            self.assertTrue(stream.startswith(start), stream)
+            self.assertIn(b"\\nok: FORGED\\x1b[2K", stream)
+            self.assertNotIn(b"\x1b", stream)
+
+    def test_a_stdout_that_cannot_encode_a_name_still_reports_the_match(self):
+        names = ("ignored-caf\u00e9", "ignored-caf\\xe9")
+        for name in names:
+            (self.repo / name).write_text("input")
+        path, _ = self.run_ok(paths=[self.repo / name for name in names])
+        result = subprocess.run([sys.executable, "-B", str(SCRIPT), "run", "--check", str(path)], cwd=self.repo,
+                                capture_output=True, text=True, env={**os.environ, "PYTHONIOENCODING": "ascii"})
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        lines = result.stdout.splitlines()
+        self.assertTrue(lines[-1].startswith("ok: candidate matches run record"), result.stdout)
+        notes = [line for line in lines if line.startswith("note: ignored input")]
+        self.assertEqual(len(notes), 2, result.stdout)
+        self.assertNotEqual(notes[0], notes[1])
+
+    def test_a_printable_name_cannot_pass_for_another_names_quoted_form(self):
+        path, _ = self.run_ok()
+        for name in ("zz\nok: X", "'zz\\nok: X'", '"zz\\nok: X"'):
+            (self.repo / name).write_text("new input")
+        result = self.check_run(path)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        stale = [line for line in result.stdout.splitlines() if line.startswith("stale: file identity")]
+        self.assertEqual(len(stale), 3, result.stdout)
+        self.assertEqual(len(set(stale)), 3, result.stdout)
 
 
 if __name__ == "__main__":

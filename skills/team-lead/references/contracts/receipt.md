@@ -87,7 +87,9 @@ child runs in the caller's cwd. The measured repository is the Git root of
 that cwd, or the root selected by `--repo`; the record keeps repo and cwd
 separately. An unresolved index is refused before launch. An explicitly named
 symlink loop, or a path through one, is refused with wrapper status 125 on both
-supported Pythons; dangling links remain recordable by their link text.
+supported Pythons; dangling links remain recordable by their link text. A
+`--path` under a regular file, such as `file.txt/child`, is refused the same
+way, while a missing path is still recorded as missing.
 
 The default scope includes tracked, staged, unstaged and nonignored untracked
 files. Identity uses `review-snapshot.py`'s raw bytes, symlink link text,

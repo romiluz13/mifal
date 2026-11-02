@@ -872,7 +872,8 @@ records stay outside `~/.agents` to avoid adding test fleet state to real
 project memory. The core does not auto-commit production records.
 
 The skill/contracts remain the binding vocabulary sources:
-`team-lead/specs/0001/tickets/06-lead-loop-integration.md`,
-`team-lead/specs/0001/spec.md` (lead loop/testing decisions),
-`team-lead/SKILL.md` M1–M5/M9/M10, and
+`team-lead/SKILL.md` M1–M5/M9/M10 and
 `team-lead/references/contracts/{brief,receipt,doorbell,team-record,compliance}.md`.
+The design record behind them is in the Mifal repository and is not installed:
+`docs/team-lead/specs/0001/tickets/06-lead-loop-integration.md` and
+`docs/team-lead/specs/0001/spec.md` (lead loop/testing decisions).

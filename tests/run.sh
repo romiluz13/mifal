@@ -1,5 +1,6 @@
 #!/bin/bash
 # Run the suite under macOS's system Python 3.9 and under the current python3. Both must pass.
+# Any argument goes to unittest for tests/ only and skips the shipped suites; the run says so when it ends.
 # The shipped suites read ~/.agents, so they run in a disposable HOME whose Pool and tools are this tree's.
 set -eu
 here="$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -28,4 +29,8 @@ for py in /usr/bin/python3 "$(command -v python3)"; do
         done
     fi
 done
+if [ $# -gt 0 ]; then
+    echo "tests/run.sh: arguments given, so only tests/ ran and the shipped suites did not run" \
+        "(validator, stewardship, tools, adapter); run tests/run.sh with no arguments for the full suite." >&2
+fi
 exit $status

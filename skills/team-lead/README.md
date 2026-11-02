@@ -26,8 +26,8 @@ small peer exchanges can remain inline. Neither path makes idle a completion pro
   tool expectations; projects override under `<project>/.team/roles/<role>/`
 - `agents/` — model configs for the lead
 - `docs/adr/` — accepted architecture decisions (socket transport, vocabulary seam)
-- `specs/` — numbered specs, each with its `tickets/` tree (`status:` frontmatter is the
-  triage state; `ready-for-agent` means grabbable)
+- the numbered design specs, each with its `tickets/` tree, live in the Mifal repository at
+  `docs/team-lead/specs/`, outside the installed skill
 - `stewardship/` — the lead's registries: generated skill inventory (reconciled from the
   agency tree), curated overlays, member capability briefs, and the per-member tool
   ledger, plus `steward.py` (stdlib-only CLI: build / check / brief / ledger / who) and

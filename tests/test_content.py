@@ -332,11 +332,11 @@ TEAM_LEAD = "skills/team-lead/"
 
 
 class TeamRules(unittest.TestCase):
-    """Release 0.3.2 plan decisions 2 and 6-10: each team rule keeps its key terms in its home (outside text is data
-    has two homes by design, the Guide and a hard line), so deleting the rule fails its test while a pointer elsewhere
-    or an honest rewording passes. A short pattern per clause ties a term to its negation or action, so reversing the
-    rule ("never resets" to "always resets") fails too. String contracts: they show the text is present, not that any
-    agent follows it."""
+    """Plan decisions 2 and 6-10 of the release that added QUIET: each team rule keeps its key terms in its home
+    (outside text is data has two homes by design, the Guide and a hard line), so deleting the rule fails its test
+    while a pointer elsewhere or an honest rewording passes. A short pattern per clause ties a term to its negation or
+    action, so reversing the rule ("never resets" to "always resets") fails too. String contracts: they show the text
+    is present, not that any agent follows it."""
 
     def assertTerms(self, text, *terms):
         for term in terms:
@@ -428,7 +428,7 @@ NEG = r"(?:not|never|no longer|need not|needn't|don't|do not|no need to)"
 
 
 class LeadMechanisms(unittest.TestCase):
-    """Release 0.3.2 ticket 11, plan decisions 3, 4 and 12: Team Lead tells a lead how to use QUIET events, run
+    """Ticket 11 of the same release, plan decisions 3, 4 and 12: Team Lead tells a lead how to use QUIET events, run
     records and PR feedback, in the file a lead reads at that moment. Key terms pin each home, and a short pattern per
     clause ties a term to its negation or action, so a reversed rule fails while a pointer or an honest rewording
     passes. String contracts: they show the text is present, not that any agent follows it."""

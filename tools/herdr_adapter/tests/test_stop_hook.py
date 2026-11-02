@@ -13,7 +13,7 @@ import test_preflight
 
 HOOKS = Path(__file__).resolve().parents[1] / "hooks"
 HOOK = HOOKS / "team-stop.sh"
-# Real Claude Code 2.1.316 Stop payloads, captured natively for Mifal 0.3.2 (task 101). Only cwd and
+# Real Claude Code 2.1.316 Stop payloads, captured natively for QUIET's release (task 101). Only cwd and
 # transcript_path are anonymized; every field the hook reads is the captured bytes.
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 PREFLIGHT = test_preflight.PREFLIGHT
@@ -174,6 +174,15 @@ class StopHookTest(unittest.TestCase):
         result = self.stop(payload={"background_tasks": [{"id": "b1"}, {"id": "b2"}]}, expected=2)
         self.assertIn("2 background task(s) are still running", result.stderr)
         self.stop(payload={"background_tasks": [{"id": "b1"}], "stop_hook_active": True}, expected=0)
+
+    def test_a_string_or_object_background_tasks_is_not_counted_as_running_tasks_on_a_completion(self):
+        self.admitted_with()
+        for value in ("running", {"b1": "running", "b2": "running"}):
+            with self.subTest(background_tasks=value):
+                result = self.stop(payload={"background_tasks": value}, expected=0)
+                self.assertNotIn("still running", result.stderr)
+        result = self.stop(payload={"background_tasks": [{"id": "b1", "status": "completed"}]}, expected=2)
+        self.assertIn("1 background task(s) are still running", result.stderr)
 
     def test_the_hook_runs_no_plan_verifier_and_writes_only_its_own_log(self):
         (self.project / "verdict").write_text("hang")

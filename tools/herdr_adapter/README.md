@@ -266,9 +266,9 @@ Other snapshot protocols are refused; no unverified compatibility fallback.
 
 Binding sources read for this implementation:
 
-- `~/.agents/skills/team-lead/specs/0001/tickets/03-socket-adapter-core.md`
-- `~/.agents/skills/team-lead/specs/0001/tickets/04-event-loop.md`
-- `~/.agents/skills/team-lead/specs/0001/spec.md`: Transport / Testing Decisions
+- `docs/team-lead/specs/0001/tickets/03-socket-adapter-core.md` in the Mifal repository (not installed)
+- `docs/team-lead/specs/0001/tickets/04-event-loop.md` in the Mifal repository (not installed)
+- `docs/team-lead/specs/0001/spec.md` in the Mifal repository (not installed): Transport / Testing Decisions
 - `~/.agents/skills/team-lead/docs/adr/0001-socket-transport.md`
 - `~/Dev/herdr-socket-proto/{VERDICT.md,proto_probe.py,fake_agent.sh,api-schema.json,research-socket-api.md}`
 
