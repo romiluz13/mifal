@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 
 from support import REPO, Sandbox, changed, snapshot
-from test_content import denied
+from test_content import denied, tracked
 from test_lifecycle import planned_paths
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "helpers"))
@@ -118,6 +118,28 @@ class Readme(Sandbox):
     def test_the_readme_says_herdr_stays_and_how_to_remove_it(self):
         self.assertRegex(text(INSTALL), r"Herdr stays installed")
         self.assertIn("brew uninstall herdr", text(INSTALL))
+
+
+class Release(unittest.TestCase):
+    """A version bump has to carry its notes, and no test may pin the version it was written at."""
+
+    def version(self):
+        return text(REPO / "VERSION").strip()
+
+    def test_the_changelogs_first_heading_is_the_version(self):
+        first = re.search(r"(?m)^## (.*)$", text(REPO / "CHANGELOG.md"))
+        self.assertEqual(first.group(1).strip() if first else None, self.version(),
+                         "the newest CHANGELOG heading must be exactly VERSION, with nothing after it")
+
+    def test_no_test_file_holds_the_current_version(self):
+        literal = re.compile(r"(?<![\d.])" + re.escape(self.version()) + r"(?!\.?\d)")
+        tests = [p for p in tracked()
+                 if p.startswith("tests/") or "/tests/" in p or Path(p).name.startswith("test_")]
+        self.assertIn("tests/test_readme.py", tests)
+        found = [f"{p}:{n}" for p in tests for n, line in enumerate(
+            (REPO / p).read_text(encoding="utf-8", errors="replace").splitlines(), 1) if literal.search(line)]
+        self.assertEqual(found, [], "a test that names the current version goes stale at the next bump; "
+                                   "read VERSION instead")
 
 
 class RunScript(unittest.TestCase):

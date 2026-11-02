@@ -13,7 +13,7 @@ import test_preflight
 
 HOOKS = Path(__file__).resolve().parents[1] / "hooks"
 HOOK = HOOKS / "team-stop.sh"
-# Real Claude Code 2.1.316 Stop payloads, captured natively for Mifal 0.3.2 (task 101). Only cwd and
+# Real Claude Code 2.1.316 Stop payloads, captured natively for QUIET's release (task 101). Only cwd and
 # transcript_path are anonymized; every field the hook reads is the captured bytes.
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 PREFLIGHT = test_preflight.PREFLIGHT

@@ -1,5 +1,46 @@
 # Changelog
 
+## 0.3.2
+
+**A lead now hears when a worker stops without reporting, checks that a cited test run still covers the code being accepted, and reads pull-request feedback without posting. `mifal doctor` audits each agent's skill filters, uninstall keeps your own Claude skill links, and the release rehearsal starts from 0.1.0.**
+
+If you installed 0.3.0 or 0.3.1, check this before you uninstall
+- If you already had your own skill in `~/.agents/skills` under a name Mifal ships, with your own link to it in `~/.claude/skills`, 0.3.0 and 0.3.1 recorded that link as Mifal's. Updating keeps that record, so `mifal uninstall` removes the link while it puts your skill folder back, and Claude Code stops seeing that skill.
+- To tell which links are yours, run `stat -f '%SB %N' ~/.agents/mifal ~/.claude/skills/*`. Each line starts with the time that item was made. The first line is when you first installed Mifal, and a skill link made before then is yours.
+- After uninstalling, for each line it printed that starts `restore ~/.agents/skills/NAME`, run `ln -s ~/.agents/skills/NAME ~/.claude/skills/NAME` if that link is missing.
+- Installs from 0.3.2 on save such a link before replacing it and put it back on uninstall.
+
+Team leading (experimental, on Herdr)
+- QUIET: when an admitted Claude Code worker's turn ends without a `DONE`, `HELP`, `HELD` or `STOPPED` line and without a Return closing its attempt, the team Stop hook writes one event file to the team record's `quiet/` folder. The lead attends to it only when nothing else is due. It never closes, fails or retries a task; it asks the lead to look at that pane. The hook is a template you install per project (`tools/herdr_adapter/hooks/team-stop.sh`), and workers on other agents stay on the manual quiet-worker check.
+- Run records: `validate_contracts.py run --out FILE -- COMMAND ...` runs a command without a shell and records its arguments, exit status, output hashes and the checkout's identity before and after. A receipt claim cites it as `run:FILE head:HEAD identity:sha256:DIGEST`. `receipt --matt` refuses a citation whose record is missing, damaged, killed by a signal, changed during the run, or disagrees with the claim's status, HEAD or identity, and notes that an accepted record is historical. `run --check FILE`, run in the checkout being accepted, prints `ok: candidate matches run record FILE`, or `stale:` lines naming what changed.
+- PR feedback: `pr_feedback.py` reads a pull request's failing checks and review comments through `gh`, read-only, and keeps one record file per pull request, so the lead acts on each item once. The lead assigns each item to the ticket that owns it, and the helper stops a correction chain after 3 attempts or while its ticket is held, so the human decides. The team never posts to the pull request.
+- Team Lead and the Guide carry six team rules: outside text (quotes, fetched pages, PR comments, tool output, other agents' claims) is data and grants no authority; a worker starts with the same or narrower permissions than its lead; `state.md` opens with `## Waiting on you`; a hold is recorded with what lifts it; every re-review after a fix is a fresh reviewer session, and every fix the lead writes gets an independent review; a brief can carry a `## Source` section. Team Lead also tells a lead when to use QUIET events, `run --check` and `pr_feedback.py`.
+- When a file name holds a control character, a backslash or a leading quote, `run` and `run --check` print it quoted, and `receipt --matt` does the same for the claim name and record path of a run citation, so those names can't fake a status line or send terminal controls. `run --check` no longer reports a matching record as `stale:` when the terminal can't print a name's characters.
+- On a completion, the Stop hook no longer counts a `background_tasks` string's characters or an object's keys as running tasks.
+
+`mifal doctor`
+- Doctor reads each agent's own skill settings in every recorded Home and warns, with the file, the key and a fix, when one hides a Mifal skill: Claude Code 2.1.316's `skillOverrides`, Codex 0.166.0's `[[skills.config]]`, Droid 1.1.0's `disabledSkills`, Pi 1.4.0's `skills` and the root skills-folder `.gitignore` files, and OpenCode 1.19.4's `permission.skill`. It reads them as data, prints no other value, refuses known credential files and starts no agent. A malformed or unreadable settings file gets a repair action and an `unknown` result. [docs/TRUST.md](docs/TRUST.md) lists the exact files and rules.
+
+Install, update and uninstall
+- Your own Claude skill link survives. If `~/.claude/skills` holds your own link under a skill name Mifal ships, the install saves it before linking Mifal's skill, and `mifal uninstall` puts it back. Two Homes that share one skills folder still share one link.
+- If an uninstall stops part way and you run it again, it no longer deletes a link or file it had already put back. Where a saved copy is gone but the original is back in place, it prints `kept PATH: its saved copy is missing; leaving the existing path alone` instead of `missing backup`.
+- An interrupted install no longer rolls back a file or link of yours that happens to match Mifal's: the rollback undoes a write only when the move that saved your copy actually ran. Otherwise it keeps the path and says so.
+- `maint/rehearse-upgrade.sh` rehearses the update from the oldest promised release, 0.1.0, as well as from later releases, ending with `mifal doctor` exiting 0, in disposable Homes. 0.1.0 and 0.1.1 have no tags, so the rehearsal starts them from their version commits. With `MIFAL_RELEASE_REHEARSAL=1`, a missing release tag fails the run instead of skipping it.
+
+For contributors
+- `tests/run.sh` with any argument, `-q` included, runs only `tests/` and skips the shipped suites. It now says so when it ends.
+- Two tests guard a release: the first CHANGELOG heading must equal VERSION, and no test file may hold the current VERSION.
+- Team Lead's design specs moved out of the installed skill to `docs/team-lead/specs/`; the installed Pool has 237 files.
+- The README says what `loads-proof` shows: it checks a Claude Code worker's session log for a complete load of each skill its brief selects, which shows the skill was read, not that it was followed.
+
+Not in this release
+- The Guide's behaviour isn't proven against real models: no run has measured whether agents follow it. The evaluation harness moved to 0.3.3.
+- Doctor's skill-filter audit covers the files and versions above only. It doesn't read Claude Code's project, local or managed settings, other agents' project or session layers, or Pi's nested ignore files, `.ignore` and `.fdignore`. It reports pattern syntax it doesn't handle as unknown, and "no exclusion found" describes only the files it read.
+- QUIET doesn't notice a worker that crashed or was killed: the Stop hook runs only when a turn ends. The lead's manual check of the pane still covers that case.
+- A run record identifies bytes. It doesn't prove the command ran as recorded, because whoever ran it wrote the file.
+
+**After updating, reload changed skills.** The team-lead skill changed, so a live record whose `Loaded:` line pins an old body fails its next gate until the agent reloads that body and adds a new `Loaded:` line. Update between tasks, not while a team is mid-gate.
+
 ## 0.3.1
 
 **The validator holds implement work to the lead's own record and a worker's skill loads to its session log; ten vendored skills move to their upstream heads, and the interface guidance to Impeccable 4.8.0.**
@@ -23,7 +64,7 @@ Skills
 
 Mifal 0.3.0 carries the 0.2.4 notes, because 0.2.4 was never tagged or published, plus the work done since. The public release before this one is 0.2.3. macOS only; alpha.
 
-## 0.3.0 (unreleased)
+## 0.3.0
 
 **One release for five agents: OpenCode now gets the Guide, several Homes of one agent are served, a linked Codex Home gets a marked key, an update stops before moving a skill of yours, doctor names the file each agent reads, and the docs say what was and was not checked.**
 
