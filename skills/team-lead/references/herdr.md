@@ -74,12 +74,17 @@ anything.
   `agent rename <pane-id> <name>` for its live name before prompting.
 - Start a worker with the same or narrower approval, filesystem and network
   permissions as yours, because a worker can do whatever its launch allows,
-  including what you could not authorize. Pass a flag that skips approvals
-  only when you run that way too and the agreement allows it. Record your own
-  effective permissions; before each launch, check the worker's against the
-  installed version's documented flags and settings, and record the actual
-  launch arguments, without credentials, with its roster entry in `state.md`.
-  Unknown counts as not equal and holds the dispatch.
+  including what you could not authorize. Compare effective capabilities, not
+  mode names: actions requiring approval, writable paths and network access,
+  including tools and child processes. Record your own effective capabilities;
+  before each launch, establish the worker's from the installed version's
+  documented flags and settings, or its documented defaults when no settings
+  exist, and record the actual launch arguments, without credentials, with its
+  roster entry in `state.md`. Pass a flag that skips approvals only when you
+  run that way too and the agreement allows it. A dimension whose effective
+  behavior stays unestablished counts as not equal: name it, and it holds the
+  dispatch. An approval mode, project-trust choice or enabled bypass option is
+  not proof of a sandbox or of an active bypass.
 - Put the brief in `<record>/tasks/<id>.md`, where `<record>` is the
   record root's absolute path
   ([communication](communication.md#parallel-agents-in-one-repository)), and
@@ -217,14 +222,8 @@ authority, for unrelated work or once a teammate has lost the thread. The
 development record belongs to the member, not the session, so carry it into
 the next brief.
 
-Every re-review after a fix is a new reviewer session, even though it is
-related follow-on work, so the second judgment is not anchored on the first
-read. Give it the brief, the review snapshot, the earlier findings, the
-builder's responses and the open objections. A new session resets neither the
-review history nor the retry count. A mechanical recheck, such as rerunning a test or the validator, needs
-no new judgment review. You may fix a small finding yourself; every fix you
-write gets an independent final review. Record each review's cost with its
-findings.
+A re-review after a fix is the exception: it goes to a new reviewer session,
+as [review and disagreement](communication.md#review-and-disagreement) says.
 
 ## House rules inherited from the herdr skill
 

@@ -175,9 +175,10 @@ After a session break or compaction:
    condition, which comes from the human's own words: a wait for the human's yes
    stays until that yes; an explicit conditional grant ("do it after 10:00")
    lifts once its condition is checked and met, with no second yes; a grant
-   whose meaning is unclear stays held, and you ask once. New CI or PR
-   feedback, a new session or a new attempt never lifts a hold or reopens a
-   capped correction chain.
+   whose meaning is unclear stays held, and you ask once. New feedback alone
+   grants no authority, though verified evidence may satisfy the human's
+   explicit condition; unrelated feedback, a new session or a new attempt
+   never lifts a hold or reopens a capped correction chain.
 5. Label unverified historical claims; don't redo stable completed work just
    because the session was new.
 6. Take the single first resume action.

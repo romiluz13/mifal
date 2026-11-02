@@ -300,7 +300,8 @@ request a missing check or an evidenced equivalent. A read declaration is
 not proof of application, and a late read cannot repair earlier timing.
 
 Separate findings, hypotheses, and observed results. Reuse passed checks
-while their inputs hold; get an independent check where being wrong matters.
+while their inputs hold; get an independent check where being wrong matters
+([re-review](references/communication.md#review-and-disagreement)).
 If the revision moved during review, re-check the evidence it affects.
 Accept parallel work on the combined revision, not per branch
 ([integration](references/communication.md#parallel-agents-in-one-repository)).
