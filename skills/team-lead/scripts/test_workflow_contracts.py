@@ -2147,7 +2147,7 @@ class RunRecordTests(unittest.TestCase):
         self.assertEqual(explicit["cwd"], str(self.root))
 
     def receipt(self, path, record, status="passed", head=None, identity=None, citation=None, name="behavior",
-                declared=None):
+                declared=None, evidence=""):
         fixture = WorkflowTests()
         fixture.setUp()
         self.addCleanup(fixture.temp.cleanup)
@@ -2156,7 +2156,7 @@ class RunRecordTests(unittest.TestCase):
             f"identity:{identity or record['candidate']['identity']}")
         text = (fixture.brief().replace("- behavior:", f"- {declared or name}:") + fixture.workflow() +
                 "\n## Return\nCloses: 1\n### Result\nChecked the fixture.\n### Claims\n" +
-                f"- {name}: {status} | {claim}\n### Evidence\n" + fixture.load_lines())
+                f"- {name}: {status} | {claim}\n### Evidence\n" + fixture.load_lines() + evidence)
         task = self.root / "receipt.md"
         task.write_text(text)
         return subprocess.run([sys.executable, "-B", str(SCRIPT), "receipt", str(task), "--matt"],
@@ -2742,6 +2742,21 @@ class RunDisplayTests(unittest.TestCase):
         self.assertEqual(undeclared.returncode, 1, undeclared.stderr)
         self.assertIn("tests\\x1b[2K", undeclared.stderr)
         self.assertNotIn("\x1b", undeclared.stdout + undeclared.stderr)
+
+    def test_worker_text_on_any_error_or_note_line_reaches_the_terminal_escaped(self):
+        path, record = self.run_ok()
+        digest = "0" * 64
+        for line in (f"Loaded: /nope\x1b[2K/x.md | worker: sha256:{digest} partial read\n",
+                     "Check: start ok\x1b[2K\u2028error: FORGED | passed | evidence at:2026-11-02T00:00:00Z\n"):
+            with self.subTest(line=line):
+                result = self.receipt(path, record, evidence=line)
+                self.assertEqual(result.returncode, 1, result.stderr)
+                self.assertNotIn("\x1b", result.stderr)
+                self.assertNotIn("\u2028", result.stderr)
+                self.assertIn("\\x1b[2K", result.stderr)
+                self.assertNotIn("\\\\x1b", result.stderr, "an already-escaped name is escaped once")
+                self.assertTrue(all(line.startswith(("error: ", "note: ")) for line in result.stderr.splitlines()),
+                                result.stderr)
 
     def test_run_success_and_wrapper_error_lines_cannot_forge_a_second_line(self):
         folder = self.root / "out-g\nok: FORGED\x1b[2K"

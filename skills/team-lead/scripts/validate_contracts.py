@@ -2059,7 +2059,7 @@ def execute_run(args):
         print(f"ok: run record {run_display_path(output)}")
         return status if status >= 0 else 128 - status
     except (OSError, RuntimeError, ValueError) as error:
-        print(f"error: run wrapper: {run_display_path(error)}", file=sys.stderr)
+        print(shown(f"error: run wrapper: {run_display_path(error)}"), file=sys.stderr)
         return RUN_WRAPPER_ERROR
     finally:
         for _, source in reserved:
@@ -2152,6 +2152,12 @@ def complete_run_record(path):
                 type(stream["bytes"]) is not int or stream["bytes"] < 0 or not isinstance(stream["tail"], str)):
             raise ValueError(f"incomplete run record {key}")
     return record
+
+
+def shown(line):
+    # Every error: and note: line goes through here once. Worker text can reach these lines, and no message the
+    # validator writes spans lines, so any nonprintable character, newline included, is printed escaped.
+    return "".join(c if c.isprintable() else ascii(c)[1:-1] for c in str(line))
 
 
 def run_display_path(path):
@@ -2538,19 +2544,19 @@ def main(argv) -> int:
         try:
             errors, proofs = load_proof(regular_text(args.path), args.path, regular_text(args.log.expanduser()))
         except (OSError, UnicodeError, ValueError) as e:
-            print(f"error: {e}", file=sys.stderr)
+            print(shown(f"error: {e}"), file=sys.stderr)
             return 2
         for proof in proofs:
             print(proof)
         for e in errors:
-            print(f"error: {args.path}: {e}", file=sys.stderr)
+            print(shown(f"error: {args.path}: {e}"), file=sys.stderr)
         return 1 if errors else 0
 
     if args.cmd == "stamp":
         try:
             line = stamp_check(args.path, args.value)
         except (OSError, UnicodeError, ValueError) as e:
-            print(f"error: {args.path}: {e}", file=sys.stderr)
+            print(shown(f"error: {args.path}: {e}"), file=sys.stderr)
             return 1
         print(line)
         return 0
@@ -2559,13 +2565,13 @@ def main(argv) -> int:
         try:
             digest, ambiguous = design_parts(regular_text(args.path.expanduser()))
         except (OSError, UnicodeError) as e:
-            print(f"error: {e}", file=sys.stderr)
+            print(shown(f"error: {e}"), file=sys.stderr)
             return 2
         if ambiguous:
-            print("error: " + UNCLOSED_MESSAGE.format(args.path), file=sys.stderr)
+            print(shown("error: " + UNCLOSED_MESSAGE.format(args.path)), file=sys.stderr)
             return 1
         if digest is None:
-            print(f"error: {args.path}: no '## Design decisions' section", file=sys.stderr)
+            print(shown(f"error: {args.path}: no '## Design decisions' section"), file=sys.stderr)
             return 1
         print(f"sha256:{digest}")
         return 0
@@ -2574,10 +2580,10 @@ def main(argv) -> int:
         try:
             digest, unclosed = brief_parts(regular_text(args.path.expanduser()))
         except (OSError, UnicodeError) as e:
-            print(f"error: {e}", file=sys.stderr)
+            print(shown(f"error: {e}"), file=sys.stderr)
             return 2
         if unclosed:
-            print("error: " + UNCLOSED_MESSAGE.format(args.path), file=sys.stderr)
+            print(shown("error: " + UNCLOSED_MESSAGE.format(args.path)), file=sys.stderr)
             return 1
         print(f"sha256:{digest}")
         return 0
@@ -2588,7 +2594,7 @@ def main(argv) -> int:
             data = target.read_bytes()
             data.decode("utf-8")
         except (OSError, UnicodeError) as e:
-            print(f"error: {e}", file=sys.stderr)
+            print(shown(f"error: {e}"), file=sys.stderr)
             return 2
         footer = f"\n-- end of body {target} | sha256:{hashlib.sha256(data).hexdigest()} bytes:{len(data)} --\n"
         sys.stdout.buffer.write(data + footer.encode("utf-8"))
@@ -2598,7 +2604,7 @@ def main(argv) -> int:
         record, errors = parse_doorbell(args.line)
         if errors:
             for e in errors:
-                print(f"error: {e}", file=sys.stderr)
+                print(shown(f"error: {e}"), file=sys.stderr)
             return 1
         print("ok: doorbell")
         if args.parse:
@@ -2608,16 +2614,13 @@ def main(argv) -> int:
     if args.cmd in ("brief", "receipt", "workflow"):
         path: Path = args.path
         if not path.is_file():
-            print(f"error: no such file: {path}", file=sys.stderr)
+            print(shown(f"error: no such file: {path}"), file=sys.stderr)
             return 2
         try:
             text = path.read_text(encoding="utf-8")
         except UnicodeDecodeError as e:
-            print(
-                f"error: {path}: not valid UTF-8 (byte offset {e.start}); "
-                f"save the file as UTF-8",
-                file=sys.stderr,
-            )
+            print(shown(f"error: {path}: not valid UTF-8 (byte offset {e.start}); save the file as UTF-8"),
+                  file=sys.stderr)
             return 1
         if args.cmd == "brief":
             errors = validate_brief(text, str(path))
@@ -2639,12 +2642,12 @@ def main(argv) -> int:
                 errors.append(f"{path}: invalid Workflow record: {e}")
         if errors:
             for e in errors:
-                print(f"error: {e}", file=sys.stderr)
+                print(shown(f"error: {e}"), file=sys.stderr)
             return 1
         suffix = " (record checks only; execution needs evidence)" if args.cmd == "workflow" or args.matt else ""
         print(f"ok: {args.cmd} {path}{suffix}")
         for note in READ_NOTES:
-            print(f"note: {note}", file=sys.stderr)
+            print(shown(f"note: {note}"), file=sys.stderr)
         return 0
 
     return selfcheck(Path(__file__).resolve().parent / "fixtures")
