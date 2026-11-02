@@ -156,15 +156,32 @@ def parse_doorbell(line: str):
 
 # ---------------------------------------------------------------- markdown
 
+FRONTMATTER_EXAMPLE = (
+    "e.g.:\n"
+    "  ---\n  task: 7\n  owner: kai\n  latitude: do-tell\n"
+    "  return: .team/tasks/7.md\n  ---"
+)
+WORKFLOW_EXAMPLE = (
+    "e.g.:\n"
+    "  ## Workflow\n  Methodology: matt\n  Executor: kai\n  Route: build\n  Phase: implement\n"
+    "  Next gate: the slice's tests pass\n  Start: <full 40-character commit SHA>\n"
+    "  DDD: n/a: no vendor behaviour in scope\n  UX: n/a: no user-facing change\n"
+    "  Procedure: ~/.agents/skills/engineering-workflow/SKILL.md\n"
+    "  Procedure: ~/.agents/skills/ask-matt/SKILL.md\n"
+    "  Loaded: ~/.agents/skills/ask-matt/SKILL.md | kai: sha256:<digest> <where you loaded it>\n"
+    "Executor is the brief's owner; `validate_contracts.py read <path>` prints a body's digest. "
+    "The rerun names anything still missing; the full template is in "
+    "engineering-workflow/references/phase-record.md."
+)
+
+
 def parse_frontmatter(text: str):
     """Parse minimal 'key: value' frontmatter. Return (fields, body, errors)."""
     lines = text.splitlines()
     if not lines or lines[0].strip() != "---":
         return None, text, [
             "missing frontmatter; start the file with a '---' block holding "
-            "task, owner, latitude, and return, e.g.:\n"
-            "  ---\n  task: 7\n  owner: kai\n  latitude: do-tell\n"
-            "  return: .team/tasks/7.md\n  ---"
+            "task, owner, latitude, and return, " + FRONTMATTER_EXAMPLE
         ]
     fields = {}
     errors = []
@@ -234,16 +251,7 @@ def validate_workflow(text: str, path: Path, gate="entry", require_loads=True, r
     if len(blocks) > 1:
         return [f"{path}: {len(blocks)} '## Workflow' sections; keep one"]
     if not blocks:
-        return [f"{path}: missing '## Workflow' for the Matt check; add one before '## Return', e.g.:\n"
-                "  ## Workflow\n  Methodology: matt\n  Executor: kai\n  Route: build\n  Phase: implement\n"
-                "  Next gate: the slice's tests pass\n  Start: <full 40-character commit SHA>\n"
-                "  DDD: n/a: no vendor behaviour in scope\n  UX: n/a: no user-facing change\n"
-                "  Procedure: ~/.agents/skills/engineering-workflow/SKILL.md\n"
-                "  Procedure: ~/.agents/skills/ask-matt/SKILL.md\n"
-                "  Loaded: ~/.agents/skills/ask-matt/SKILL.md | kai: sha256:<digest> <where you loaded it>\n"
-                "Executor is the brief's owner; `validate_contracts.py read <path>` prints a body's digest. "
-                "The rerun names anything still missing; the full template is in "
-                "engineering-workflow/references/phase-record.md."]
+        return [f"{path}: missing '## Workflow' for the Matt check; add one before '## Return', " + WORKFLOW_EXAMPLE]
     fields = {}
     errors = []
     repeated = {"procedure": [], "loaded": [], "check": [], "cut": []}
@@ -2156,8 +2164,12 @@ def complete_run_record(path):
 
 def shown(line):
     # Every error:, note: and ok: line, read's footer and stamp's output go through here once. Worker text can reach
-    # them, and no line the validator writes spans lines, so any nonprintable character, newline included, is escaped.
-    return "".join(c if c.isprintable() else ascii(c)[1:-1] for c in str(line))
+    # them, so any nonprintable character, newline included, is escaped. Only the validator's own closing example
+    # keeps its lines: it is a fixed constant, matched whole at the end, and everything before it is escaped.
+    text = str(line)
+    example = next((e for e in (FRONTMATTER_EXAMPLE, WORKFLOW_EXAMPLE) if text.endswith(e)), "")
+    head = text[:len(text) - len(example)]
+    return "".join(c if c.isprintable() else ascii(c)[1:-1] for c in head) + example
 
 
 def run_display_path(path):

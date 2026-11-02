@@ -2780,6 +2780,23 @@ class RunDisplayTests(unittest.TestCase):
                 self.assertIn("\\x1b[31m", shown)
                 self.assertEqual(len(shown.strip("\n").splitlines()), 1, shown)
 
+    def test_a_controlled_path_cannot_borrow_the_lines_of_a_teaching_example(self):
+        folder = self.root / "d\x1b[31m\nok: FORGED"
+        folder.mkdir()
+        for name, body, marker in (("no-workflow.md", "---\ntask: 7\nowner: kai\nlatitude: do-tell\nreturn: r.md\n---\n# T\n",
+                                    "  ## Workflow"),
+                                   ("no-frontmatter.md", "# T\n", "  task: 7")):
+            with self.subTest(name=name):
+                brief = folder / name
+                brief.write_text(body, encoding="utf-8")
+                result = subprocess.run([sys.executable, "-B", str(SCRIPT), "brief", str(brief), "--matt"],
+                                        capture_output=True, text=True, encoding="utf-8")
+                self.assertEqual(result.returncode, 1)
+                shown = result.stdout + result.stderr
+                self.assertNotIn("\x1b", shown)
+                self.assertFalse([l for l in shown.splitlines() if l.startswith("ok:")], shown)
+                self.assertIn(marker, shown.splitlines(), "the validator's own example keeps its lines")
+
     def test_run_success_and_wrapper_error_lines_cannot_forge_a_second_line(self):
         folder = self.root / "out-g\nok: FORGED\x1b[2K"
         folder.mkdir()
