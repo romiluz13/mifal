@@ -329,7 +329,9 @@ TEAM_LEAD = "skills/team-lead/"
 class TeamRules(unittest.TestCase):
     """Release 0.3.2 plan decisions 2 and 6-10: each team rule keeps its key terms in its home (outside text is data
     has two homes by design, the Guide and a hard line), so deleting the rule fails its test while a pointer elsewhere
-    or an honest rewording passes. String contracts: they show the text is present, not that any agent follows it."""
+    or an honest rewording passes. A short pattern per clause ties a term to its negation or action, so reversing the
+    rule ("never resets" to "always resets") fails too. String contracts: they show the text is present, not that any
+    agent follows it."""
 
     def assertTerms(self, text, *terms):
         for term in terms:
@@ -354,6 +356,12 @@ class TeamRules(unittest.TestCase):
                          "writable paths", "network access", "child processes", "documented defaults",
                          "unestablished", "holds the dispatch", "not proof of a sandbox",
                          "launch arguments, without credentials")
+        self.assertRegex(dispatch, r"same or narrower\b[^.]*\bas yours\b")
+        self.assertNotRegex(dispatch, r"\b(?:or|and) broader\b")
+        for dimension in ("approval", "writable paths", "network access"):
+            with self.subTest(dimension=dimension):
+                self.assertRegex(dispatch, r"not mode names:[^.]*\b" + dimension)
+        self.assertRegex(dispatch, r"unestablished counts as not equal")
         brief = section(TEAM_LEAD + "references/contracts/brief.md", "Required sections")
         self.assertTerms(brief, "optional `Permission:` line", "`## Current state`", "validator does not rank")
 
@@ -362,6 +370,7 @@ class TeamRules(unittest.TestCase):
         first = state.split("- ", 2)[1]
         self.assertTerms(first, "`## Waiting on you`", "task or attempt", "what is needed", "recommendation",
                          "source", "original waiting-since time", "again", "resets its age")
+        self.assertRegex(first, r"\b(?:never|does not|doesn't|not) resets? its age")
         m9 = section(TEAM_LEAD + "SKILL.md", "M9.")
         self.assertRegex(m9, r"First read `## Waiting on you` in `state\.md`")
         self.assertIn("references/team-memory.md#statemd", m9)
@@ -378,12 +387,24 @@ class TeamRules(unittest.TestCase):
                          "unclear", "ask once", "alone grants no authority", "verified evidence",
                          "explicit condition", "unrelated feedback", "new session", "new attempt",
                          "capped correction chain")
+        self.assertRegex(m4, r"technical blocker is not a hold")
+        self.assertRegex(resume, r"conditional grant\b[^;]*\blifts\b[^;]*\bchecked and met\b[^;]*\bno second yes")
+        self.assertRegex(resume, r"unclear stays held")
+        self.assertRegex(resume, r"feedback alone grants no authority")
+        self.assertRegex(resume, r"unrelated feedback\b[^.]*\b(?:never|does not|doesn't|cannot) lifts? a hold")
 
     def test_every_re_review_after_a_fix_is_a_fresh_session(self):
         review = section(TEAM_LEAD + "references/communication.md", "Review and disagreement")
         self.assertTerms(review, "re-review", "new reviewer session", "earlier findings", "builder's responses",
                          "open objections", "review history", "retry count", "mechanical recheck",
                          "independent final review", "cost")
+        self.assertRegex(review, r"(?i)\bevery re-review\b[^.]{0,60}\bnew reviewer session\b|"
+                                 r"\bnew reviewer session for every re-review\b")
+        self.assertNotRegex(review, r"new reviewer session is optional|may reuse the first reviewer")
+        self.assertRegex(review, r"\b(?:resets? neither|does not reset|doesn't reset|never resets?)\b[^.]{0,30}"
+                                 r"review history\b[^.]{0,30}\bretry count")
+        self.assertRegex(review, r"mechanical recheck\b[^.]*\bno new judgment review")
+        self.assertRegex(review, r"every fix[^.]{0,40}\bgets an independent final review")
         pointer = "communication.md#review-and-disagreement"
         keep = section(TEAM_LEAD + "references/herdr.md", "Keeping or restarting")
         self.assertIn(pointer, keep)
@@ -393,6 +414,7 @@ class TeamRules(unittest.TestCase):
     def test_the_brief_carries_the_humans_words_and_a_conflict_rings_help(self):
         brief = section(TEAM_LEAD + "references/contracts/brief.md", "Required sections")
         self.assertTerms(brief, "Recommended: `## Source`", "human's request", "contradict", "`HELP`")
+        self.assertRegex(brief, r"\brings? `HELP` (?:rather than|instead of)\b")
 
 
 class Closure(unittest.TestCase):
