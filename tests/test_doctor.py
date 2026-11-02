@@ -2,6 +2,8 @@ import json
 import os
 import re
 import shutil
+import subprocess
+import time
 import unittest
 
 import test_update
@@ -545,6 +547,32 @@ class CodexSkillFilters(Doctor):
         self.assertNotIn('Traceback', result.stdout + result.stderr)
         self.assertRegex(result.stdout, r'(?m)^(WARN|FAIL) guide codex: .*unknown[^\n]*\n     fix: ')
 
+    def test_deep_toml_warns_without_traceback_on_both_doctor_parse_paths(self):
+        self.install()
+        root = self.home / '.codex'
+        for delivery in ('rules', 'config'):
+            with self.subTest(delivery=delivery):
+                if delivery == 'config':
+                    root = self.home / 'codex-key'
+                    root.mkdir()
+                    shared = self.home / 'shared.md'
+                    shared.write_text('Personal rules\n')
+                    (root / 'AGENTS.md').symlink_to(shared)
+                    self.install('--home', 'codex=' + str(root))
+                config = root / 'config.toml'
+                original = config.read_text() if config.exists() else None
+                config.write_text('a = ' + '[' * 100000 + ']' * 100000)
+                try:
+                    result = self.doctor()
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                    self.assertNotIn('Traceback', result.stdout + result.stderr)
+                    self.assertRegex(result.stdout, r'(?m)^WARN .*TOML[^\n]*\n     fix: .*repair.*TOML')
+                finally:
+                    if original is None:
+                        config.unlink()
+                    else:
+                        config.write_text(original)
+
     def test_linked_config_delivered_guide_passes_when_key_is_intact(self):
         root = self.home / 'codex-key'
         root.mkdir()
@@ -567,6 +595,27 @@ class CodexSkillFilters(Doctor):
 
 
 class OtherSkillFilters(Doctor):
+    def test_pathological_skill_patterns_finish_doctor_within_five_seconds(self):
+        self.install()
+        for name, data in (
+                ('pi', {'skills': ['!' + '**/' * 25 + 'x']}),
+                ('opencode', {'permission': {'skill': {'*?' * 20 + 'x': 'deny'}}})):
+            with self.subTest(agent=name):
+                config = self.home / RULES[name].rsplit('/', 1)[0] / (
+                    'opencode.json' if name == 'opencode' else 'settings.json')
+                config.write_text(json.dumps(data))
+                try:
+                    started = time.monotonic()
+                    result = subprocess.run(['/bin/bash', str(self.home / '.local/bin/mifal'), 'doctor'],
+                        cwd=self.root, env=self.env(), capture_output=True, text=True, timeout=5)
+                    elapsed = time.monotonic() - started
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                    self.assertLess(elapsed, 5)
+                    self.assertNotIn('configured exclusion detected', result.stdout)
+                    print(f'{name} pathological doctor: {elapsed:.3f}s')
+                finally:
+                    config.unlink()
+
     def setUp(self):
         Sandbox.setUp(self)
         self.herdr_schema(SCHEMA.read_text())

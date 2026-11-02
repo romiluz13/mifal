@@ -507,6 +507,31 @@ class SkillFilters(Wiring):
         for name, text in [('claude', '{"skillOverrides":[]}'), ('droid', '{"disabledSkills":[false]}')]:
             self.assertIn('exclusions unknown', repr(self.other_audit(name, text)))
 
+    def test_unread_settings_levels_are_named_in_audit_and_trust(self):
+        trust = (REPO / 'docs/TRUST.md').read_text()
+        for name, term in (
+                ('claude', 'permission rules in settings.json are not read'),
+                ('droid', 'org-remote, runtime, folder, project and dynamic')):
+            with self.subTest(agent=name):
+                result = self.other_audit(name, '{}')
+                self.assertIn(term, repr(result))
+                self.assertIn(term, trust)
+        root = self.home / 'opencode-override'
+        root.mkdir()
+        result = harness.skill_filters('opencode', self.home, root, self.home / '.agents/skills', {'tdd'},
+                                       env={'OPENCODE_CONFIG_DIR': str(root)})
+        self.assertIn('ordinary global config', repr(result))
+        self.assertIn('still applies under OPENCODE_CONFIG_DIR and is not read', repr(result))
+        self.assertIn(str(self.home / '.config/opencode'), repr(result))
+        self.assertIn('still applies under OPENCODE_CONFIG_DIR and is not read', trust)
+
+    def test_pi_trailing_globstar_and_repeated_slashes_match_minimatch(self):
+        for pattern, hidden in (('!tdd/**', set()), ('!skills//tdd', {'tdd'}),
+                                ('!skills/**', {'tdd', 'team-lead'}), ('!**/team-lead/**', {'team-lead'})):
+            with self.subTest(pattern=pattern):
+                result = self.other_audit('pi', json.dumps({'skills': [pattern]}))
+                self.assertEqual({message.split(':')[0] for message, _ in result.warnings}, hidden, repr(result))
+
     def test_pi_pool_patterns_and_ignore_pruning_follow_the_source_order(self):
         pool = self.home / '.agents/skills'
         (pool / 'tdd').mkdir(parents=True)
@@ -752,6 +777,21 @@ assert result.unreadable and 'regular TOML file' in repr(result.warnings), repr(
                     if count:
                         self.assertIn('tdd: configured exclusion detected', result.warnings[0][0])
 
+    def bounded_codex_audit(self, root):
+        code = '''
+import json, sys
+from dataclasses import asdict
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+from mifal import harness
+home, root = Path(sys.argv[2]), Path(sys.argv[3])
+print(json.dumps(asdict(harness.skill_filters('codex', home, root, home / '.agents/skills', {'tdd'}))))
+'''
+        process = subprocess.run([PYTHON, '-B', '-c', code, str(REPO / 'lib'), str(self.home), str(root)],
+                                 capture_output=True, text=True, timeout=3)
+        self.assertEqual(process.returncode, 0, process.stdout + process.stderr)
+        return harness.SkillFilters(**json.loads(process.stdout))
+
     def test_codex_nonregular_config_needs_regular_toml_not_read_access(self):
         for kind in ('fifo', 'directory', 'device'):
             with self.subTest(kind=kind):
@@ -764,7 +804,7 @@ assert result.unreadable and 'regular TOML file' in repr(result.warnings), repr(
                     config.mkdir()
                 else:
                     config.symlink_to(os.devnull)
-                result = self.audit(root=root)
+                result = self.bounded_codex_audit(root) if kind == 'fifo' else self.audit(root=root)
                 self.assertTrue(result.unreadable)
                 self.assertIn('exclusions unknown', result.warnings[0][0])
                 self.assertIn('regular TOML file', result.warnings[0][1])
@@ -783,7 +823,7 @@ assert result.unreadable and 'regular TOML file' in repr(result.warnings), repr(
                     else:
                         os.mkfifo(target)
                     (root / 'config.toml').symlink_to(target)
-                    result = self.audit(root=root)
+                    result = self.bounded_codex_audit(root) if kind == 'fifo' else self.audit(root=root)
                     self.assertTrue(result.unreadable)
                     self.assertEqual(len(result.warnings), 1)
                     self.assertNotIn('credential', result.warnings[0][0])

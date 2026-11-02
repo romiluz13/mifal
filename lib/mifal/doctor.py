@@ -329,7 +329,12 @@ def _key(r, rec, entry, guide_sha, h):
     Home's hooks.json and config.toml [hooks] read again as data. No config value or hook command is printed."""
     show, check = h.show, "guide codex"
     root, config = Path(rec["root"]), Path(rec["config"])
-    status, reason, _, source = cc.hooks(root, cc.spellings(h), show)
+    try:
+        status, reason, _, source = cc.hooks(root, cc.spellings(h), show)
+    except RecursionError:
+        r.line("WARN", check, f"{show(config)} has TOML nesting too deep to parse; Guide delivery unknown",
+               f"repair the TOML in {show(config)}, then run mifal doctor again")
+        return
     mend = None
     if status == "unknown":
         try:
@@ -362,6 +367,10 @@ def _key(r, rec, entry, guide_sha, h):
             return
         text = read.text
         cc.parse(text)
+    except RecursionError:
+        r.line("WARN", check, f"{show(config)} has TOML nesting too deep to parse; Guide delivery unknown",
+               f"repair the TOML in {show(config)}, then run mifal doctor again")
+        return
     except cc.Invalid:
         r.line("FAIL", check, f"{show(config)} is not UTF-8 TOML any more",
                f"fix it so Codex can read it, then {REINSTALL}")

@@ -11,6 +11,7 @@ import shlex
 import shutil
 import stat
 from dataclasses import dataclass, field
+from functools import lru_cache
 from pathlib import Path
 
 from . import codex_config as cc
@@ -156,9 +157,14 @@ class SettingsFacts:
     file: str
     version: str
     format: str
+    pool: bool = False
+
+
+@dataclass(frozen=True)
+class SettingsAudit:
+    files: tuple
     schema: str
     parser: object
-    pool: bool = False
 
 
 @dataclass
@@ -225,10 +231,17 @@ def read_settings(config: Path, facts: SettingsFacts, show=str) -> SettingsRead:
             f"restore read access to {where}, then run mifal doctor again"), unreadable=True)
 
 
-def _codex_filters(text, result, facts, home, root, pool, skills, show):
-    where = show(root / facts.file)
+def _codex_filters(reads, result, home, root, pool, skills, show):
+    if not reads:
+        return result
+    _, path, text = reads[0]
+    where = show(path)
     try:
         table = cc.parse(text).get("skills", {})
+    except RecursionError:
+        result.warnings.append((f"{where} has TOML nesting too deep to parse; exclusions unknown",
+                                f"repair the TOML in {where}, then run mifal doctor again"))
+        return result
     except cc.Invalid:
         result.warnings.append((f"{where} is not valid UTF-8 TOML; exclusions unknown",
                                 f"repair the TOML in {where}, then run mifal doctor again"))
@@ -272,17 +285,14 @@ def _codex_filters(text, result, facts, home, root, pool, skills, show):
                 disabled.discard(skill)
             else:
                 disabled.add(skill)
-    if not disabled:
-        result.coverage = f"no exclusion found in {where}; reads skill keys only ({facts.schema})"
     for skill in sorted(disabled):
         result.warnings.append((f"{skill}: configured exclusion detected in {where} at [[skills.config]]",
                                 f"set enabled = true or remove the matching entry in {where}; restart Codex"))
     return result
 
 
-CODEX_SETTINGS = SettingsFacts("config.toml", "Codex 0.166.0", "TOML",
-    "supports Codex 0.166.0 [[skills.config]] (path or name, enabled); Codex version and session -c overrides: unknown",
-    _codex_filters)
+CODEX_SETTINGS = SettingsFacts("config.toml", "Codex 0.166.0", "TOML")
+CODEX_SCHEMA = "supports Codex 0.166.0 [[skills.config]] (path or name, enabled); Codex version and session -c overrides: unknown"
 
 
 def _invalid(result, where, key, shape='JSON'):
@@ -326,9 +336,11 @@ def _claude_filters(reads, result, home, root, pool, skills, show):
     return result
 
 
-CLAUDE_SETTINGS = SettingsFacts('settings.json', 'Claude Code 2.1.316', 'JSON',
+CLAUDE_SETTINGS = SettingsFacts('settings.json', 'Claude Code 2.1.316', 'JSON')
+CLAUDE_SCHEMA = (
     'supports Claude Code 2.1.316 skillOverrides (on, name-only, user-invocable-only, off); '
-    'project, local, managed, flags and synced settings are not read; effective session scope: unknown', _claude_filters)
+    'permission rules in settings.json are not read; '
+    'project, local, managed, flags and synced settings are not read; effective session scope: unknown')
 
 
 def _droid_filters(reads, result, home, root, pool, skills, show):
@@ -353,10 +365,11 @@ def _droid_filters(reads, result, home, root, pool, skills, show):
     return result
 
 
-DROID_SETTINGS = SettingsFacts('settings.json', 'Droid 1.1.0', 'JSONC',
+DROID_SETTINGS = SettingsFacts('settings.json', 'Droid 1.1.0', 'JSONC')
+DROID_SCHEMA = (
     'supports Droid 1.1.0 disabledSkills (normalized names; JSON comments allowed, trailing commas refused); '
-    'project settings and frontmatter are not read; '
-    'effective session scope: unknown', _droid_filters)
+    'org-remote, runtime, folder, project and dynamic settings and frontmatter are not read; '
+    'effective session scope: unknown')
 
 
 def _glob(value, pattern, dot=False):
@@ -369,17 +382,27 @@ def _glob(value, pattern, dot=False):
         while pattern.startswith('!'):
             negate = not negate
             pattern = pattern[1:]
-    parts, targets = pattern.split('/'), value.split('/')
+    parts = []
+    separator = '/' if dot else '/+'
+    for part in re.split(separator, pattern):
+        if part != '**' or not parts or parts[-1] != '**':
+            parts.append(part)
+    targets = re.split(separator, value)
 
+    @lru_cache(maxsize=None)
     def matches(p, v):
-        if not p:
-            return not v
-        if p[0] == '**':
-            return matches(p[1:], v) or bool(v) and (dot or not v[0].startswith('.')) and matches(p, v[1:])
-        return bool(v) and (dot or not v[0].startswith('.') or p[0].startswith('.')) and \
-            fnmatch.fnmatchcase(v[0], p[0]) and matches(p[1:], v[1:])
+        if p == len(parts):
+            return v == len(targets)
+        if parts[p] == '**':
+            if not dot and p == len(parts) - 1:
+                return (p == 0 or v < len(targets)) and all(
+                    not target.startswith('.') for target in targets[v:])
+            return matches(p + 1, v) or v < len(targets) and (
+                dot or not targets[v].startswith('.')) and matches(p, v + 1)
+        return v < len(targets) and (dot or not targets[v].startswith('.') or parts[p].startswith('.')) and \
+            fnmatch.fnmatchcase(targets[v], parts[p]) and matches(p + 1, v + 1)
 
-    matched = matches(parts, targets)
+    matched = matches(0, 0)
     return not matched if negate else matched
 
 
@@ -495,12 +518,13 @@ def _pi_filters(reads, result, home, root, pool, skills, show):
     return result
 
 
-PI_SETTINGS = SettingsFacts('settings.json', 'Pi 1.4.0', 'JSON',
+PI_SETTINGS = SettingsFacts('settings.json', 'Pi 1.4.0', 'JSON')
+PI_SCHEMA = (
     'supports Pi 1.4.0 skills (!glob, +exact, -exact) and root skills-folder .gitignore; '
     'complex pattern and dot-segment file-URL syntax: unknown; project, packages, added resource paths, nested ignore files, '
-    '.ignore and .fdignore are not read; effective session scope: unknown', _pi_filters)
-PI_IGNORE = SettingsFacts('skills/.gitignore', 'Pi 1.4.0', 'gitignore', PI_SETTINGS.schema, _pi_filters)
-PI_POOL_IGNORE = SettingsFacts('.gitignore', 'Pi 1.4.0', 'gitignore', PI_SETTINGS.schema, _pi_filters, pool=True)
+    '.ignore and .fdignore are not read; effective session scope: unknown')
+PI_IGNORE = SettingsFacts('skills/.gitignore', 'Pi 1.4.0', 'gitignore')
+PI_POOL_IGNORE = SettingsFacts('.gitignore', 'Pi 1.4.0', 'gitignore', pool=True)
 
 
 def _jsonc(text, trailing_commas=True):
@@ -541,11 +565,22 @@ def _jsonc(text, trailing_commas=True):
 
 
 def _oc_match(value, pattern):
-    pattern = re.escape(pattern.replace('\\', '/')).replace(r'\*', '.*').replace(r'\?', '.')
-    if pattern.endswith(r'\ .*'):
-        pattern = pattern[:-4] + '( .*)?'
-    flags = re.S | (re.I if os.name == 'nt' else 0)
-    return re.fullmatch(pattern, value.replace('\\', '/'), flags) is not None
+    value, pattern = value.replace('\\', '/'), pattern.replace('\\', '/')
+    if os.name == 'nt':
+        value, pattern = value.lower(), pattern.lower()
+    patterns = (pattern, pattern[:-2]) if pattern.endswith(' *') else (pattern,)
+    for candidate in patterns:
+        candidate = re.sub(r'\*+', '*', candidate)
+        previous = [True] + [False] * len(value)
+        for token in candidate:
+            current = [previous[0] and token == '*'] + [False] * len(value)
+            for index, char in enumerate(value, 1):
+                current[index] = (previous[index] or current[index - 1]) if token == '*' else \
+                    previous[index - 1] and (token == '?' or token == char)
+            previous = current
+        if previous[-1]:
+            return True
+    return False
 
 
 def _opencode_filters(reads, result, home, root, pool, skills, show):
@@ -600,22 +635,30 @@ def _opencode_filters(reads, result, home, root, pool, skills, show):
     return result
 
 
-OPENCODE_SETTINGS = SettingsFacts('config.json', 'OpenCode 1.19.4', 'JSONC',
+OPENCODE_SETTINGS = SettingsFacts('config.json', 'OpenCode 1.19.4', 'JSONC')
+OPENCODE_SCHEMA = (
     'supports OpenCode 1.19.4 permission.skill (allow, ask, deny or ordered pattern map), '
     'global config.json then opencode.json then opencode.jsonc (overridden directories: opencode.json/jsonc only); '
     'legacy TOML migration, project, managed, agent, other global Homes and env/CLI settings are not read; '
-    'effective session scope: unknown', _opencode_filters)
-OPENCODE_JSON = SettingsFacts('opencode.json', 'OpenCode 1.19.4', 'JSONC', OPENCODE_SETTINGS.schema, _opencode_filters)
-OPENCODE_JSONC = SettingsFacts('opencode.jsonc', 'OpenCode 1.19.4', 'JSONC', OPENCODE_SETTINGS.schema, _opencode_filters)
-SETTINGS = {"codex": (CODEX_SETTINGS,), 'claude': (CLAUDE_SETTINGS,), 'droid': (DROID_SETTINGS,),
-            'pi': (PI_SETTINGS, PI_IGNORE, PI_POOL_IGNORE),
-            'opencode': (OPENCODE_SETTINGS, OPENCODE_JSON, OPENCODE_JSONC)}
+    'effective session scope: unknown')
+OPENCODE_JSON = SettingsFacts('opencode.json', 'OpenCode 1.19.4', 'JSONC')
+OPENCODE_JSONC = SettingsFacts('opencode.jsonc', 'OpenCode 1.19.4', 'JSONC')
+SETTINGS = {
+    'codex': SettingsAudit((CODEX_SETTINGS,), CODEX_SCHEMA, _codex_filters),
+    'claude': SettingsAudit((CLAUDE_SETTINGS,), CLAUDE_SCHEMA, _claude_filters),
+    'droid': SettingsAudit((DROID_SETTINGS,), DROID_SCHEMA, _droid_filters),
+    'pi': SettingsAudit((PI_SETTINGS, PI_IGNORE, PI_POOL_IGNORE), PI_SCHEMA, _pi_filters),
+    'opencode': SettingsAudit((OPENCODE_SETTINGS, OPENCODE_JSON, OPENCODE_JSONC), OPENCODE_SCHEMA, _opencode_filters),
+}
 
 
 def skill_filters(name, home: Path, root: Path, pool: Path, skills, show=str, env=None) -> SkillFilters | None:
-    files = SETTINGS.get(name)
-    if files is None:
+    audit = SETTINGS.get(name)
+    if audit is None:
         return None
+    files = audit.files
+    global_root = None
+    is_global = True
     if name == 'opencode':
         try:
             global_root = config_home(home, env or {}) / 'opencode'
@@ -629,7 +672,7 @@ def skill_filters(name, home: Path, root: Path, pool: Path, skills, show=str, en
             files = files[1:]
     paths = [(facts, (pool if facts.pool else root) / facts.file) for facts in files]
     listed = ', '.join(show(path) for _, path in paths)
-    result = SkillFilters(f"reads {listed} skill keys only ({files[0].schema})")
+    result = SkillFilters(f"reads {listed} skill keys only ({audit.schema})")
     reads = []
     for facts, config in paths:
         read = read_settings(config, facts, show)
@@ -638,13 +681,13 @@ def skill_filters(name, home: Path, root: Path, pool: Path, skills, show=str, en
             result.unreadable |= read.unreadable
         elif not read.missing:
             reads.append((facts, config, read.text))
-    if name == 'codex':
-        if reads:
-            return CODEX_SETTINGS.parser(reads[0][2], result, CODEX_SETTINGS, home, root, pool, skills, show)
-    else:
-        files[0].parser(reads, result, home, root, pool, skills, show)
+    if name == 'opencode' and not is_global:
+        ordinary = show(global_root) if global_root is not None else 'the unresolved global directory'
+        result.notes.append(f"OpenCode's ordinary global config in {ordinary} still applies under "
+                            "OPENCODE_CONFIG_DIR and is not read by this audit")
+    audit.parser(reads, result, home, root, pool, skills, show)
     if not result.warnings:
-        result.coverage = f"no exclusion found in {listed}; reads skill keys only ({files[0].schema})"
+        result.coverage = f"no exclusion found in {listed}; reads skill keys only ({audit.schema})"
     return result
 
 
