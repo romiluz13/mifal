@@ -2,7 +2,7 @@
 
 The [README](../README.md) has the quickstart. This page says exactly what the install writes, and how update and uninstall treat your files.
 
-`./install.sh --dry-run` lists every file, link and Marked block the install would write, and changes nothing. `mifal doctor` does not intentionally edit your files or use the network, runs none of your agents and opens no credential file itself. Its only settings reads are a served Codex Home's `config.toml` and `hooks.json`, read as data to check Mifal's own marked key and that Home's hooks; no value in them is printed (see "A linked Codex Home"). It invokes the installed validator's selfcheck, one local `git ls-tree` of the recorded revision in your clone (with lazy fetching switched off, so a partial clone is never filled in), and Herdr's `status --json`, `--version` and `api schema --json` (Herdr reads its own configuration to answer). Each failure it reports comes with its fix. For each agent Mifal serves it says which rules file holds Mifal's block, and it lists agents it detected but did not serve. It cannot see an agent's own skill filters (see "Skills of your own, precedence and filters").
+`./install.sh --dry-run` lists every file, link and Marked block the install would write, and changes nothing. `mifal doctor` does not intentionally edit your files or use the network, and runs none of your agents. It passively parses the declared skill-setting files below, using only skill keys and printing no unrelated values; its filename/type guard refuses known credential targets (see [TRUST.md](TRUST.md) for the limits). The existing Codex `config.toml` and `hooks.json` reads also check Mifal's marked key and that Home's hooks (see "A linked Codex Home"). It invokes the installed validator's selfcheck, one local `git ls-tree` of the recorded revision in your clone (with lazy fetching switched off, so a partial clone is never filled in), and Herdr's `status --json`, `--version` and `api schema --json` (Herdr reads its own configuration to answer). Each failure it reports comes with its fix. For each agent Mifal serves it says which rules file holds Mifal's block, and it lists agents it detected but did not serve.
 
 ## What gets written
 
@@ -11,8 +11,8 @@ Mifal's managed roots default to your home folder; `--allow-root-outside-home` e
 <!-- writes:begin -->
 | Where | What Mifal writes |
 |---|---|
-| `~/.agents/mifal/` | The engine: the `mifal` command and its library, the experimental Herdr adapter and tools, the Guide (`AGENTS.md`) and the Manifest; 61 files |
-| `~/.agents/skills/` | 39 skills, 244 files |
+| `~/.agents/mifal/` | The engine: the `mifal` command and its library, the experimental Herdr adapter and tools, the Guide (`AGENTS.md`) and the Manifest; 71 files |
+| `~/.agents/skills/` | 39 skills, 237 files |
 | `~/.local/bin/mifal` | A link to the engine's `mifal` command |
 | `~/.claude/CLAUDE.md` | A Marked block that imports the Guide |
 | `~/.claude/skills/` | 39 links, one per skill, into `~/.agents/skills/` |
@@ -62,7 +62,19 @@ When a skill of yours and a Mifal skill share a name, which one the agent uses d
 
 So a project skill named like a Mifal skill replaces Mifal's on Pi and Droid, not on Claude Code, and is listed beside it on Codex.
 
-An agent's own settings can also hide Mifal's skills where `mifal doctor` cannot see: Pi's `skills` setting, Droid's `disabledSkills`, Codex's `[[skills.config]]` and OpenCode's `permission.skill`. Pi also reads a `.gitignore`, `.ignore` or `.fdignore` inside a skills folder: a `.gitignore` in `~/.agents/skills` that lists Mifal's skill names hides them from Pi unless they are also linked from `~/.pi/agent/skills`. If your skills folder is a git repository, put those names in `.git/info/exclude` instead; Pi does not read it.
+`mifal doctor` audits these user settings in every wired Home recorded in the Manifest. Paths in the table are relative to that Home, except the shared Pi Pool file.
+
+| Agent and supported source version | Declared files | Skill keys |
+|---|---|---|
+| Claude Code 2.1.316 | `settings.json` | `skillOverrides` |
+| Codex 0.166.0 | `config.toml` | `[[skills.config]]`: path or name, enabled |
+| Droid 1.1.0 | `settings.json` | `disabledSkills` |
+| Pi 1.4.0 | `settings.json`, `skills/.gitignore`, `~/.agents/skills/.gitignore` | `skills`: !glob, +exact, -exact; ignore rules |
+| OpenCode 1.19.4 | Global directory: `config.json`, `opencode.json`, `opencode.jsonc`; overridden directory: `opencode.json`, `opencode.jsonc` | `permission.skill`, including matching global permission rules |
+
+Claude and Pi settings use JSON; Droid also accepts comments but rejects trailing commas, while OpenCode accepts both. A matching Mifal skill gets `WARN … configured exclusion detected` with the file, key and `fix:`. Removing the entry removes that warning. Malformed or unreadable settings get a repair action and `unknown`; a missing file or no skill key adds no warning. The coverage note states the supported schema, not a runtime version check or a promise that the agent loads a skill. Claude project, local and managed settings, and other agents' project/session layers are not read. [TRUST.md](TRUST.md) details precedence and compatibility limits.
+
+Pi's audit handles ordinary globs and exact paths, and root `.gitignore` rules with parent-directory pruning. Complex pattern syntax is reported as unknown. Pi also reads nested ignore files, `.ignore` and `.fdignore`; doctor does not read them. A Pool exclusion can coexist with another discovered copy, so a configured-exclusion warning does not prove the effective skill is absent. If your skills folder is a git repository, put names you want Git alone to ignore in `.git/info/exclude`; Pi does not read it.
 
 ## Install, update, rollback and uninstall
 
@@ -90,6 +102,8 @@ Update protection starts with 0.3.0. An update from 0.2.3 (or from a local 0.2.4
 ### Uninstall
 
 `mifal uninstall` removes unchanged recorded files, links and Marked blocks, keeps edited or diverted paths and says so, and restores a backup only if its original target is free, reporting any material it keeps. It acts on every recorded Home: each one is left byte for byte as it was, a linked Codex Home gets its marked key taken out and keeps every other byte of its `config.toml`, and anything you edited after the install is kept with its backup. `./install.sh` from a clone of Mifal 0.3.0 or later that is older than the installed version refuses and changes nothing, even while an interrupted install is pending (it names both versions; use `mifal update`, install from a newer clone, or run `mifal uninstall` first to install an older one on purpose; see Rollback). A clone of Mifal 0.2.3 or earlier runs its own installer, which has no such check, and installs its older version over the newer one; use `mifal update` instead. A Manifest belongs to the home that installed it, and Mifal refuses to act on another home's: if `~/.agents/mifal` is a link into another home's install, remove the link first.
+
+If Mifal 0.3.0 or 0.3.1 recorded your own Claude link as Mifal's, uninstall removes it while restoring your skill folder; recreate it with `ln -s ~/.agents/skills/NAME ~/.claude/skills/NAME`. If you installed with `--home claude=PATH`, use `PATH/skills` in place of `~/.claude/skills`, for each Claude Home you named. Installs from 0.3.2 on back up and restore your links.
 
 Herdr stays installed after uninstall, because other tools may use it. If Mifal installed it with Homebrew, remove it with:
 

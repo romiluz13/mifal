@@ -11,15 +11,29 @@
 # Claude Code fires Stop at every turn end, not only at completion, so the hook gives feedback only when the worker
 # claims completion. A claim is either a line of the last assistant message that starts "DONE <attempt>" (sentence
 # punctuation . , : ; ! may follow the attempt), or a return file that already holds a Return section closing the attempt.
-# Everything else is a mid-task stop: exit 0, silently.
+# Everything else is a mid-task stop: exit 0.
 #   last message starts with HELP or HELD              -> exit 0 always (a question for the lead is not a completion)
 #   any DONE line names the pane's attempt              -> a claim, whatever other attempts the message also names
 #   DONE lines name only other attempts                 -> exit 0, one "attempt mismatch" line in the log
 #
+# A mid-task stop of an admitted worker that reports nothing (last message not starting HELP, HELD or STOPPED, no
+# DONE line, no Return closing the attempt) also writes one QUIET event, schema 1, at
+# <record-root>/quiet/<sha256 of the JSON array [session_id, prompt_id]>.json: type, owner, pane, attempt,
+# session_id, prompt_id, reason "no report", waiting, and the UTC write time. Positive evidence of work wins: a
+# running task or a non-empty session_crons list means no event at all, whatever shape the other key has. Otherwise
+# waiting is none when background_tasks and session_crons are present lists holding nothing active ("running" is
+# the only active status Claude Code 2.1.316 was captured sending), and unknown when either is absent or not a
+# list, or a task holds a status this hook does not recognise. The event never blocks the stop: it is written
+# atomically (a temp file in quiet/, then a hard link, so an existing event is never overwritten) and a failed
+# write is only logged. One stop delivered twice, or retried with stop_hook_active, has
+# the same (session_id, prompt_id) key, so it stays one event; a stop missing either id has no reliable identity:
+# no event, one "unknown stop identity" log line. The event file is immutable and owned by this hook; nothing here
+# reads it back or prompts anyone, and an unadmitted pane stays as silent as before.
+#
 # Mapping for a claimed completion, preflight verdict -> hook exit. The validator's own exit status is never
 # forwarded: it exits 1 for an invalid receipt, and a hook exit of 1 is a non-blocking error, so forwarding it would
 # pass every invalid receipt.
-#   preflight-ok      -> exit 0   (exit 2 once only when the Stop payload lists background_tasks still running)
+#   preflight-ok      -> exit 0   (exit 2 once only when the Stop payload's background_tasks is a non-empty list)
 #   missing           -> exit 2   the precise errors on stderr; the worker sees them and may fix its return
 #   cannot-evaluate   -> exit 0   one line in <record-root>/stop-hook.log; the worker is not told
 #   anything else     -> exit 0   (crash, no JSON, missing interpreter or script, unknown verdict) logged the same way
@@ -50,7 +64,9 @@ msg = d.get("last_assistant_message")
 msg = msg if isinstance(msg, str) else ""
 word = re.match(r"[A-Za-z]+", re.sub(r"^[\s`*_>#-]+", "", msg))
 done = re.findall(r"(?m)^[\s`*_>#-]*DONE[ \t]+([0-9]+(?:\.[0-9]+)*)[.,:;!]*(?![\w.])", msg)
-print("active" if d.get("stop_hook_active") is True else "inactive", len(d.get("background_tasks") or []),
+tasks = d.get("background_tasks")
+print("active" if d.get("stop_hook_active") is True else "inactive",
+      len(tasks) if isinstance(tasks, list) else 0,
       word.group(0) if word else "-", ",".join(dict.fromkeys(done)) or "-")' 2>/dev/null)" ||
   { log "cannot-evaluate: unreadable Stop payload"; exit 0; }
 set -- $flags
@@ -102,6 +118,69 @@ if [ "$said_done" != - ]; then
     esac
   fi
 elif [ "$closes" != 1 ]; then
+  # The stop of an admitted worker that reported nothing: one QUIET event, then through (rules above).
+  if [ "$judged" != - ] && [ "$3" != STOPPED ]; then
+    outcome="$(printf '%s' "$payload" | "$PYTHON" -I -c '
+import datetime, hashlib, json, os, sys, tempfile
+
+record, pane, attempt = sys.argv[1], sys.argv[2], sys.argv[3]
+try:
+    d = json.load(sys.stdin)
+    session_id, prompt_id = d.get("session_id"), d.get("prompt_id")
+    if not (isinstance(session_id, str) and session_id and isinstance(prompt_id, str) and prompt_id):
+        print("unknown stop identity")
+    else:
+        tasks, crons = d.get("background_tasks"), d.get("session_crons")
+        tasks_ok, crons_ok = isinstance(tasks, list), isinstance(crons, list)
+        statuses = [task.get("status") if isinstance(task, dict) else None for task in tasks] if tasks_ok else []
+        if "running" in statuses or (crons_ok and crons):
+            waiting = "in flight"
+        elif not (tasks_ok and crons_ok) or tasks:
+            waiting = "unknown"
+        else:
+            waiting = "none"
+        if waiting == "in flight":
+            print("waiting")
+        else:
+            owner = "-"
+            try:
+                with open(os.path.join(record, "lead-state.json")) as state:
+                    members = json.load(state).get("members") or {}
+                owner = next((name for name, member in members.items()
+                              if isinstance(member, dict) and member.get("pane_id") == pane), "-")
+            except Exception:
+                pass
+            event = {"schema": 1, "type": "QUIET", "owner": owner, "pane": pane, "attempt": attempt,
+                     "session_id": session_id, "prompt_id": prompt_id, "reason": "no report",
+                     "waiting": waiting, "written_at": datetime.datetime.now(datetime.timezone.utc).isoformat()}
+            event_id = hashlib.sha256(json.dumps([session_id, prompt_id]).encode("ascii")).hexdigest()
+            quiet = os.path.join(record, "quiet")
+            os.makedirs(quiet, exist_ok=True)
+            final = os.path.join(quiet, event_id + ".json")
+            if os.path.exists(final):
+                print("skipped")
+            else:
+                fd, temp = tempfile.mkstemp(dir=quiet, prefix=".quiet-")
+                try:
+                    with os.fdopen(fd, "w") as handle:
+                        json.dump(event, handle)
+                        handle.flush()
+                        os.fsync(handle.fileno())
+                    try:
+                        os.link(temp, final)
+                        print("written")
+                    except FileExistsError:
+                        print("skipped")
+                finally:
+                    os.unlink(temp)
+except Exception as error:
+    print("write failed: " + error.__class__.__name__)
+' "$RECORD" "$PANE" "$judged" 2>/dev/null)"
+    case "$outcome" in
+      written|skipped|waiting) ;;
+      *) log "${outcome:-no outcome from the quiet-event write}" ;;
+    esac
+  fi
   exit 0
 fi
 

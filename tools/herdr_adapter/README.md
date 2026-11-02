@@ -7,6 +7,8 @@ Ticket 06 adds a separate [turn-based lead interface](LEAD.md), consuming this
 adapter, the event loop, vocabulary contracts and compliance gate.
 After a break or restart, ticket 09's [M1 resume command](LEAD.md#resume-before-another-lead-turn)
 reconciles disk and current member identities before returning control to that loop.
+Automatic QUIET events cover Claude Code workers with the team Stop hook only;
+workers on other Harnesses stay on the manual quiet-worker check.
 
 ## Interface
 
@@ -264,9 +266,9 @@ Other snapshot protocols are refused; no unverified compatibility fallback.
 
 Binding sources read for this implementation:
 
-- `~/.agents/skills/team-lead/specs/0001/tickets/03-socket-adapter-core.md`
-- `~/.agents/skills/team-lead/specs/0001/tickets/04-event-loop.md`
-- `~/.agents/skills/team-lead/specs/0001/spec.md`: Transport / Testing Decisions
+- `docs/team-lead/specs/0001/tickets/03-socket-adapter-core.md` in the Mifal repository (not installed)
+- `docs/team-lead/specs/0001/tickets/04-event-loop.md` in the Mifal repository (not installed)
+- `docs/team-lead/specs/0001/spec.md` in the Mifal repository (not installed): Transport / Testing Decisions
 - `~/.agents/skills/team-lead/docs/adr/0001-socket-transport.md`
 - `~/Dev/herdr-socket-proto/{VERDICT.md,proto_probe.py,fake_agent.sh,api-schema.json,research-socket-api.md}`
 

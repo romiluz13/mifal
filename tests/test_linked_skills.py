@@ -1,12 +1,69 @@
-"""An agent's skills folder that is a link to a real folder in the person's home (fixture G2): the install writes its
-links there, keeps the person's link and folder, and uninstall removes only Mifal's links."""
+"""Claude skills-folder links are preserved; recorded skill links are removed and user-link backups restored."""
 
+import os
+import shutil
 import unittest
 
-from support import Sandbox, snapshot
+from support import REPO, Sandbox, snapshot
 from test_update import Update
 
 NOTE = "~/.claude-alt/skills is a link to ~/.claude/skills; Mifal writes there"
+
+
+@unittest.skipUnless(os.environ.get("MIFAL_RELEASE_REHEARSAL") == "1",
+                     "historical link upgrades require MIFAL_RELEASE_REHEARSAL=1")
+class HistoricalLinks(Sandbox):
+    def git(self, repo, *args):
+        return self.run_cmd("/usr/bin/git", "-C", repo, "-c", "user.name=t",
+                            "-c", "user.email=t@example.com", *args,
+                            GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL="/dev/null").stdout.strip()
+
+    def test_old_manifests_remove_claimed_links_as_the_known_limit(self):
+        for tag in ("v0.3.0", "v0.3.1"):
+            for original_link in (True, False):
+                with self.subTest(tag=tag, original_link=original_link):
+                    self.setUp()
+                    origin, old, candidate = self.root / "origin.git", self.root / "old", self.root / "candidate"
+                    self.git(REPO, "clone", "-q", "--bare", "--no-hardlinks", REPO, origin)
+                    start = self.git(origin, "rev-parse", tag + "^{commit}")
+                    self.git(origin, "symbolic-ref", "HEAD", "refs/heads/main")
+                    self.git(self.root, "clone", "-q", origin, candidate)
+                    self.git(candidate, "checkout", "-q", "-B", "main", self.git(REPO, "rev-parse", "HEAD"))
+                    shutil.copytree(self.clone, candidate, dirs_exist_ok=True)
+                    self.git(candidate, "add", "-A")
+                    self.git(candidate, "commit", "-q", "--allow-empty", "-m", "candidate working tree")
+                    target = self.git(candidate, "rev-parse", "HEAD")
+                    self.git(candidate, "push", "-q", "origin", "HEAD:main")
+                    version = (candidate / "VERSION").read_text().strip()
+                    self.git(origin, "update-ref", "refs/tags/v" + version, target)
+                    self.git(self.root, "clone", "-q", origin, old)
+                    self.git(old, "checkout", "-q", "-B", "main", start)
+                    self.git(old, "branch", "-q", "--set-upstream-to=origin/main", "main")
+                    skill = self.their_grilling()
+                    link = self.home / ".claude/skills/grilling"
+                    link.parent.mkdir(parents=True)
+                    if original_link:
+                        link.symlink_to(skill.parent)
+                    before = snapshot(self.home)
+                    self.run_cmd("/bin/bash", old / "install.sh", "--harness", "claude")
+                    self.assertFalse(any(e["kind"] == "backup" and e["path"] == str(link)
+                                         for e in self.manifest()["entries"]))
+                    self.mifal("update", "--yes")
+                    self.assertEqual(self.manifest()["source"]["revision"], target)
+                    preview_state = snapshot(self.home)
+                    preview = self.mifal("uninstall", "--dry-run")
+                    self.assertEqual(snapshot(self.home), preview_state)
+                    result = self.mifal("uninstall")
+                    self.assertFalse(os.path.lexists(link), result.stdout)
+                    self.assertIn("remove ~/.claude/skills/grilling", preview.stdout)
+                    self.assertIn("remove ~/.claude/skills/grilling", result.stdout)
+                    expected = dict(before)
+                    if original_link:
+                        del expected[".claude/skills/grilling"]
+                    self.assertEqual(snapshot(self.home), expected)
+                    print("KNOWN LIMIT" if original_link else "PASS Mifal link removed", tag,
+                          "link recorded as Mifal's removed; user's Pool skill restored")
+
 
 
 class G2(Sandbox):
@@ -314,6 +371,96 @@ class Outside(G2):
         self.assertTrue(self.link.is_symlink())
         self.assertTrue(self.outside.is_dir())
         self.assertEqual(list(self.outside.iterdir()), [])
+
+
+class UserLink(Sandbox):
+    def test_a_failed_install_keeps_the_users_original_link(self):
+        skill = self.their_grilling()
+        link = self.home / ".claude/skills/grilling"
+        link.parent.mkdir(parents=True)
+        link.symlink_to(skill.parent)
+        before = snapshot(self.home)
+        result = self.install("--harness", "claude", MIFAL_TEST_FAIL_AT="after-backup", check=False)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertEqual(snapshot(self.home), before)
+
+    def test_a_users_absolute_link_under_a_mifal_name_survives_install_and_uninstall(self):
+        skill = self.their_grilling()
+        link = self.home / ".claude/skills/grilling"
+        link.parent.mkdir(parents=True)
+        link.symlink_to(skill.parent)
+        before = snapshot(self.home)
+        self.install("--harness", "claude")
+        self.mifal("uninstall")
+        self.assertEqual(snapshot(self.home), before)
+
+    def test_two_homes_sharing_a_folder_back_up_one_user_link_once(self):
+        skill = self.their_grilling()
+        first, second = self.home / ".claude", self.home / ".claude-second"
+        (first / "skills").mkdir(parents=True)
+        second.mkdir()
+        (second / "skills").symlink_to(first / "skills")
+        (first / "skills/grilling").symlink_to(skill.parent)
+        before = snapshot(self.home)
+        flags = ("--home", f"claude={first}", "--home", f"claude={second}")
+        result = self.install(*flags)
+        moves = [line for line in result.stdout.splitlines()
+                 if line.startswith("backup ") and "/skills/grilling ->" in line
+                 and "/.claude" in line]
+        self.assertEqual(len(moves), 1, result.stdout)
+        for root in (first, second):
+            self.assertEqual(os.readlink(root / "skills/grilling"), str(skill.parent))
+        after = snapshot(self.home)
+        self.assertIn("Nothing to change", self.install(*flags).stdout)
+        self.assertEqual(snapshot(self.home), after)
+        self.mifal("uninstall")
+        self.assertEqual(snapshot(self.home), before)
+
+    def test_separate_homes_keep_their_separate_links_to_one_user_skill(self):
+        skill = self.their_grilling()
+        homes = (self.home / ".claude", self.home / ".claude-second")
+        for root in homes:
+            (root / "skills").mkdir(parents=True)
+            (root / "skills/grilling").symlink_to(skill.parent)
+        before = snapshot(self.home)
+        self.install(*(word for root in homes for word in ("--home", f"claude={root}")))
+        for root in homes:
+            self.assertEqual(os.readlink(root / "skills/grilling"), str(skill.parent))
+        self.mifal("uninstall")
+        self.assertEqual(snapshot(self.home), before)
+
+    def test_a_relative_link_still_stops_install_without_writing(self):
+        self.their_grilling()
+        link = self.home / ".claude/skills/grilling"
+        link.parent.mkdir(parents=True)
+        link.symlink_to("../../.agents/skills/grilling")
+        before = snapshot(self.home)
+        result = self.install("--harness", "claude", check=False)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("exists and was not installed by Mifal", result.stdout)
+        self.assertEqual(snapshot(self.home), before)
+
+
+class UserLinkUpdate(Update):
+    def test_a_users_link_survives_a_release_reserving_its_name_then_uninstall(self):
+        skill = self.home / ".agents/skills/newskill/SKILL.md"
+        skill.parent.mkdir()
+        skill.write_text("my own new skill\n")
+        link = self.home / ".claude/skills/newskill"
+        link.parent.mkdir(parents=True, exist_ok=True)
+        link.symlink_to(skill.parent)
+        self.publish("reserve a user skill name", **{"skills/newskill/SKILL.md": "release skill\n"})
+        before = snapshot(self.home)
+        result = self.update("--yes")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertEqual(snapshot(self.home), before)
+        result = self.update("--yes", "--overwrite-edits")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(skill.read_text(), "release skill\n")
+        self.assertEqual(os.readlink(link), str(skill.parent))
+        self.mifal("uninstall")
+        self.assertEqual(skill.read_text(), "my own new skill\n")
+        self.assertEqual(os.readlink(link), str(skill.parent))
 
 
 if __name__ == "__main__":

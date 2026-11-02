@@ -46,9 +46,10 @@ name, give them short, stable ones with `herdr agent rename <pane> <name>`,
 and note it in `agreement.md`. Name your own pane too, so workers can reach
 you.
 
-A new `agent_session` value in a known pane means a new session with none of
-the old context. Re-brief it from the record. Don't assume it remembers
-anything.
+A new `agent_session` value in a known pane may be a replaced worker, with
+none of the old context, or a child `claude` running in that pane, which
+reports its own id. Look at the pane before you re-brief: re-brief a replaced
+worker from the record, and don't assume it remembers anything.
 
 ## The attention loop
 
@@ -72,6 +73,19 @@ anything.
   check `agent get <pane-id>` for detection/readiness; use
   `agent explain <pane-id>` if detection is unclear, then
   `agent rename <pane-id> <name>` for its live name before prompting.
+- Start a worker with the same or narrower approval, filesystem and network
+  permissions as yours, because a worker can do whatever its launch allows,
+  including what you could not authorize. Compare effective capabilities, not
+  mode names: actions requiring approval, writable paths and network access,
+  including tools and child processes. Record your own effective capabilities;
+  before each launch, establish the worker's from the installed version's
+  documented flags and settings, or its documented defaults when no settings
+  exist, and record the actual launch arguments, without credentials, with its
+  roster entry in `state.md`. Pass a flag that skips approvals only when you
+  run that way too and the agreement allows it. A dimension whose effective
+  behavior stays unestablished counts as not equal: name it, and it holds the
+  dispatch. An approval mode, project-trust choice or enabled bypass option is
+  not proof of a sandbox or of an active bypass.
 - Put the brief in `<record>/tasks/<id>.md`, where `<record>` is the
   record root's absolute path
   ([communication](communication.md#parallel-agents-in-one-repository)), and
@@ -170,6 +184,31 @@ Never approve a dialog just to keep things moving.
 
 ## Quiet teammates
 
+A Claude Code worker with the team Stop hook (a per-project copy of
+`~/.agents/mifal/tools/herdr_adapter/hooks/team-stop.sh`), admitted through
+`lead.py` or an assignment pin, leaves a QUIET event when a turn ends with no
+report: one file in `<record>/quiet/`. Attend to it last, after any ring,
+assignment or review that is due: look at the pane and ask for `DONE`, `HELP`
+or `HELD`. Under `lead.py` it is a row in `state.md`'s Lead attention needed,
+and the turn that attends to it writes the `attend-quiet` entry that consumes
+it. Without `lead.py`, list `quiet/` when you wake; an event from an
+assignment pin carries owner `-`, so match it to its task by pane and
+attempt, and your progress log entry naming the event is what consumes it.
+QUIET closes, fails, retries and unholds nothing. Which events are stale or
+superseded, and which files to leave unread:
+[doorbell contract](contracts/doorbell.md#quiet-is-attention-only).
+
+Herdr's `agent_session` is used to word a row and to attribute a ring to a
+session, but never to dismiss an event, because a child `claude` in a pane
+reports its own id for that pane. A ring never supersedes it either: only a
+later stop from another session can. Herdr's session is null on some panes,
+and that is normal.
+
+Only Claude Code workers with that hook get QUIET events. Workers on other
+agents stay on the manual check below, as does anything a Stop event cannot
+see: a cleared or replaced session, a worker that never stops, or one that
+exited.
+
 A teammate that's still `working` past the time you expected, or is in
 `unknown`, isn't evidence of anything yet. Read a small window, then work out
 which it is:
@@ -208,6 +247,9 @@ feedback you've already given it are an asset. Start a fresh session, with
 authority, for unrelated work or once a teammate has lost the thread. The
 development record belongs to the member, not the session, so carry it into
 the next brief.
+
+A re-review after a fix is the exception: it goes to a new reviewer session,
+as [review and disagreement](communication.md#review-and-disagreement) says.
 
 ## House rules inherited from the herdr skill
 

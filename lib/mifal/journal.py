@@ -1,8 +1,9 @@
 """Run an install's steps under a journal, and roll back a failed or interrupted one.
 
 The Manifest is the journal: it is written with state "installing", listing every step, before the first
-backup or write, and replaced by the complete Manifest last. Every step is undone only when its effect is
-still exactly what the step left, so a path changed since is kept and reported.
+backup or write, and replaced by the complete Manifest last. A write is undone only when its effect still
+matches and any planned displacement has a backup. Changed paths and paths whose displacement may not
+have run are kept and reported.
 """
 from __future__ import annotations
 
@@ -179,7 +180,16 @@ def update_note(journal: dict):
 def rollback(h, journal: dict, fs: Fs) -> None:
     steps, pre = journal["steps"], journal["pre"]
     through = mf.linked_skill_folders(journal)
+    displaced = [(Path(op["from"]), Path(op["to"])) for op in steps if op["op"] == "move"]
     for op in reversed(steps[pre:]):
+        # Matching bytes or link targets do not prove a write ran before its planned displacement.
+        if op["op"] in ("write", "link", "mkdir"):
+            path = Path(op["path"])
+            if any((path == original or original in path.parents) and not fs.exists(saved)
+                   for original, saved in displaced):
+                if fs.exists(path):
+                    fs.out(f"kept {h.show(path)}: its planned displacement has no backup; it may not have run")
+                continue
         _undo(h, op, fs, through)
     if journal["previous"] is None:
         fs.remove(h.manifest, f"remove {h.show(h.manifest)}")

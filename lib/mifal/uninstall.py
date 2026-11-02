@@ -1,6 +1,7 @@
-"""Reverse an install from its Manifest, keeping anything the user changed since."""
+"""Remove unchanged recorded entries, keeping changed paths and entries under a missing saved copy."""
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from . import codex_config as cc
@@ -35,6 +36,26 @@ def uninstall(h: Home, data: dict, fs: Fs) -> int:
     for link in sorted(links):
         kept.append(f"kept {h.show(link)}: it is a link now, so Mifal leaves it and what it leads to alone")
 
+    backups = [(Path(e["path"]), Path(e["backup"])) for e in entries if e["kind"] == "backup"]
+
+    def under(path, original):
+        physical = Path(os.path.realpath(path.parent)) / path.name
+        base = Path(os.path.realpath(original.parent)) / original.name
+        return path == original or original in path.parents or physical == base or base in physical.parents
+
+    def restored(path):
+        return any(under(path, original) and not fs.exists(saved)
+                   for original, saved in backups)
+
+    active = []
+    for e in entries:
+        path = Path(e["path"])
+        if e["kind"] not in ("backup", "saved") and restored(path):
+            continue
+        else:
+            active.append(e)
+    entries = active
+
     for e in entries:
         if e["kind"] == "block":
             _remove_block(h, e, fs, kept)
@@ -52,13 +73,17 @@ def uninstall(h: Home, data: dict, fs: Fs) -> int:
             kept.append(f"kept {h.show(path)}: changed since install")
 
     dirs = [Path(e["path"]) for e in _depth_first(entries) if e["kind"] == "dir"]
-    _remove_empty(h, dirs, fs)
+    # Skip folders already returned on a retry, then check again after this run returns backups.
+    _remove_empty(h, [path for path in dirs if not restored(path)], fs)
 
     for e in entries:
         if e["kind"] == "backup":
             original, saved = Path(e["path"]), Path(e["backup"])
             if not fs.exists(saved):
-                kept.append(f"missing backup {h.show(saved)} for {h.show(original)}")
+                if fs.exists(original):
+                    kept.append(f"kept {h.show(original)}: its saved copy is missing; leaving the existing path alone")
+                else:
+                    kept.append(f"missing backup {h.show(saved)} for {h.show(original)}")
             elif fs.exists(original):
                 kept.append(f"kept backup {h.show(saved)}: {h.show(original)} exists again")
             else:
@@ -69,7 +94,7 @@ def uninstall(h: Home, data: dict, fs: Fs) -> int:
             kept.append(f"kept {h.show(e['path'])}: your edited copy of {h.show(e['original'])}")
 
     fs.remove(h.manifest, f"remove {h.show(h.manifest)}")
-    _remove_empty(h, dirs, fs)
+    _remove_empty(h, [path for path in dirs if not restored(path)], fs)
     for line in kept:
         fs.out(line)
     hint = removal_hint(data.get("dependencies", {}).get("herdr"), h.show)

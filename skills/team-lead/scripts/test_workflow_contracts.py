@@ -1914,5 +1914,927 @@ class WorkflowTests(unittest.TestCase):
         self.assertLess(outcome["peak"], 2 * 1024 * 1024, "the digest must not hold the whole 8 MiB file")
 
 
+class RunRecordTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name).resolve()
+        self.repo = self.root / "repo"
+        self.repo.mkdir()
+        self.git("init", "-q")
+        self.git("config", "user.email", "fixture@example.invalid")
+        self.git("config", "user.name", "Fixture")
+        (self.repo / "source").write_text("original\n")
+        (self.repo / ".gitignore").write_text("ignored*\n")
+        self.git("add", ".")
+        self.git("commit", "-qm", "fixture")
+        self.head = self.git("rev-parse", "HEAD").stdout.decode().strip()
+
+    def git(self, *args):
+        result = subprocess.run(["git", "-C", str(self.repo), *args], capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return result
+
+    def run_command(self, *argv, name="run.json", paths=(), cwd=None):
+        record = self.root / name
+        command = [sys.executable, "-B", str(SCRIPT), "run", "--out", str(record)]
+        for path in paths:
+            command += ["--path", str(path)]
+        result = subprocess.run(command + ["--", *argv], cwd=cwd or self.repo, capture_output=True)
+        return result, record
+
+    def run_ok(self, *argv, **kwargs):
+        result, path = self.run_command(*(argv or (sys.executable, "-c", "pass")), **kwargs)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return path, json.loads(path.read_text())
+
+    def test_literal_metacharacter_argument_and_complete_record(self):
+        path, record = self.run_ok("/usr/bin/printf", "%s", "a;b|c")
+        stream = record["stdout"]
+        self.assertEqual(Path(stream["path"]).read_bytes(), b"a;b|c")
+        self.assertEqual(stream["sha256"], hashlib.sha256(b"a;b|c").hexdigest())
+        self.assertEqual(stream["tail"], "a;b|c")
+        self.assertEqual(record["argv"], ["/usr/bin/printf", "%s", "a;b|c"])
+        self.assertEqual(record["repo"], str(self.repo))
+        self.assertEqual(record["cwd"], str(self.repo))
+        self.assertEqual(record["execution"], "producer")
+        self.assertEqual(record["producer"], "unknown")
+        self.assertEqual(record["outcome"], "passed")
+        self.assertEqual(record["exitStatus"], 0)
+        self.assertIsNone(record["signal"])
+        self.assertEqual(record["candidate"]["head"], self.head)
+        self.assertEqual(record["before"]["snapshotSha256"], record["after"]["snapshotSha256"])
+        self.assertEqual(record["candidate"]["identity"], "sha256:" + record["before"]["snapshotSha256"])
+        for field in ("startedAt", "endedAt"):
+            self.assertRegex(record[field], r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z$")
+        self.assertTrue(record["scope"]["limits"])
+
+    def test_new_untracked_file_and_untracked_edit_change_identity(self):
+        _, original = self.run_ok(name="original.json")
+        (self.repo / "untracked").write_text("first")
+        _, added = self.run_ok(name="added.json")
+        (self.repo / "untracked").write_text("second")
+        _, edited = self.run_ok(name="edited.json")
+        self.assertNotEqual(original["candidate"]["identity"], added["candidate"]["identity"])
+        self.assertNotEqual(added["candidate"]["identity"], edited["candidate"]["identity"])
+        self.assertIn("untracked", added["before"]["untrackedPaths"])
+
+    def test_ignored_file_is_measured_only_when_named(self):
+        _, original = self.run_ok(name="original.json")
+        ignored = self.repo / "ignored.bin"
+        ignored.write_bytes(b"first")
+        _, excluded = self.run_ok(name="excluded.json")
+        _, included = self.run_ok(name="included.json", paths=["ignored.bin"])
+        ignored.write_bytes(b"second")
+        _, edited = self.run_ok(name="edited.json", paths=["ignored.bin"])
+        self.assertEqual(original["candidate"]["identity"], excluded["candidate"]["identity"])
+        self.assertNotEqual(included["candidate"]["identity"], edited["candidate"]["identity"])
+        self.assertEqual(included["scope"]["paths"], [str(ignored)])
+
+    def test_staged_change_is_measured_even_when_worktree_is_restored(self):
+        _, original = self.run_ok(name="original.json")
+        source = self.repo / "source"
+        source.write_text("staged\n")
+        self.git("add", "source")
+        source.write_text("original\n")
+        _, staged = self.run_ok(name="staged.json")
+        self.assertNotEqual(original["candidate"]["identity"], staged["candidate"]["identity"])
+        self.assertIn("source", staged["before"]["indexPaths"])
+
+    def test_symlink_target_text_and_executable_bit_change_identity(self):
+        link = self.repo / "link"
+        link.symlink_to("ignored-first")
+        self.git("add", "link")
+        self.git("commit", "-qm", "link")
+        _, original = self.run_ok(name="original.json")
+        link.unlink()
+        link.symlink_to("ignored-second")
+        _, changed = self.run_ok(name="changed.json")
+        self.assertNotEqual(original["candidate"]["identity"], changed["candidate"]["identity"])
+        (self.repo / "source").chmod(0o755)
+        _, executable = self.run_ok(name="executable.json")
+        self.assertNotEqual(changed["candidate"]["identity"], executable["candidate"]["identity"])
+
+    def test_external_and_ignored_directory_inputs_are_measured_when_named(self):
+        external = self.root / "external"
+        external.write_bytes(b"first")
+        directory = self.repo / "ignored-directory"
+        directory.mkdir()
+        nested = directory / "input"
+        nested.write_bytes(b"first")
+        _, original = self.run_ok(name="original.json", paths=[external, directory])
+        external.write_bytes(b"second")
+        _, outside = self.run_ok(name="outside.json", paths=[external, directory])
+        nested.write_bytes(b"second")
+        _, inside = self.run_ok(name="inside.json", paths=[external, directory])
+        self.assertNotEqual(original["candidate"]["identity"], outside["candidate"]["identity"])
+        self.assertNotEqual(outside["candidate"]["identity"], inside["candidate"]["identity"])
+
+    def test_raw_byte_identity_does_not_run_clean_filter_or_fsmonitor(self):
+        marker = self.root / "unexpected-hook"
+        hook = self.root / "hook.sh"
+        hook.write_text(f"#!/bin/sh\ntouch '{marker}'\ncat\n")
+        hook.chmod(0o755)
+        self.git("config", "filter.probe.clean", str(hook))
+        self.git("config", "core.fsmonitor", str(hook))
+        (self.repo / ".gitattributes").write_text("source filter=probe\n")
+        _, first = self.run_ok(name="first.json")
+        (self.repo / "source").write_bytes(b"raw\r\nbytes\x00")
+        _, second = self.run_ok(name="second.json")
+        self.assertNotEqual(first["candidate"]["identity"], second["candidate"]["identity"])
+        self.assertFalse(marker.exists())
+
+    def test_existing_record_and_stream_paths_refuse_before_launch(self):
+        marker = self.root / "launched"
+        for suffix in ("", ".stdout", ".stderr"):
+            with self.subTest(suffix=suffix):
+                name = "existing" + (suffix or ".record") + ".json"
+                existing = self.root / (name + suffix)
+                existing.write_bytes(b"preserve me")
+                result, _ = self.run_command(sys.executable, "-c",
+                                             "from pathlib import Path; Path(" + repr(str(marker)) + ").touch()",
+                                             name=name)
+                self.assertEqual(result.returncode, 125, result.stderr)
+                self.assertIn(b"File exists", result.stderr)
+                self.assertEqual(existing.read_bytes(), b"preserve me")
+                self.assertFalse(marker.exists())
+
+    def test_existing_dangling_output_symlink_is_not_followed(self):
+        output = self.root / "run.json"
+        target = self.root / "absent-target"
+        output.symlink_to(target)
+        result, _ = self.run_command(sys.executable, "-c", "pass")
+        self.assertEqual(result.returncode, 125, result.stderr)
+        self.assertTrue(output.is_symlink())
+        self.assertFalse(target.exists())
+
+    def test_outputs_in_default_or_explicit_scope_are_refused(self):
+        for name, paths in (("repo/new.json", ()), ("repo/ignored.json", ("ignored.json",)),
+                            ("in-scope.json", (self.root,))):
+            with self.subTest(name=name):
+                result, output = self.run_command(sys.executable, "-c", "pass", name=name, paths=paths)
+                self.assertEqual(result.returncode, 125, result.stderr)
+                self.assertIn(b"outside measured scope", result.stderr)
+                self.assertFalse(output.exists())
+
+    def test_ignored_outputs_outside_scope_are_allowed(self):
+        _, record = self.run_ok(name="repo/ignored-run.json")
+        self.assertEqual(record["before"]["snapshotSha256"], record["after"]["snapshotSha256"])
+
+    def test_signal_is_crashed_and_wrapper_returns_signal_status(self):
+        result, path = self.run_command(sys.executable, "-c",
+                                        "import os, signal; os.kill(os.getpid(), signal.SIGKILL)")
+        self.assertEqual(result.returncode, 137, result.stderr)
+        record = json.loads(path.read_text())
+        self.assertEqual(record["outcome"], "crashed")
+        self.assertEqual(record["signal"], 9)
+        self.assertIsNone(record["exitStatus"])
+
+    def test_nonzero_child_status_is_preserved_as_failed(self):
+        result, path = self.run_command(sys.executable, "-c", "import sys; sys.exit(7)")
+        self.assertEqual(result.returncode, 7, result.stderr)
+        record = json.loads(path.read_text())
+        self.assertEqual(record["outcome"], "failed")
+        self.assertEqual(record["exitStatus"], 7)
+        self.assertIsNone(record["signal"])
+
+    def test_launch_failure_has_wrapper_status_and_no_complete_record(self):
+        result, output = self.run_command(str(self.root / "no-executable"))
+        self.assertEqual(result.returncode, 125, result.stderr)
+        self.assertIn(b"run wrapper", result.stderr)
+        self.assertTrue(not output.exists() or output.read_bytes() == b"")
+
+    def test_unresolved_index_refuses_before_launch(self):
+        self.git("checkout", "-qb", "side")
+        (self.repo / "source").write_text("side\n")
+        self.git("commit", "-qam", "side")
+        self.git("checkout", "-qb", "other", "HEAD~1")
+        (self.repo / "source").write_text("other\n")
+        self.git("commit", "-qam", "other")
+        merge = subprocess.run(["git", "-C", str(self.repo), "merge", "side"], capture_output=True)
+        self.assertEqual(merge.returncode, 1, merge.stderr)
+        result, output = self.run_command(sys.executable, "-c", "pass")
+        self.assertEqual(result.returncode, 125, result.stderr)
+        self.assertIn(b"unmerged", result.stderr)
+        self.assertFalse(output.exists())
+
+    def test_drift_and_full_binary_streams_are_recorded(self):
+        code = ("import sys; from pathlib import Path; Path('source').write_text('during\\n'); "
+                "sys.stdout.buffer.write(b'x'*200000+b'\\x00\\xff'); "
+                "sys.stderr.buffer.write(b'e'*200000+b'\\x00\\xff')")
+        _, record = self.run_ok(sys.executable, "-c", code)
+        self.assertNotEqual(record["before"]["snapshotSha256"], record["after"]["snapshotSha256"])
+        for key, expected in (("stdout", b"x" * 200000 + b"\x00\xff"), ("stderr", b"e" * 200000 + b"\x00\xff")):
+            stream = record[key]
+            self.assertEqual(Path(stream["path"]).read_bytes(), expected)
+            self.assertEqual(stream["sha256"], hashlib.sha256(expected).hexdigest())
+            self.assertEqual(stream["bytes"], len(expected))
+            self.assertLessEqual(len(stream["tail"]), 4096)
+
+    def test_git_root_cwd_and_explicit_repo_are_separate(self):
+        directory = self.repo / "subdirectory"
+        directory.mkdir()
+        _, nested = self.run_ok(cwd=directory, name="nested.json")
+        self.assertEqual(nested["repo"], str(self.repo))
+        self.assertEqual(nested["cwd"], str(directory))
+        output = self.root / "explicit.json"
+        result = subprocess.run([sys.executable, "-B", str(SCRIPT), "run", "--out", str(output),
+                                 "--repo", str(self.repo), "--", sys.executable, "-c", "pass"],
+                                cwd=self.root, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        explicit = json.loads(output.read_text())
+        self.assertEqual(explicit["repo"], str(self.repo))
+        self.assertEqual(explicit["cwd"], str(self.root))
+
+    def receipt(self, path, record, status="passed", head=None, identity=None, citation=None, name="behavior",
+                declared=None, evidence=""):
+        fixture = WorkflowTests()
+        fixture.setUp()
+        self.addCleanup(fixture.temp.cleanup)
+        claim = citation if citation is not None else (
+            f"run:{path} head:{head or record['candidate']['head']} "
+            f"identity:{identity or record['candidate']['identity']}")
+        text = (fixture.brief().replace("- behavior:", f"- {declared or name}:") + fixture.workflow() +
+                "\n## Return\nCloses: 1\n### Result\nChecked the fixture.\n### Claims\n" +
+                f"- {name}: {status} | {claim}\n### Evidence\n" + fixture.load_lines() + evidence)
+        task = self.root / "receipt.md"
+        task.write_text(text)
+        return subprocess.run([sys.executable, "-B", str(SCRIPT), "receipt", str(task), "--matt"],
+                              capture_output=True, text=True)
+
+    def test_matching_complete_passed_record_is_accepted(self):
+        path, record = self.run_ok()
+        result = self.receipt(path, record)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("no run record", result.stderr)
+
+    def test_missing_malformed_truncated_and_incomplete_records_are_refused(self):
+        path, record = self.run_ok()
+        path.unlink()
+        for content in (None, b"{not-json", b'{"schemaVersion":1,', b"{}"):
+            with self.subTest(content=content):
+                if content is not None:
+                    path.write_bytes(content)
+                result = self.receipt(path, record)
+                self.assertEqual(result.returncode, 1, result.stderr)
+                self.assertIn("run record", result.stderr)
+
+    def test_claim_head_identity_and_outcome_mismatches_are_refused(self):
+        path, record = self.run_ok()
+        for kwargs in ({"head": "0" * 40}, {"identity": "sha256:" + "0" * 64}, {"status": "failed"}):
+            with self.subTest(kwargs=kwargs):
+                result = self.receipt(path, record, **kwargs)
+                self.assertEqual(result.returncode, 1, result.stderr)
+                self.assertIn("run record", result.stderr)
+
+    def test_edit_during_run_refuses_passed_claim_even_with_zero_exit(self):
+        path, record = self.run_ok(sys.executable, "-c",
+                                  "from pathlib import Path; Path('source').write_text('during\\n')")
+        self.assertNotEqual(record["before"]["snapshotSha256"], record["after"]["snapshotSha256"])
+        result = self.receipt(path, record)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("drift", result.stderr)
+
+    def test_failed_and_signal_records_cannot_support_passed_claim(self):
+        for label, code in (("failed", "import sys; sys.exit(7)"),
+                            ("signal", "import os, signal; os.kill(os.getpid(), signal.SIGKILL)")):
+            with self.subTest(label=label):
+                result, path = self.run_command(sys.executable, "-c", code, name=label + ".json")
+                self.assertNotEqual(result.returncode, 0)
+                self.assertTrue(path.is_file(), "a launched child must produce a complete record")
+                record = json.loads(path.read_text())
+                claim = self.receipt(path, record)
+                self.assertEqual(claim.returncode, 1, claim.stderr)
+                self.assertIn("run record", claim.stderr)
+                if label == "failed":
+                    negative = self.receipt(path, record, status="failed")
+                    self.assertEqual(negative.returncode, 0, negative.stderr)
+
+    def test_launch_failure_cannot_be_cited(self):
+        _, output = self.run_command(str(self.root / "not-a-command"))
+        result = self.receipt(output, {"candidate": {"head": self.head, "identity": "sha256:" + "0" * 64}})
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("run record", result.stderr)
+
+    def test_legacy_claims_pass_with_a_note_for_each_passed_claim(self):
+        fixture = WorkflowTests()
+        fixture.setUp()
+        self.addCleanup(fixture.temp.cleanup)
+        brief = fixture.brief().replace("- behavior: check the artifact.",
+                                        "- first: check one\n- second: check two\n- deferred: inspect optional fixture behavior")
+        text = (brief + fixture.workflow() + "\n## Return\nCloses: 1\n### Result\nLegacy.\n### Claims\n"
+                "- first: passed | fixture revision\n- second: passed | fixture revision\n"
+                "- deferred: untested | fixture revision\n### Evidence\n" + fixture.load_lines())
+        result = fixture.run_check("receipt", text, "--matt")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for claim in ("first", "second"):
+            self.assertIn(f"note: passed claim '{claim}' has no run record", result.stderr)
+        self.assertNotIn("claim 'deferred' has no run record", result.stderr)
+
+    def test_malformed_citation_tokens_are_not_treated_as_legacy(self):
+        path, record = self.run_ok()
+        for citation in (f"run:{path}", f"run: head:{self.head} identity:sha256:{'0' * 64}",
+                         f"run:{path} head:{self.head} identity:sha256:no",
+                         f"run:{path} run:{path} head:{self.head} identity:{record['candidate']['identity']}"):
+            with self.subTest(citation=citation):
+                result = self.receipt(path, record, citation=citation)
+                self.assertEqual(result.returncode, 1, result.stderr)
+                self.assertIn("run citation", result.stderr)
+
+    def test_inconsistent_record_fields_and_duplicate_json_keys_are_refused(self):
+        path, record = self.run_ok()
+        changes = ({"exitStatus": 7}, {"signal": 9}, {"execution": "reviewer"},
+                   {"producer": "from-editable-env"}, {"endedAt": None}, {"stdout": {}},
+                   {"candidate": {"head": self.head, "identity": "sha256:" + "0" * 64}})
+        for change in changes:
+            with self.subTest(change=change):
+                path.write_text(json.dumps({**record, **change}))
+                result = self.receipt(path, record)
+                self.assertEqual(result.returncode, 1, result.stderr)
+                self.assertIn("run record", result.stderr)
+        path.write_text(json.dumps(record)[:-1] + ', "outcome":"passed"}')
+        duplicate = self.receipt(path, record)
+        self.assertEqual(duplicate.returncode, 1, duplicate.stderr)
+        self.assertIn("run record", duplicate.stderr)
+
+    def test_record_stays_reserved_until_execution_is_complete(self):
+        output = self.root / "run.json"
+        code = ("from pathlib import Path; p=Path(" + repr(str(output)) + "); "
+                "assert p.read_bytes() == b''; "
+                "assert Path(str(p)+'.stdout').exists(); assert Path(str(p)+'.stderr').exists(); print('reserved')")
+        _, record = self.run_ok(sys.executable, "-c", code)
+        self.assertEqual(record["stdout"]["tail"], "reserved\n")
+
+    def test_identity_failure_after_launch_does_not_publish_complete_record(self):
+        code = "from pathlib import Path; p=Path('source'); p.unlink(); p.mkdir()"
+        result, output = self.run_command(sys.executable, "-c", code)
+        self.assertEqual(result.returncode, 125, result.stderr)
+        self.assertIn(b"run wrapper", result.stderr)
+        self.assertEqual(output.read_bytes(), b"")
+
+    def test_publication_failure_has_wrapper_status_and_no_complete_record(self):
+        output = self.root / "run.json"
+        code = "from pathlib import Path; p=Path(" + repr(str(output)) + "); p.unlink(); p.mkdir()"
+        result, _ = self.run_command(sys.executable, "-c", code)
+        self.assertEqual(result.returncode, 125, result.stderr)
+        self.assertIn(b"run wrapper", result.stderr)
+        self.assertTrue(output.is_dir())
+        self.assertEqual(set(self.root.glob("run.json.*")), {self.root / "run.json.stderr", self.root / "run.json.stdout"})
+
+    def test_unreadable_explicit_directory_refuses_before_launch(self):
+        directory = self.repo / "ignored-private"
+        directory.mkdir()
+        (directory / "input").write_text("must be measured")
+        marker = self.root / "launched"
+        directory.chmod(0)
+        try:
+            code = "from pathlib import Path; Path(" + repr(str(marker)) + ").touch()"
+            result, output = self.run_command(sys.executable, "-c", code, paths=[directory])
+            self.assertEqual(result.returncode, 125, result.stderr)
+            self.assertIn(b"Permission denied", result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertFalse(output.exists())
+        finally:
+            directory.chmod(0o755)
+
+
+class RunCheckTests(unittest.TestCase):
+    setUp = RunRecordTests.setUp
+    git = RunRecordTests.git
+    run_command = RunRecordTests.run_command
+    run_ok = RunRecordTests.run_ok
+    receipt = RunRecordTests.receipt
+
+    def check_run(self, path, repo=None, cwd=None, extra=()):
+        command = [sys.executable, "-B", str(SCRIPT), "run", "--check", str(path)]
+        if repo is not None:
+            command += ["--repo", str(repo)]
+        return subprocess.run(command + list(extra), cwd=cwd or self.repo, capture_output=True, text=True)
+
+    def test_old_record_and_token_remain_historical_after_tracked_edit_but_check_is_stale(self):
+        path, record = self.run_ok()
+        (self.repo / "source").write_text("changed after run\n")
+        receipt = self.receipt(path, record)
+        self.assertEqual(receipt.returncode, 0, receipt.stderr)
+        result = self.check_run(path)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertRegex(result.stdout, r"stale:.*(source|identity)")
+        self.assertNotIn("ok:", result.stdout)
+
+    def test_unchanged_record_matches_immediately(self):
+        path, _ = self.run_ok()
+        result = self.check_run(path)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, f"ok: candidate matches run record {path}\n")
+
+    def test_head_move_with_identical_bytes_is_stale(self):
+        path, _ = self.run_ok()
+        self.git("commit", "--allow-empty", "-qm", "new HEAD, same bytes")
+        result = self.check_run(path)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertRegex(result.stdout, r"stale:.*HEAD")
+        self.assertNotIn("ok:", result.stdout)
+
+    def test_new_untracked_input_is_stale(self):
+        path, _ = self.run_ok()
+        (self.repo / "new-input").write_text("new dependency")
+        result = self.check_run(path)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("stale:", result.stdout)
+
+    def test_unnamed_ignored_input_does_not_change_record_scope(self):
+        path, _ = self.run_ok()
+        (self.repo / "ignored-new").write_text("outside the recorded scope")
+        result = self.check_run(path)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, f"ok: candidate matches run record {path}\n")
+
+    def test_recorded_untracked_input_cannot_be_hidden_by_current_ignore_settings(self):
+        (self.repo / "dependency").write_text("before")
+        path, _ = self.run_ok()
+        ignore = self.root / "exclude"
+        ignore.write_text("dependency\n")
+        self.git("config", "core.excludesFile", str(ignore))
+        (self.repo / "dependency").write_text("after")
+        result = self.check_run(path)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("stale:", result.stdout)
+
+    def test_same_bytes_in_another_repository_are_stale(self):
+        path, _ = self.run_ok()
+        other = self.root / "other"
+        subprocess.run(["git", "clone", "-q", "--no-hardlinks", str(self.repo), str(other)],
+                       check=True, capture_output=True)
+        result = self.check_run(path, repo=other)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertRegex(result.stdout, r"stale:.*repository")
+        self.assertNotIn("ok:", result.stdout)
+
+    def test_sibling_worktree_is_stale_but_resolved_root_alias_matches(self):
+        path, _ = self.run_ok()
+        other = self.root / "sibling"
+        self.git("worktree", "add", "--detach", "-q", str(other), "HEAD")
+        result = self.check_run(path, repo=other)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertRegex(result.stdout, r"stale:.*repository")
+        alias = self.root / "alias"
+        alias.symlink_to(self.repo, target_is_directory=True)
+        matched = self.check_run(path, repo=alias, cwd=self.root)
+        self.assertEqual(matched.returncode, 0, matched.stderr)
+        self.assertEqual(matched.stdout, f"ok: candidate matches run record {path}\n")
+
+    def test_named_external_and_ignored_inputs_are_remeasured_and_limits_are_visible(self):
+        external = self.root / "external-input"
+        ignored = self.repo / "ignored-input"
+        external.write_text("original")
+        ignored.write_text("original")
+        path, _ = self.run_ok(paths=[external, ignored])
+        result = self.check_run(path)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for selected in (external, ignored):
+            self.assertTrue(any(line.startswith("note:") and str(selected) in line
+                                for line in result.stdout.splitlines()), result.stdout)
+        external.write_text("changed")
+        result = self.check_run(path)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("stale:", result.stdout)
+        external.write_text("original")
+        ignored.write_text("changed")
+        result = self.check_run(path)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("stale:", result.stdout)
+
+    def test_truncated_malformed_missing_and_incomplete_records_are_refused_without_traceback(self):
+        path, _ = self.run_ok()
+        for content in (None, b'{"schemaVersion":1,', b"{not-json", b"{}", b"\xff",
+                        b"[" * 2000 + b"]" * 2000):
+            with self.subTest(content=content):
+                path.unlink(missing_ok=True)
+                if content is not None:
+                    path.write_bytes(content)
+                result = self.check_run(path)
+                self.assertEqual(result.returncode, 1, result.stderr)
+                self.assertIn("stale:", result.stdout)
+                self.assertNotIn("Traceback", result.stdout + result.stderr)
+                self.assertNotIn("ok:", result.stdout)
+
+    def test_malformed_identity_maps_are_refused_without_traceback(self):
+        path, record = self.run_ok()
+        for phase in ("before", "after"):
+            record[phase]["files"] = ["source"]
+            canonical = {key: value for key, value in record[phase].items()
+                         if key not in ("snapshotSha256", "reviewCommands", "limits")}
+            record[phase]["snapshotSha256"] = hashlib.sha256(
+                json.dumps(canonical, sort_keys=True, ensure_ascii=True).encode()).hexdigest()
+        record["candidate"]["identity"] = "sha256:" + record["before"]["snapshotSha256"]
+        path.write_text(json.dumps(record))
+        result = self.check_run(path)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("stale:", result.stdout)
+        self.assertNotIn("Traceback", result.stdout + result.stderr)
+
+    def test_check_does_not_execute_recorded_argv_or_change_record_and_checkout(self):
+        path, record = self.run_ok()
+        marker = self.root / "replayed"
+        record["argv"] = [sys.executable, "-c", "from pathlib import Path; Path(" + repr(str(marker)) + ").touch()"]
+        path.write_text(json.dumps(record))
+        saved = path.read_bytes()
+        before = self.git("status", "--porcelain=v1", "--untracked-files=all").stdout
+        result = self.check_run(path)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, f"ok: candidate matches run record {path}\n")
+        self.assertFalse(marker.exists())
+        self.assertEqual(path.read_bytes(), saved)
+        self.assertEqual(self.git("status", "--porcelain=v1", "--untracked-files=all").stdout, before)
+
+    def test_each_agreeing_receipt_claim_is_historical_and_receipt_does_not_replay_argv(self):
+        path, record = self.run_ok()
+        marker = self.root / "receipt-replayed"
+        record["argv"] = [sys.executable, "-c", "from pathlib import Path; Path(" + repr(str(marker)) + ").touch()"]
+        path.write_text(json.dumps(record))
+        fixture = WorkflowTests()
+        fixture.setUp()
+        self.addCleanup(fixture.temp.cleanup)
+        brief = fixture.brief().replace("- behavior: check the artifact.",
+                                        "- first: check one\n- second: check two")
+        citation = f"run:{path} head:{record['candidate']['head']} identity:{record['candidate']['identity']}"
+        text = (brief + fixture.workflow() + "\n## Return\nCloses: 1\n### Result\nChecked.\n### Claims\n" +
+                f"- first: passed | {citation}\n- second: passed | {citation}\n### Evidence\n" + fixture.load_lines())
+        result = fixture.run_check("receipt", text, "--matt")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for claim in ("first", "second"):
+            self.assertTrue(any(line.startswith("note:") and f"claim '{claim}'" in line and "historical" in line
+                                for line in result.stderr.splitlines()), result.stderr)
+        self.assertFalse(marker.exists())
+
+    def test_check_refuses_scope_override_and_supplied_command(self):
+        path, _ = self.run_ok()
+        marker = self.root / "supplied-command"
+        code = "from pathlib import Path; Path(" + repr(str(marker)) + ").touch()"
+        for extra in (("--path", "source"), ("--", sys.executable, "-c", code)):
+            with self.subTest(extra=extra):
+                result = self.check_run(path, extra=extra)
+                self.assertEqual(result.returncode, 1, result.stderr)
+                self.assertIn("stale:", result.stdout)
+                self.assertNotIn("ok:", result.stdout)
+        self.assertFalse(marker.exists())
+
+    def test_current_after_snapshot_cannot_hide_before_snapshot_drift(self):
+        path, _ = self.run_ok(sys.executable, "-c", "from pathlib import Path; Path('source').write_text('during')")
+        result = self.check_run(path)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("stale:", result.stdout)
+        self.assertNotIn("ok:", result.stdout)
+
+    def test_copied_scope_in_record_is_refused(self):
+        path, record = self.run_ok()
+        record["scope"]["paths"] = [str(self.repo / "source")]
+        path.write_text(json.dumps(record))
+        result = self.check_run(path)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("stale:", result.stdout)
+        self.assertNotIn("ok:", result.stdout)
+
+    def test_each_changed_file_has_a_stale_line(self):
+        (self.repo / "second").write_text("original")
+        self.git("add", "second")
+        self.git("commit", "-qm", "second input")
+        path, _ = self.run_ok()
+        (self.repo / "source").write_text("changed")
+        (self.repo / "second").write_text("changed")
+        result = self.check_run(path)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        for name in ("source", "second"):
+            self.assertTrue(any(line.startswith("stale:") and name in line
+                                for line in result.stdout.splitlines()), result.stdout)
+
+    def test_named_directory_reports_ignored_children_and_refuses_unreadable_scope(self):
+        directory = self.repo / "inputs"
+        directory.mkdir()
+        ignored = directory / "ignored-child"
+        ignored.write_text("original")
+        path, _ = self.run_ok(paths=[directory])
+        result = self.check_run(path)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(any(line.startswith("note:") and str(ignored) in line
+                            for line in result.stdout.splitlines()), result.stdout)
+        directory.chmod(0)
+        try:
+            result = self.check_run(path)
+            self.assertEqual(result.returncode, 1, result.stderr)
+            self.assertIn("stale:", result.stdout)
+            self.assertIn(str(directory), result.stdout)
+            self.assertNotIn("ok:", result.stdout)
+            self.assertNotIn("Traceback", result.stdout + result.stderr)
+        finally:
+            directory.chmod(0o755)
+
+    def test_absent_named_ignored_input_still_reports_its_limit(self):
+        ignored = self.repo / "ignored-absent"
+        path, _ = self.run_ok(paths=[ignored])
+        result = self.check_run(path)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(any(line.startswith("note:") and str(ignored) in line
+                            for line in result.stdout.splitlines()), result.stdout)
+
+    def test_check_without_python_B_does_not_write_bytecode_into_checkout(self):
+        scripts = self.repo / "skills" / "team-lead" / "scripts"
+        scripts.mkdir(parents=True)
+        copied = scripts / "validate_contracts.py"
+        copied.write_bytes(SCRIPT.read_bytes())
+        tools = self.repo / "tools"
+        tools.mkdir()
+        snapshot = Path(__file__).resolve().parents[3] / "tools" / "review-snapshot.py"
+        (tools / "review-snapshot.py").write_bytes(snapshot.read_bytes())
+        self.git("add", ".")
+        self.git("commit", "-qm", "local collector")
+        path, _ = self.run_ok()
+        env = dict(os.environ)
+        env.pop("PYTHONDONTWRITEBYTECODE", None)
+        result = subprocess.run([sys.executable, str(copied), "run", "--check", str(path)],
+                                cwd=self.repo, capture_output=True, text=True, env=env)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(result.stdout, f"ok: candidate matches run record {path}\n")
+        self.assertEqual(list(self.repo.rglob("__pycache__")), [])
+
+
+class RunSymlinkCheckTests(unittest.TestCase):
+    setUp = RunRecordTests.setUp
+    git = RunRecordTests.git
+    run_command = RunRecordTests.run_command
+    run_ok = RunRecordTests.run_ok
+    check_run = RunCheckTests.check_run
+
+    def test_named_symlinks_disclose_target_scope_and_direct_target_edits_are_stale(self):
+        for kind in ("external", "tracked", "directory"):
+            with self.subTest(kind=kind):
+                target = self.root / (kind + "-target")
+                target.write_text("original")
+                if kind == "external":
+                    link = self.root / "external-link"
+                    selected = link
+                elif kind == "tracked":
+                    link = self.repo / "tracked-link"
+                    selected = link
+                else:
+                    selected = self.repo / "ignored-directory"
+                    selected.mkdir()
+                    link = selected / "nested-link"
+                link.symlink_to(target)
+                if kind == "tracked":
+                    self.git("add", "tracked-link")
+                    self.git("commit", "-qm", "tracked link")
+                path, _ = self.run_ok(paths=[selected], name=kind + ".json")
+                target.write_text("changed")
+                result = self.check_run(path)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertTrue(any(line.startswith("note:") and str(link) in line and
+                                    "target contents are not checked" in line and "--path" in line
+                                    for line in result.stdout.splitlines()), result.stdout)
+                direct, _ = self.run_ok(paths=[target], name=kind + "-direct.json")
+                target.write_text("changed again")
+                result = self.check_run(direct)
+                self.assertEqual(result.returncode, 1, result.stderr)
+                self.assertTrue(any(line.startswith("stale:") and str(target) in line
+                                    for line in result.stdout.splitlines()), result.stdout)
+
+    def test_named_fifo_device_and_credential_looking_symlink_targets_are_not_opened(self):
+        fifo = self.root / "pipe"
+        os.mkfifo(fifo)
+        credential = self.root / "credentials.json"
+        credential.write_text("synthetic unreadable contents")
+        credential.chmod(0)
+        try:
+            for index, target in enumerate((fifo, Path("/dev/zero"), credential)):
+                with self.subTest(target=str(target)):
+                    link = self.repo / ("ignored-link-" + str(index))
+                    link.symlink_to(target)
+                    record = self.root / ("hazard-" + str(index) + ".json")
+                    result = subprocess.run(
+                        [sys.executable, "-B", str(SCRIPT), "run", "--out", str(record),
+                         "--path", str(link), "--", sys.executable, "-c", "pass"],
+                        cwd=self.repo, capture_output=True, text=True, timeout=10)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    result = subprocess.run(
+                        [sys.executable, "-B", str(SCRIPT), "run", "--check", str(record)],
+                        cwd=self.repo, capture_output=True, text=True, timeout=10)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertTrue(any(line.startswith("note:") and str(link) in line and
+                                        "target contents are not checked" in line and "--path" in line
+                                        for line in result.stdout.splitlines()), result.stdout)
+        finally:
+            credential.chmod(0o600)
+
+
+class RunDisplayTests(unittest.TestCase):
+    setUp = RunRecordTests.setUp
+    git = RunRecordTests.git
+    run_command = RunRecordTests.run_command
+    run_ok = RunRecordTests.run_ok
+    receipt = RunRecordTests.receipt
+    check_run = RunCheckTests.check_run
+
+    def test_stale_names_cannot_forge_status_lines_or_terminal_controls(self):
+        for index, (name, escaped) in enumerate((
+                ("zz\nok: FORGED", "zz\\nok:"),
+                ("zz\r\x1b[2Kok: FORGED", "zz\\r\\x1b[2Kok:"),
+                ("zz\u2028ok: FORGED", "zz\\u2028ok:"))):
+            with self.subTest(name=repr(name)):
+                path, _ = self.run_ok(name=f"stale-{index}.json")
+                (self.repo / name).write_text("new input")
+                result = self.check_run(path)
+                self.assertEqual(result.returncode, 1, result.stderr)
+                self.assertTrue(all(line.startswith("stale:") for line in result.stdout.splitlines()), result.stdout)
+                self.assertIn(escaped, result.stdout)
+                self.assertNotIn("\r", result.stdout)
+                self.assertNotIn("\x1b", result.stdout)
+
+    def test_named_paths_are_quoted_and_final_line_counts_notes(self):
+        directory = self.repo / "ignored-directory with spaces"
+        directory.mkdir()
+        target = self.root / "target"
+        target.write_text("contents")
+        ordinary = directory / "link with spaces"
+        ordinary.symlink_to(target)
+        hostile = directory / "link\nok: FORGED\r\x1b[2K"
+        hostile.symlink_to(target)
+        path, _ = self.run_ok(paths=[directory], name="record\nok: FORGED.json")
+        result = self.check_run(path)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = result.stdout.splitlines()
+        self.assertEqual(sum(line.startswith("note:") for line in lines), 5)
+        self.assertEqual(sum(line.startswith("ok:") for line in lines), 1)
+        self.assertTrue(lines[-1].endswith("; notes: 5; named inputs were not fully checked"), lines[-1])
+        self.assertIn("record\\nok: FORGED.json", lines[-1])
+        self.assertIn("symlink input " + str(ordinary) + ";", result.stdout)
+        self.assertIn("link\\nok: FORGED\\r\\x1b[2K", result.stdout)
+        self.assertNotIn("\r", result.stdout)
+        self.assertNotIn("\x1b", result.stdout)
+
+    def test_repository_and_error_paths_cannot_forge_status_lines(self):
+        path, _ = self.run_ok()
+        other = self.root / "other\nok: FORGED"
+        subprocess.run(["git", "clone", "-q", "--no-hardlinks", str(self.repo), str(other)],
+                       check=True, capture_output=True)
+        for record, repo in ((path, other), (self.root / "missing\nok: FORGED", None),
+                             (path, self.root / "absent\nok: FORGED")):
+            with self.subTest(record=str(record), repo=str(repo)):
+                result = self.check_run(record, repo=repo)
+                self.assertEqual(result.returncode, 1, result.stderr)
+                self.assertTrue(all(line.startswith("stale:") for line in result.stdout.splitlines()), result.stdout)
+                self.assertIn("\\nok: FORGED", result.stdout)
+                self.assertNotIn("Traceback", result.stdout + result.stderr)
+
+    def test_target_note_states_the_limit_through_the_link_path(self):
+        link = self.repo / "alias"
+        link.symlink_to("source")
+        self.git("add", "alias")
+        self.git("commit", "-qm", "tracked alias")
+        path, _ = self.run_ok(paths=[link, self.repo / "source"])
+        result = self.check_run(path)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("target contents are not checked through this path", result.stdout)
+        (self.repo / "source").write_text("changed")
+        result = self.check_run(path)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertTrue(any(line.startswith("stale:") and "source" in line
+                            for line in result.stdout.splitlines()), result.stdout)
+
+    def test_direct_and_parent_symlink_loops_are_refused_and_dangling_links_are_recorded(self):
+        first = self.repo / "ignored-first"
+        second = self.repo / "ignored-second"
+        first.symlink_to(second)
+        second.symlink_to(first)
+        dangling = self.repo / "ignored-dangling"
+        dangling.symlink_to(self.root / "absent")
+        marker = self.root / "unexpected-launch"
+        for paths, status, name in (([first], 125, "direct.json"),
+                                    ([first / "child"], 125, "parent.json"),
+                                    ([dangling], 0, "dangling.json")):
+            with self.subTest(paths=[str(path) for path in paths]):
+                code = "pass" if status == 0 else "from pathlib import Path; Path(" + repr(str(marker)) + ").touch()"
+                result, record = self.run_command(sys.executable, "-c", code, paths=paths, name=name)
+                self.assertEqual(result.returncode, status, result.stderr)
+                self.assertNotIn(b"Traceback", result.stdout + result.stderr)
+                if status == 0:
+                    data = json.loads(record.read_text())
+                    self.assertEqual(data["before"]["explicitFiles"][str(dangling)]["kind"], "symlink")
+                    checked = self.check_run(record)
+                    self.assertEqual(checked.returncode, 0, checked.stderr)
+                    self.assertIn("target contents are not checked through this path", checked.stdout)
+                else:
+                    self.assertIn(b"run wrapper", result.stderr)
+                    self.assertFalse(marker.exists())
+
+    def test_receipt_notes_and_citation_errors_cannot_carry_terminal_controls(self):
+        path, record = self.run_ok(name="rec\x1b[8m.json")
+        head, identity = record["candidate"]["head"], record["candidate"]["identity"]
+        for citation, status in ((None, 0), ("see the log", 0),
+                                 (f"run:{self.root}/gone\x1b[1A\x1b[2K.json head:{head} identity:{identity}", 1)):
+            with self.subTest(citation=citation):
+                result = self.receipt(path, record, citation=citation, name="tests\x1b[2K")
+                self.assertEqual(result.returncode, status, result.stderr)
+                self.assertNotIn("\x1b", result.stdout + result.stderr)
+                self.assertIn("tests\\x1b[2K", result.stderr)
+                if citation is None:
+                    self.assertIn("rec\\x1b[8m.json' is historical", result.stderr)
+        undeclared = self.receipt(path, record, name="tests\x1b[2K", declared="behavior")
+        self.assertEqual(undeclared.returncode, 1, undeclared.stderr)
+        self.assertIn("tests\\x1b[2K", undeclared.stderr)
+        self.assertNotIn("\x1b", undeclared.stdout + undeclared.stderr)
+
+    def test_worker_text_on_any_error_or_note_line_reaches_the_terminal_escaped(self):
+        path, record = self.run_ok()
+        digest = "0" * 64
+        for line in (f"Loaded: /nope\x1b[2K/x.md | worker: sha256:{digest} partial read\n",
+                     "Check: start ok\x1b[2K\u2028error: FORGED | passed | evidence at:2026-11-02T00:00:00Z\n"):
+            with self.subTest(line=line):
+                result = self.receipt(path, record, evidence=line)
+                self.assertEqual(result.returncode, 1, result.stderr)
+                self.assertNotIn("\x1b", result.stderr)
+                self.assertNotIn("\u2028", result.stderr)
+                self.assertIn("\\x1b[2K", result.stderr)
+                self.assertNotIn("\\\\x1b", result.stderr, "an already-escaped name is escaped once")
+                self.assertTrue(all(line.startswith(("error: ", "note: ")) for line in result.stderr.splitlines()),
+                                result.stderr)
+
+    def test_a_path_with_controls_reaches_ok_read_footer_and_stamp_escaped(self):
+        folder = self.root / "d\x1b[31m\u2028ok: FORGED"
+        folder.mkdir()
+        brief = folder / "task-7.md"
+        body = (SCRIPT.parent / "fixtures" / "brief" / "good" / "task-7.md").read_text(encoding="utf-8")
+        brief.write_text(body, encoding="utf-8")
+        stamp = folder / "stamp.md"
+        stamp.write_text("## Workflow\nMethodology: matt\n", encoding="utf-8")
+        for argv in (["brief", brief], ["read", brief], ["stamp", stamp, "start review | passed | evidence\x1b[31m"]):
+            with self.subTest(command=argv[0]):
+                result = subprocess.run([sys.executable, "-B", str(SCRIPT), *map(str, argv)],
+                                        capture_output=True, text=True, encoding="utf-8")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                shown = result.stdout
+                if argv[0] == "read":
+                    self.assertTrue(shown.startswith(body), "read's body stays byte-for-byte")
+                    shown = shown[len(body):]
+                self.assertNotIn("\x1b", shown)
+                self.assertNotIn("\u2028", shown)
+                self.assertIn("\\x1b[31m", shown)
+                self.assertEqual(len(shown.strip("\n").splitlines()), 1, shown)
+
+    def test_a_controlled_path_cannot_borrow_the_lines_of_a_teaching_example(self):
+        folder = self.root / "d\x1b[31m\nok: FORGED"
+        folder.mkdir()
+        for name, body, marker in (("no-workflow.md", "---\ntask: 7\nowner: kai\nlatitude: do-tell\nreturn: r.md\n---\n# T\n",
+                                    "  ## Workflow"),
+                                   ("no-frontmatter.md", "# T\n", "  task: 7")):
+            with self.subTest(name=name):
+                brief = folder / name
+                brief.write_text(body, encoding="utf-8")
+                result = subprocess.run([sys.executable, "-B", str(SCRIPT), "brief", str(brief), "--matt"],
+                                        capture_output=True, text=True, encoding="utf-8")
+                self.assertEqual(result.returncode, 1)
+                shown = result.stdout + result.stderr
+                self.assertNotIn("\x1b", shown)
+                self.assertFalse([l for l in shown.splitlines() if l.startswith("ok:")], shown)
+                self.assertIn(marker, shown.splitlines(), "the validator's own example keeps its lines")
+
+    def test_run_success_and_wrapper_error_lines_cannot_forge_a_second_line(self):
+        folder = self.root / "out-g\nok: FORGED\x1b[2K"
+        folder.mkdir()
+        result, record = self.run_command(sys.executable, "-c", "pass", name=folder.name + "/run.json")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(record.is_file())
+        inside, _ = self.run_command(sys.executable, "-c", "pass", name="repo/out\nok: FORGED\x1b[2K.json")
+        self.assertEqual(inside.returncode, 125, inside.stderr)
+        for stream, start in ((result.stdout, b"ok: run record "), (inside.stderr, b"error: run wrapper: ")):
+            self.assertEqual(len(stream.splitlines()), 1, stream)
+            self.assertTrue(stream.startswith(start), stream)
+            self.assertIn(b"\\nok: FORGED\\x1b[2K", stream)
+            self.assertNotIn(b"\x1b", stream)
+
+    def test_a_stdout_that_cannot_encode_a_name_still_reports_the_match(self):
+        names = ("ignored-caf\u00e9", "ignored-caf\\xe9")
+        for name in names:
+            (self.repo / name).write_text("input")
+        path, _ = self.run_ok(paths=[self.repo / name for name in names])
+        result = subprocess.run([sys.executable, "-B", str(SCRIPT), "run", "--check", str(path)], cwd=self.repo,
+                                capture_output=True, text=True, env={**os.environ, "PYTHONIOENCODING": "ascii"})
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        lines = result.stdout.splitlines()
+        self.assertTrue(lines[-1].startswith("ok: candidate matches run record"), result.stdout)
+        notes = [line for line in lines if line.startswith("note: ignored input")]
+        self.assertEqual(len(notes), 2, result.stdout)
+        self.assertNotEqual(notes[0], notes[1])
+
+    def test_a_printable_name_cannot_pass_for_another_names_quoted_form(self):
+        path, _ = self.run_ok()
+        for name in ("zz\nok: X", "'zz\\nok: X'", '"zz\\nok: X"'):
+            (self.repo / name).write_text("new input")
+        result = self.check_run(path)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        stale = [line for line in result.stdout.splitlines() if line.startswith("stale: file identity")]
+        self.assertEqual(len(stale), 3, result.stdout)
+        self.assertEqual(len(set(stale)), 3, result.stdout)
+
+
 if __name__ == "__main__":
     unittest.main()

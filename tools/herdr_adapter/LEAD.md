@@ -575,6 +575,15 @@ stopping the durable index. It holds, in order:
   6. a queued dependent held by an `accepted-bounded` predecessor: `dependent N
      held by accepted-bounded predecessor M; a human decides`. The hold stays;
      this row only makes sure it cannot sit silent;
+  7. QUIET events in `<record-root>/quiet/` (`team-lead/references/contracts/doorbell.md`,
+     "QUIET is attention only"): an actionable row, `QUIET <attempt>: ...`, says to
+     look at its pane and ask for DONE, HELP or HELD, and names both sessions when
+     Herdr reports a different one; an attended row stays for one more turn after
+     the lead's `attend-quiet` progress entry, in case that turn's reply was lost;
+     a stale or superseded row moves nothing and needs no action; a malformed,
+     misnamed or unreadable file, or a `quiet/` that cannot be listed, is a row
+     that echoes none of its text. A lead turn attends to one event, actionable
+     first, only when nothing else is due, and that `attend-quiet` entry consumes it;
 - **Outcomes**, one row per task: owner, scope (the outcome line), source
   identity (`git_base` plus digests named in the receipt's Claims), reviewed
   and installed identity, next permitted action (it says to dispatch exactly
@@ -723,7 +732,7 @@ is not known, so the file's own frontmatter must name the attempt (its `attempt:
 field, else `task:`); a file whose frontmatter names another attempt, or has
 none, is refused with `receipt_mismatch` (exit 1) rather than waited on. The
 brief's own `## Return` instructions, an earlier attempt's `Closes:`, and a Markdown
-example of a receipt inside a code fence (``` or ~~~) do not match. It reads and journals no lead record (`"journaled": false`) and, without
+example of a receipt inside a code fence (``` or ~~~) or an HTML comment do not match. Limit: the comment rule reads inline code one line at a time, so an inline code span that runs over several lines and holds `<!--` hides a Return a reader can see, and that return reads as a silent stop that asks the lead to look, never as a closed attempt. It reads and journals no lead record (`"journaled": false`) and, without
 `workspace_id`, makes no socket call at all: it only re-reads the files once per
 slice. With `workspace_id` it also watches that workspace one slice at a time
 and reports `pane_status` for any pane whose `state_change_seq` or
@@ -790,7 +799,7 @@ refusal. `preflight-ok` is not acceptance: a task whose plan verifier would fail
   replaced at the next dispatch gives feedback about the wrong task. The pin's `attempt` must equal the attempt of
   the doorbell the worker will ring. All four fields are required. The same record has no claim set, so the return is
   checked against itself: its frontmatter `attempt:` (else `task:`) must name the attempt, exactly one `## Return`
-  section outside code fences must close it, and `validate_contracts` receipt (with `--matt` when `matt` is true)
+  section outside code fences and HTML comments must close it, and `validate_contracts` receipt (with `--matt` when `matt` is true)
   must pass. The explicit triple does the same without a pin.
 
 **Limit, the brief the lead did not write.** On the manual path the lead-owned brief prefix is not known, so a
@@ -815,16 +824,26 @@ For a claimed completion it runs the preflight and maps the verdict, never forwa
 | `missing` | 2 | the error list on stderr |
 | `cannot-evaluate`, a crash, no JSON, a missing interpreter or script, an unknown verdict | 0 | nothing; one line in `<record-root>/stop-hook.log` |
 
-The hook never exits 1 (a non-blocking error), never runs a plan verifier, and writes only `stop-hook.log`. Use an
-absolute interpreter in `TEAM_STOP_PYTHON`, not a version-manager shim; without it the hook uses `/usr/bin/python3`.
+The hook never exits 1 (a non-blocking error), never runs a plan verifier, and writes only `stop-hook.log` and QUIET
+events: a stop of an admitted worker that reports nothing writes one immutable QUIET event in `<record-root>/quiet/`
+and still exits 0 (conditions in the hook's header; attention row 7 shows it). Use an absolute interpreter in
+`TEAM_STOP_PYTHON`, not a version-manager shim; without it the hook uses `/usr/bin/python3`.
 
-**What a Stop hook cannot do, observed on Claude Code 2.1.301:** a project Stop hook
-loads under a custom `CLAUDE_CONFIG_DIR`; exit 2 blocks the stop once and the model is shown stderr;
-`stop_hook_active` is true on the next Stop; a missing hook script fails with exit 127 and the session still
-finishes. Not verified natively: `/clear`, Esc and interrupt, interactive sessions, hook timeouts, and
-`team-stop.sh` itself. A cleared or replaced session in the same pane, a worker that never stops, and an
-interrupted worker produce no Stop event, so the lead learns of them only through attention row 4 or 5.
-Session binding through Herdr `agent_session` is deferred: it is not shown to be populated.
+**What a Stop hook cannot do, observed on Claude Code 2.1.301:** a project Stop hook loads under a custom
+`CLAUDE_CONFIG_DIR`; exit 2 blocks the stop once and the model is shown stderr; `stop_hook_active` is true on the next
+Stop; a missing hook script fails with exit 127 and the session still finishes. Not verified natively: `/clear`, Esc
+and interrupt, hook timeouts, and `team-stop.sh` itself. The Stop payloads were captured natively on Claude Code
+2.1.316 with a capture-only hook, in `claude -p` sessions (kept in `tests/fixtures/stop-*.json`, paths anonymized) and
+in one interactive session in a Herdr pane, whose payload had the same fields; a blocked stop's retry carried
+`stop_hook_active: true`. `team-stop.sh` is tested only by replaying those payloads and synthetic ones in its unit
+tests, never as the hook of a live session. A cleared or replaced session in the same pane, a worker that never stops,
+and an interrupted worker produce no Stop event, so the lead learns of them only through attention row 4 or 5. An
+event carries the session id from the Stop payload. Herdr's `agent_session` is used to word a row and to attribute a
+ring to a session, but never to dismiss an event, because a child `claude` in a pane reports its own id for that pane;
+it is null on some panes, and that is normal. Only a strictly later stop of the same attempt in the same pane, from
+another session, supersedes an event, because only a stop carries the time the hook wrote it. A ring never supersedes
+one: a read shows only what is visible then, so a line a read did not show can be older than the stop and redrawn
+later. The ring is attended as itself, and the event stays actionable, saying to look at the pane.
 
 ## Verification and persistence
 
@@ -855,7 +874,8 @@ records stay outside `~/.agents` to avoid adding test fleet state to real
 project memory. The core does not auto-commit production records.
 
 The skill/contracts remain the binding vocabulary sources:
-`team-lead/specs/0001/tickets/06-lead-loop-integration.md`,
-`team-lead/specs/0001/spec.md` (lead loop/testing decisions),
-`team-lead/SKILL.md` M1–M5/M9/M10, and
+`team-lead/SKILL.md` M1–M5/M9/M10 and
 `team-lead/references/contracts/{brief,receipt,doorbell,team-record,compliance}.md`.
+The design record behind them is in the Mifal repository and is not installed:
+`docs/team-lead/specs/0001/tickets/06-lead-loop-integration.md` and
+`docs/team-lead/specs/0001/spec.md` (lead loop/testing decisions).

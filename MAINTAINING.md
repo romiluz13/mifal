@@ -18,7 +18,7 @@ After a pull:
 
 1. Resolve any conflict markers. Keep Mifal's scrubs: `tests/test_content.py` fails on a personal string coming back.
 2. `/bin/bash maint/rebuild-inventory.sh`, so the team lead's skill inventory matches the new skills. Run it only after a change under `skills/`; on its own it only moves the inventory's timestamp.
-3. `/bin/bash tests/run.sh -q`, then the full `/bin/bash tests/run.sh` before a release.
+3. `/bin/bash tests/run.sh -q`, then the full `MIFAL_RELEASE_REHEARSAL=1 /bin/bash tests/run.sh` before a release.
 4. Review the diff as any change, commit, release.
 
 `status` also lists skills that sit next to a vendored one upstream but are not shipped, so a new upstream skill is seen. Taking one in is a decision, not a sync: copy the folder, add its record to `provenance.json` (`"repo"`, `"upstream"`, `"commit"`, `"tree"`, `"modified"`), and add it to `SHIPPED` in `tests/test_content.py`.
@@ -52,13 +52,13 @@ The vendored `herdr` skill updates through `maint/upstream.py` like any other.
 2. Change the test first, then `harness.py`.
 3. The doctor re-checks the precedence rules Mifal knows on every run and reports the mismatches it recognises, with the fix; it does not start the agent or discover every change in its behaviour.
 
-| Agent | Rules file Mifal writes | Read first instead, when present | Skills |
-|---|---|---|---|
-| Claude Code | `$CLAUDE_CONFIG_DIR/CLAUDE.md` (a block that imports the Guide) | | links in `$CLAUDE_CONFIG_DIR/skills/` |
-| Codex | `$CODEX_HOME/AGENTS.md` | `AGENTS.override.md` | native |
-| Droid | `~/.factory/AGENTS.md` | | native |
-| Pi | `$PI_CODING_AGENT_DIR/AGENTS.md` | `AGENTS.override.md`, then `AGENTS.md`, `AGENTS.MD`, `CLAUDE.md`, `CLAUDE.MD` | native |
-| OpenCode | `AGENTS.md` in its config folder | `~/.claude/CLAUDE.md` is its fallback when its own file is absent, unless `OPENCODE_DISABLE_CLAUDE_CODE` or `..._PROMPT` is `true` or `1` | native |
+| Agent | Rules file Mifal writes | Read first instead, when present | Skills | Doctor skill-setting audit |
+|---|---|---|---|---|
+| Claude Code | `$CLAUDE_CONFIG_DIR/CLAUDE.md` (a block that imports the Guide) | | links in `$CLAUDE_CONFIG_DIR/skills/` | 2.1.316: `settings.json` skillOverrides |
+| Codex | `$CODEX_HOME/AGENTS.md` | `AGENTS.override.md` | native | 0.166.0: `config.toml` skills.config |
+| Droid | `~/.factory/AGENTS.md` | | native | 1.1.0: recorded Home's `settings.json` disabledSkills |
+| Pi | `$PI_CODING_AGENT_DIR/AGENTS.md` | `AGENTS.override.md`, then `AGENTS.md`, `AGENTS.MD`, `CLAUDE.md`, `CLAUDE.MD` | native | 1.4.0: `settings.json` skills and root skills-folder `.gitignore`, including the shared Pool |
+| OpenCode | `AGENTS.md` in its config folder | `~/.claude/CLAUDE.md` is its fallback when its own file is absent, unless `OPENCODE_DISABLE_CLAUDE_CODE` or `..._PROMPT` is `true` or `1` | native | 1.19.4: global `config.json` then `opencode.json`/`.jsonc`; overridden directory omits `config.json`; permission.skill |
 
 ## The routine
 
@@ -84,7 +84,7 @@ Words to give a coding agent:
 `main` is protected: every change goes in by pull request, and the `mifal` check must pass. Release tags `v*` cannot be moved or deleted. Merging to `main` reaches branch-following installs and new `main` clones; an eligible pushed tag advances tag-following installs.
 
 1. `VERSION` holds the release; raise it, in a pull request, for any change users get.
-2. In that pull request, run the full suite, `/bin/bash tests/run.sh`, under both Pythons on macOS, and `/bin/bash maint/rehearse-upgrade.sh <repo> <previous tag>`; the `release` workflow runs both when `VERSION` changes.
+2. In that pull request, run the full suite, `MIFAL_RELEASE_REHEARSAL=1 /bin/bash tests/run.sh`, under both Pythons on macOS, and `/bin/bash maint/rehearse-upgrade.sh <repo> <previous tag>`; the `release` workflow runs both when `VERSION` changes. The opt-in adds the historical upgrade and journal tests that need local release tags; tag-free rehearsal checks always run in the default suite.
 3. Merge it, then tag that merge commit `vX.Y.Z` (the `release` workflow checks that the tag equals `VERSION` and sits on `main`) and push the tag. Tags are permanent, so a release found broken is fixed by the next version.
 4. Users run `mifal update`: it fetches their clone, previews the managed changes before applying them unless `--yes` is set, and installs the revision it showed. An update from 0.2.3 runs 0.2.3's code, which leaves NOTICE and `third_party/` out; a second `mifal update` completes the payload.
 

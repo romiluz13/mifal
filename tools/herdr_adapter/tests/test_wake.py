@@ -116,6 +116,22 @@ class WakeTest(unittest.TestCase):
         timer.start()
         self.addCleanup(timer.cancel)
 
+    def move_pane_after_the_first_look(self):
+        """Returns mode takes its baseline from the waiter's own first look, so a pane that moved before a slowly
+        starting waiter looked would never read as a change. Each snapshot after the first shows the pane working
+        and newer, whenever that first look comes."""
+        reply, looks = self.peer.reply, []
+
+        def moving(request):
+            if request["method"] == "session.snapshot":
+                if looks:
+                    agent = self.snapshot["agents"][0]
+                    agent["agent_status"] = "working"
+                    agent["state_change_seq"] += 1
+                looks.append(request)
+            return reply(request)
+        self.peer.reply = moving
+
     def test_a_receipt_only_completion_with_an_unchanged_pane_wakes_the_lead(self):
         self.init(wake={"mechanism": "wake.py in the lead pane", "deadline_seconds": 60})
         self.turn()
@@ -281,7 +297,7 @@ class WakeTest(unittest.TestCase):
 
     def test_returns_mode_with_a_workspace_also_reports_pane_changes_and_never_sends_or_reads(self):
         path = self.brief_file()
-        self.flip_pane_later(0.5)
+        self.move_pane_after_the_first_look()
         calls = len(self.peer.requests)
         woke = self.wake_returns([{"path": str(path), "attempt": "9.2"}], max_seconds=30, slice_seconds=0.3,
                                  workspace_id="scratch")

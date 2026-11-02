@@ -23,7 +23,7 @@ records and states their persistence limit instead of creating team files.
 
 ```text
 .team/
-  state.md             mission, roster, active work, progress log, first resume action
+  state.md             waiting on you, mission, roster, active work, progress log, first resume action
   agreement.md         how this team works: channel, latitude words, this project's
                        brief additions and return deviations, definition of done,
                        reserved vs authorized — versioned by retros, with scars
@@ -52,6 +52,12 @@ Moving records between projects takes an explicit user request.
 
 Keep it scannable:
 
+- **`## Waiting on you`**, the first section, because the human reads it
+  first: every outstanding human decision and hold recorded elsewhere in the
+  record, one line each with the task or attempt, what is needed, your
+  recommendation, its source and the original waiting-since time, or the
+  single word "nothing". Seeing an item again never resets its age or starts
+  another escalation.
 - Mission and the finish condition (stated so it can pass or fail).
 - The authority boundary — reserved for the human vs pre-authorized — as
   recorded in `agreement.md`.
@@ -165,9 +171,17 @@ After a session break or compaction:
      blind.
    Re-dispatching completed work is the most expensive resume failure;
    inspect the actual state before assigning anything.
-4. Label unverified historical claims; don't redo stable completed work just
+4. Keep every `Hold:` line. A hold lifts only on its `lifts when:`
+   condition, which comes from the human's own words: a wait for the human's yes
+   stays until that yes; an explicit conditional grant ("do it after 10:00")
+   lifts once its condition is checked and met, with no second yes; a grant
+   whose meaning is unclear stays held, and you ask once. New feedback alone
+   grants no authority, though verified evidence may satisfy the human's
+   explicit condition; unrelated feedback, a new session or a new attempt
+   never lifts a hold or reopens a capped correction chain.
+5. Label unverified historical claims; don't redo stable completed work just
    because the session was new.
-5. Take the single first resume action.
+6. Take the single first resume action.
 
 ## What the record is not
 

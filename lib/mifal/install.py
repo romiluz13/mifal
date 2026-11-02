@@ -350,9 +350,14 @@ def make_plan(h: Home, source: Path, version: str, overwrite_edits: bool = False
     # claimed once, while each Home's spelling is still recorded, so coverage and uninstall ownership stay per Home.
     seen = set()
     for unit in units:
-        if os.path.realpath(unit) in seen:
+        physical = str(Path(os.path.realpath(unit.parent)) / unit.name)
+        if physical in seen:
             continue
-        seen.add(os.path.realpath(unit))
+        seen.add(physical)
+        # An equivalent relative skill link still needs claim's explicit conflict before adoption.
+        if (unit in skill_links and unit.is_symlink() and not os.path.isabs(os.readlink(unit))
+                and os.path.realpath(unit) == os.path.realpath(skill_links[unit])):
+            continue
         if os.path.lexists(unit) and not any(_inside(p, unit) for p in owned):
             # With a stop (a moved folder) the unit paths no longer match the Manifest's, so none can be judged.
             if old is not None and not overwrite_edits and not plan.stops:
@@ -373,11 +378,12 @@ def make_plan(h: Home, source: Path, version: str, overwrite_edits: bool = False
         entries.append({"kind": "file", "path": str(target), "sha256": digest})
     seen = set()
     for path, target in [(h.link, link_target)] + sorted(skill_links.items()):
-        if os.path.realpath(path) in seen:
+        physical = str(Path(os.path.realpath(path.parent)) / path.name)
+        if physical in seen:
             entries.append({"kind": "symlink", "path": str(path), "target": target})
             continue
         if claim(path, ("link", target)):
-            seen.add(os.path.realpath(path))
+            seen.add(physical)
             links.append(Step({"op": "link", "path": str(path), "target": target}, f"link {show(path)} -> {target}"))
         entries.append({"kind": "symlink", "path": str(path), "target": target})
 
