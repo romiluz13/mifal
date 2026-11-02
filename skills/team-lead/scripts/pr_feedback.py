@@ -38,8 +38,10 @@ text, new head or new session read by this helper can lift one; a hold lifts onl
 
 Limits. A renamed check or workflow is a new chain with its own 3 attempts. A correction handed out without `attempt`
 is not counted, so record the attempt before the correction goes out. The helper cannot check that --held or --no-held
-matches the team's hold record: --no-held while a ticket is held lets its work through. More than 5000 review threads
-stop the read.
+matches the team's hold record: --no-held while a ticket is held lets its work through. A record whose attempt history
+is malformed, gapped, out of order, over the cap or holds a duplicate member is refused unchanged, but a history cut
+back to a valid shorter one (such as [1] after three attempts) cannot be detected. More than 5000 review threads stop
+the read.
 
 What it never does. It never posts, comments, reviews, merges, re-runs or edits anything: every `gh` call is checked
 against three read-only shapes and run without a shell: `gh pr view N --repo R --json ...`, `gh api --method GET
@@ -220,8 +222,13 @@ def resolution(repo, number):
         page = run_gh(threads_argv(repo, number, cursor))
         try:
             threads = page["data"]["repository"]["pullRequest"]["reviewThreads"]
+            if not isinstance(threads["nodes"], list):
+                raise ValueError("nodes")
             for thread in threads["nodes"]:
-                resolved, (first,) = thread["isResolved"], thread["comments"]["nodes"]
+                comments = thread["comments"]["nodes"]
+                if not isinstance(comments, list):
+                    raise ValueError("comments")
+                resolved, (first,) = thread["isResolved"], comments
                 root = text(first["fullDatabaseId"])
                 if not isinstance(resolved, bool) or not COMMENT_ID.fullmatch(root):
                     raise ValueError("thread")
@@ -320,19 +327,39 @@ def load(path):
     except (OSError, UnicodeError) as error:
         raise RecordError(f"cannot read the record {quote(path)}: {quote(error)}") from None
     try:
-        record = json.loads(raw)
+        record, reason = json.loads(raw, object_pairs_hook=unique_members), None
+    except DuplicateMember as duplicate:
+        record, reason = None, f"it has a duplicate member {quote(duplicate.args[0])}"
     except ValueError:
-        record = None
-    reason = damage(record)
+        record, reason = None, None
+    reason = reason or damage(record)
     if reason:
         raise RecordError(f"the record {quote(path)} cannot be trusted: {reason}; it was left as it is and nothing was "
                           f"recorded: restore it from a copy, or ask the human")
     return record
 
 
+class DuplicateMember(ValueError):
+    """A JSON object names one member twice; the decoder would silently keep the last."""
+
+
+def unique_members(pairs):
+    found = {}
+    for key, value in pairs:
+        if key in found:
+            raise DuplicateMember(key)
+        found[key] = value
+    return found
+
+
+def stored_head(value, empty):
+    return isinstance(value, str) and (bool(HEAD.fullmatch(value)) or (empty and value == ""))
+
+
 def damage(record):
-    """Why the record cannot be trusted, or None. Attempts must be numbered 1, 2, 3 in order, so a damaged history
-    can never count as fewer attempts than were made."""
+    """Why the record cannot be trusted, or None. Refused: a wrong type, a head or streak that is not a commit, attempts
+    not numbered 1, 2, 3 in order, more than 3 attempts, and (in load) a duplicate member. Not detectable: a history cut
+    back to a valid shorter one, such as [1] after three attempts."""
     malformed = f"it is not a version {VERSION} PR feedback record"
     try:
         if (record["version"] != VERSION or not isinstance(record["repo"], str) or type(record["pr"]) is not int
@@ -340,18 +367,19 @@ def damage(record):
             return malformed
         for key, chain in record["chains"].items():
             attempts = chain["attempts"]
+            since = chain.get("failing_since")
             if not (isinstance(attempts, list) and isinstance(chain["ticket"], (str, type(None)))
-                    and isinstance(chain.get("failing_since"), (str, type(None)))):
+                    and (since is None or stored_head(since, empty=False))):
                 return f"chain {quote(key)} is malformed"
             for n, attempt in enumerate(attempts, 1):
                 if not (isinstance(attempt, dict) and type(attempt.get("n")) is int and attempt["n"] == n
-                        and isinstance(attempt.get("head"), str) and isinstance(attempt.get("at"), str)):
+                        and stored_head(attempt.get("head"), empty=True) and isinstance(attempt.get("at"), str)):
                     return f"chain {quote(key)} has an attempt history that does not run 1, 2, 3 in order"
             if len(attempts) > CAP:
                 return f"chain {quote(key)} records {len(attempts)} attempts, more than the cap of {CAP}"
         for item in record["items"].values():
             if not (isinstance(item["chain"], str) and item["chain"] in record["chains"]
-                    and isinstance(item["head"], str)):
+                    and stored_head(item["head"], empty=True)):
                 return malformed
     except (KeyError, TypeError, AttributeError):
         return malformed
@@ -418,7 +446,7 @@ def chain_of(record, key):
 
 
 def short(head):
-    return head[:12] if head else "-"
+    return quote(head[:12])[1:-1] if head else "-"
 
 
 def ticket_text(ticket):

@@ -654,6 +654,94 @@ class PrFeedbackTest(unittest.TestCase):
         self.gh.record.write_text(json.dumps(good), encoding="utf-8")
         self.assertIn("ATTEMPT 3/3", self.gh.attempt("check:test/unit").stdout)
 
+    def test_a_record_with_a_duplicate_member_is_refused_unchanged(self):
+        item = (f'"check:test/unit@{HEAD1}": {{"chain": "check:test/unit", "kind": "check", "head": "{HEAD1}", '
+                f'"seen_at": "2026-11-01T10:00:00Z", "author": "", "path": "", "state": "FAILURE", "link": "", '
+                f'"text": ""}}')
+        three = ", ".join(f'{{"n": {n}, "head": "{HEAD1}", "at": "2026-11-01T10:00:00Z"}}' for n in (1, 2, 3))
+
+        def raw(chains, top='"version": 1'):
+            return f'{{{top}, "repo": "acme/widgets", "pr": 7, "items": {{{item}}}, "chains": {{{chains}}}}}'
+
+        capped = f'"check:test/unit": {{"ticket": "09", "attempts": [{three}]}}'
+        self.gh.record.write_text(raw(capped), encoding="utf-8")
+        control = self.gh.attempt("check:test/unit")
+        self.assertEqual(control.returncode, 3, control.stdout + control.stderr)
+        records = {
+            "attempts twice": raw(f'"check:test/unit": {{"ticket": "09", "attempts": [{three}], "attempts": []}}'),
+            "n twice": raw('"check:test/unit": {"ticket": "09", "attempts": '
+                           '[{"n": 3, "n": 1, "head": "", "at": "2026-11-01T10:00:00Z"}]}'),
+            "a chain twice": raw(capped + ', "check:test/unit": {"ticket": "09", "attempts": []}'),
+            "version twice": raw(capped, top='"version": 1, "version": 1'),
+        }
+        for name, text in records.items():
+            self.gh.record.write_text(text, encoding="utf-8")
+            for args in (("attempt", "--chain", "check:test/unit"), ("read", "--repo", REPO, "--pr", "7"),
+                         ("status",)):
+                with self.subTest(record=name, command=args[0]):
+                    result = self.gh.run(*args, "--record", str(self.gh.record), "--no-held")
+                    self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                    self.assertEqual(result.stdout, "")
+                    self.assertEqual(len(result.stderr.splitlines()), 1, result.stderr)
+                    self.assertIn("duplicate", result.stderr)
+                    self.assertEqual(self.gh.record.read_text(encoding="utf-8"), text)
+
+    def test_stored_head_text_never_reaches_the_terminal_raw(self):
+        self.gh.set(pr_view=pr(HEAD1, checks=[check("unit")]))
+        self.gh.read()
+        self.assertEqual(self.gh.attempt("check:test/unit", "--ticket", "09").returncode, 0)
+        good = json.loads(self.gh.record.read_text(encoding="utf-8"))
+        osc = "\x1b]52;c;cm0gLXJmIH4=\x07" + "1" * 30
+        damaged = {
+            "item head": ("items", f"check:test/unit@{HEAD1}", "head", osc),
+            "item head bidi": ("items", f"check:test/unit@{HEAD1}", "head", "\u202e" + "1" * 39),
+            "streak": ("chains", "check:test/unit", "failing_since", "\x1b[2J\nAPPROVED"),
+            "streak short": ("chains", "check:test/unit", "failing_since", "abc"),
+            "attempt head": ("attempt", None, "head", "\u2028" + "1" * 39),
+        }
+        self.gh.set(pr_view=pr(HEAD2, checks=[check("unit", run=2)]))
+        for name, (where, key, field, value) in damaged.items():
+            record = json.loads(json.dumps(good))
+            target = (record["chains"]["check:test/unit"]["attempts"][0] if where == "attempt"
+                      else record[where][key])
+            target[field] = value
+            text = json.dumps(record)
+            self.gh.record.write_text(text, encoding="utf-8")
+            for args in (("status",), ("attempt", "--chain", "check:test/unit"), ("read", "--repo", REPO, "--pr", "7")):
+                with self.subTest(damaged=name, command=args[0]):
+                    result = self.gh.run(*args, "--record", str(self.gh.record), "--no-held")
+                    out = result.stdout + result.stderr
+                    for ch in out:
+                        self.assertTrue(ch == "\n" or (ch.isprintable() and ch not in "\u202e\u2028"), repr(ch))
+                    self.assertNotIn("\nAPPROVED", out)
+                    self.assertEqual(result.returncode, 1, out)
+                    self.assertEqual(self.gh.record.read_text(encoding="utf-8"), text)
+        empty = json.loads(json.dumps(good))
+        empty["chains"]["check:test/unit"]["attempts"][0]["head"] = ""
+        empty["items"][f"check:test/unit@{HEAD1}"]["head"] = ""
+        self.gh.record.write_text(json.dumps(empty), encoding="utf-8")
+        status = self.gh.run("status", "--record", str(self.gh.record), "--no-held")
+        self.assertEqual(status.returncode, 0, status.stderr)
+        self.assertIn("attempts 1/3 items 1 last head -", status.stdout)
+        self.assertIn("ATTEMPT 2/3", self.gh.attempt("check:test/unit").stdout, "a valid empty head still works")
+
+    def test_review_thread_nodes_that_are_not_a_list_stop_the_read(self):
+        def answer(nodes):
+            connection = {"pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": nodes}
+            return {"data": {"repository": {"pullRequest": {"reviewThreads": connection}}}}
+
+        for nodes in ({}, ""):
+            with self.subTest(nodes=nodes):
+                self.gh.set(pr_view=pr(HEAD1), graphql_raw={"": answer(nodes)})
+                result = self.gh.run("read", "--repo", REPO, "--pr", "7", "--record", str(self.gh.record),
+                                     "--no-held")
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                self.assertEqual(len(result.stderr.splitlines()), 1, result.stderr)
+                self.assertIn("no usable review-thread data", result.stderr)
+                self.assertFalse(self.gh.record.exists(), "nothing is recorded")
+        self.gh.set(pr_view=pr(HEAD1), graphql_raw={"": answer([])})
+        self.assertEqual(self.gh.read()["counts"]["new"], 0, "a valid empty list is an empty success")
+
     def test_a_record_belongs_to_one_pull_request(self):
         self.gh.read()
         result = self.gh.run("read", "--repo", REPO, "--pr", "8", "--record", str(self.gh.record), "--no-held")
