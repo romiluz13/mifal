@@ -64,18 +64,22 @@ in a pane is not a ring, and it is never delivery evidence.
   event is still pending. Attending, retrying or resuming again writes
   nothing more. An attended event stays on the attention surface for one
   further turn, marked attended, because a turn killed before its reply
-  loses the only other "look at its pane". The lead never edits or deletes
-  an event file.
+  loses the only other "look at its pane"; once its task has moved on by
+  attempt or status, the row goes. The lead never edits or deletes an
+  event file.
 - **Stale events move nothing.** An event whose attempt is not the task's
   active attempt, whose task is no longer in flight, whose owner no longer
-  owns the task, whose pane is not the owner's, or whose session is not the
-  one Herdr reports in that pane is shown as stale. Where Herdr reports no
-  session, which is normal, an event is superseded only by a later stop of
-  the same attempt in the same pane from another session, so each pane
-  keeps one actionable row.
+  owns the task, or whose pane is not the owner's is shown as stale. A
+  session mismatch alone never makes an event stale: the session Herdr
+  reports can be a child `claude` in the pane or a passing value. An event
+  is superseded only by a strictly later stop or ring of the same attempt
+  in the same pane from another session, whether Herdr reports a session
+  or not, so each pane keeps one actionable row. Where Herdr reports a
+  different session, the row names both and says to look.
 - **The folder is untrusted.** Only names of the form `<64 hex digits>.json`
   are read; others are counted in one row. An event must hold exactly the
-  hook's fields, `reason` exactly `no report`, and bounded ids. Anything
+  hook's fields, `reason` exactly `no report`, and bounded ids; `init`
+  refuses member names and task ids longer than those bounds. Anything
   else, unreadable files included, is a named row that echoes none of its
   text, and a human may move such a file out of `quiet/`.
 - **Coverage.** Only Claude Code workers with the team Stop hook produce

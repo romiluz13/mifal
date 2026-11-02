@@ -3440,26 +3440,6 @@ class LeadTest(unittest.TestCase):
         self.assertTrue(any(row.startswith(f"QUIET event quiet/{deep.name} cannot be read as an event")
                             for row in self.quiet_rows()), self.quiet_rows())
 
-    def test_a_session_herdr_reports_makes_any_other_session_stale_as_a_fact(self):
-        self.init()
-        self.live_session("live")
-        self.turn()
-        now = datetime.now(timezone.utc)
-        # A child `claude -p` started in the member's pane fires the Stop hook with the pane's id: it looks like this.
-        child = self.quiet(session="child", prompt="c", written_at=now.isoformat())
-        live = self.quiet(session="live", prompt="l", written_at=(now - timedelta(minutes=3)).isoformat())
-        self.rerender()
-        rows = self.rows_by_event()
-        self.assertTrue(rows[child.name].startswith("stale QUIET 7 from alpha"), rows[child.name])
-        self.assertIn("session child is not the session Herdr reports in pane scratch:p1", rows[child.name])
-        self.assertTrue(rows[live.name].startswith("QUIET 7: alpha stopped without a report"), rows[live.name])
-        first, second = self.turn(), self.turn()
-        self.assertEqual((first["event"], "stale" in first), ("quiet/" + live.name, False))
-        self.assertEqual((second["event"], "stale" in second), ("quiet/" + child.name, True))
-        self.live_session(None)
-        self.turn()
-        self.assertIsNone(self.lead_state()["members"]["alpha"]["agent_session"], "null is normal: inference again")
-
     def test_without_a_reported_session_only_a_later_stop_of_the_same_attempt_in_the_same_pane_supersedes(self):
         self.init()
         self.turn()
@@ -3589,6 +3569,112 @@ class LeadTest(unittest.TestCase):
         attended = self.turn()
         self.assertNotIn("doorbell", attended)
         self.assertEqual((attended["attempt"], attended["path"]), ("7", str(path.resolve())))
+
+    # Attempt 103.3: review 503's findings. A session mismatch ranks; it never dismisses.
+
+    def test_a_new_session_in_the_pane_never_dismisses_the_real_silent_stop(self):
+        """503 R2: after the stop the pane got a new session (a /clear, a fork, a fresh claude); nothing from it has
+        stopped or rung on attempt 7."""
+        self.init()
+        self.live_session("s1")
+        self.turn()
+        real = self.quiet(session="s1", prompt="p")
+        self.live_session("s2")
+        attended = self.turn()
+        self.assertEqual((attended["action"], attended["event"]), ("attend-quiet", "quiet/" + real.name))
+        self.assertNotIn("stale", attended)
+        self.live_session(None)
+        self.turn()
+        self.assertIsNone(self.lead_state()["members"]["alpha"]["agent_session"], "null is normal")
+
+    def test_a_child_claude_in_the_pane_never_hides_the_parents_later_silent_stop(self):
+        """503 R1: a child `claude -p` reports its own session for the parent's pane, and nothing restores it."""
+        self.init()
+        self.live_session("parent")
+        self.turn()
+        self.live_session("child")
+        now = datetime.now(timezone.utc)
+        child = self.quiet(session="child", prompt="c", written_at=(now - timedelta(minutes=2)).isoformat())
+        self.assertEqual(self.turn()["event"], "quiet/" + child.name, "the child's own stop is attended first")
+        parent = self.quiet(session="parent", prompt="p", written_at=now.isoformat())
+        self.rerender()
+        self.assertTrue(self.rows_by_event()[parent.name].startswith("QUIET 7: "), self.rows_by_event()[parent.name])
+        attended = self.turn()
+        self.assertEqual((attended["event"], "stale" in attended), ("quiet/" + parent.name, False))
+
+    def test_a_transient_herdr_session_never_consumes_a_real_event_as_stale(self):
+        """503 R4: staleness is judged once, at consumption, so a passing value must not decide it."""
+        self.init()
+        self.live_session("s1")
+        self.turn()
+        self.quiet(session="s1", prompt="p")
+        self.live_session("other")
+        attended = self.turn()
+        self.assertEqual(attended["action"], "attend-quiet")
+        self.assertNotIn("stale", attended)
+
+    def test_a_later_ring_of_the_same_attempt_from_another_session_supersedes_an_earlier_stop(self):
+        self.init()
+        self.live_session("s1")
+        self.turn()
+        old = self.quiet(session="s1", prompt="p",
+                         written_at=(datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat())
+        self.live_session("s2")
+        self.ring("HELP 7 which greeting")
+        self.assertEqual(self.turn()["action"], "answer-help")
+        self.rerender()
+        row = self.rows_by_event()[old.name]
+        self.assertTrue(row.startswith("superseded QUIET 7 from alpha"), row)
+        self.assertIn("session s1 was superseded by a later ring in this pane, from session s2", row)
+
+    def test_where_herdr_reports_another_session_the_row_names_both_and_says_to_look(self):
+        self.init()
+        self.live_session("s2")
+        self.turn()
+        path = self.quiet(session="s1", prompt="p", waiting="unknown")
+        self.rerender()
+        row = self.rows_by_event()[path.name]
+        self.assertTrue(row.startswith("QUIET 7: alpha's session s1 stopped without a report (no report; waiting: "
+                                       "unknown); Herdr now reports session s2 in pane scratch:p1"), row)
+        self.assertIn("look at its pane and ask for DONE, HELP or HELD", row)
+        for claim in ("stale", "superseded", "needs no action", "child", "replaced", "wrong", "older"):
+            self.assertNotIn(claim, row)
+        self.live_session("s1")
+        self.turn()
+        same = self.quiet(session="s1", prompt="q")
+        self.rerender()
+        self.assertTrue(self.rows_by_event()[same.name].startswith("QUIET 7: alpha stopped without a report"))
+
+    def attended_then_returned(self, content):
+        self.init()
+        self.turn()
+        path = self.quiet(session="s1", prompt="p")
+        self.assertEqual(self.turn()["action"], "attend-quiet")
+        self.receipt(content=content)
+        return path, self.turn()
+
+    def test_the_attended_row_is_gone_once_the_task_is_accepted(self):
+        path, result = self.attended_then_returned(b"hello\n")
+        self.assertEqual(result["action"], "accept")
+        self.assertEqual([row for row in self.quiet_rows() if path.name in row], [])
+
+    def test_the_attended_row_is_gone_once_a_correction_moved_the_task_to_its_next_attempt(self):
+        path, result = self.attended_then_returned(b"wrong\n")
+        self.assertEqual(result["action"], "correct")
+        self.assertEqual(self.lead_state()["tasks"]["7"]["active"], "7.2")
+        self.assertEqual([row for row in self.quiet_rows() if path.name in row], [])
+
+    def test_init_refuses_a_member_name_or_task_id_longer_than_a_quiet_event_may_carry(self):
+        self.snapshot["agents"][0]["name"] = "m" * 65
+        self.command("init", self.init_params([self.task(owner="m" * 65)]), expected=1)
+        self.snapshot["agents"][0]["name"] = "alpha"
+        self.command("init", self.init_params([self.task("1" * 25)]), expected=1)
+        self.assertFalse((self.root / "lead-state.json").exists(), "refused before any write")
+        self.snapshot["agents"][0]["name"] = "m" * 64
+        self.init([self.task("1" * 24, owner="m" * 64)])
+        self.turn()
+        self.quiet("1" * 24, owner="m" * 64)
+        self.assertEqual(self.turn()["action"], "attend-quiet", "an event at the bounds is read and attended")
 
 
 if __name__ == "__main__":

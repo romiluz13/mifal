@@ -89,7 +89,11 @@ MAX_QUIET = 64
 QUIET_FIELDS = {"schema", "type", "owner", "pane", "attempt", "session_id", "prompt_id", "reason", "waiting",
                 "written_at"}
 # The longest each text field may be; nothing longer is read, stored or shown. Claude session and prompt ids are UUIDs.
-QUIET_BOUNDS = {"owner": 64, "pane": 64, "attempt": 32, "session_id": 128, "prompt_id": 128, "written_at": 64}
+# init refuses longer member names and task ids, so a real event for an accepted record always fits: one limit.
+MAX_MEMBER_NAME, MAX_TASK_ID = 64, 24
+QUIET_BOUNDS = {"owner": MAX_MEMBER_NAME, "pane": 64, "attempt": MAX_TASK_ID + 8, "session_id": 128,
+                "prompt_id": 128, "written_at": 64}
+QUIET_LOOK = "look at its pane and ask for DONE, HELP or HELD"
 STOP_KEY_RE = re.compile(r"[0-9a-f]{64}\.json")
 FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
 
@@ -509,11 +513,12 @@ def quiet_event(folder, name):
 
 
 def quiet_stale(state, event, stops):
-    """Why an event no longer describes the current work, as ("stale", why) for a fact or ("superseded", why) for an
-    inference, or None. Judged at consumption, not at write time: the hook records the owner and attempt it saw
-    then, and both can have moved on since. Where Herdr reports the session running in the owner's pane, an event
-    from any other session is stale as a fact. Where it reports none (normal, on any machine), only a later stop of
-    the same attempt in the same pane from another session supersedes one, so every pane keeps an actionable row."""
+    """Why an event no longer describes the current work, as ("stale", why) for a fact or ("superseded", why), or
+    None. Judged at consumption, not at write time: the hook records the owner and attempt it saw then, and both can
+    have moved on since. A session mismatch alone never dismisses: Herdr's reported session can be a child `claude`
+    in the pane or a passing value. Only a strictly later stop or ring of the same attempt in the same pane, from
+    another session, supersedes an event, whether Herdr reports a session or not, so every pane keeps an
+    actionable row."""
     attempt = event["attempt"]
     task = state["tasks"].get(attempt.split(".")[0])
     if task is None:
@@ -527,19 +532,13 @@ def quiet_stale(state, event, stops):
     member = state["members"][task["owner"]]
     if event["pane"] != member["pane_id"]:
         return "stale", f"pane {event['pane']} is not {task['owner']}'s pane"
-    live = member.get("agent_session")
-    if live:
-        if event["session_id"] != live:
-            return "stale", (f"session {event['session_id']} is not the session Herdr reports in pane "
-                             f"{event['pane']} ({live})")
-        return None
     written = parse_stamp(event["written_at"])
     later = [stop for stop in stops if stop["pane"] == event["pane"] and stop["attempt"] == attempt and
              stop["session_id"] != event["session_id"] and stop["at"] > written]
     if later:
         newest = max(later, key=lambda stop: stop["at"])
-        return "superseded", (f"session {event['session_id']} was superseded by a later stop in this pane, from "
-                              f"session {newest['session_id']}")
+        return "superseded", (f"session {event['session_id']} was superseded by a later {newest['kind']} in this "
+                              f"pane, from session {newest['session_id']}")
     return None
 
 
@@ -581,11 +580,14 @@ def quiet_events(root, state):
                         "QUIET comes from them; a human may move them out of quiet/" if unnamed > 1 else
                         "1 file in quiet/ is not named <64 hex digits>.json, so it was not read and no QUIET comes "
                         "from it; a human may move it out of quiet/")
-    stops = [{"pane": e.get("pane"), "attempt": e.get("attempt", e.get("task")), "session_id": e.get("session_id"),
-              "at": parse_stamp(e.get("written_at"))} for e in attended]
-    stops += [{"pane": item["event"]["pane"], "attempt": item["event"]["attempt"],
+    stops = [{"kind": "stop", "pane": e.get("pane"), "attempt": e.get("attempt", e.get("task")),
+              "session_id": e.get("session_id"), "at": parse_stamp(e.get("written_at"))} for e in attended]
+    stops += [{"kind": "stop", "pane": item["event"]["pane"], "attempt": item["event"]["attempt"],
                "session_id": item["event"]["session_id"], "at": parse_stamp(item["event"]["written_at"])}
               for item in events]
+    stops += [{"kind": "ring", "pane": state["members"].get(e.get("member"), {}).get("pane_id"),
+               "attempt": e.get("attempt") or e.get("task"), "session_id": e["session"], "at": parse_stamp(e["seen_at"])}
+              for e in state["pending"] + state["progress"] if e.get("session") and isinstance(e.get("seen_at"), str)]
     stops = [stop for stop in stops if stop["at"] is not None]
     for item in events:
         item["stale"] = quiet_stale(state, item["event"], stops)
@@ -604,19 +606,30 @@ def quiet_rows(root, state):
                         "it moves nothing and needs no action")
         else:
             waiting = "; waiting: unknown" if event["waiting"] == "unknown" else ""
-            rows.append(f"QUIET {event['attempt']}: {event['owner']} stopped without a report "
-                        f"({event['reason']}{waiting}); look at its pane and ask for DONE, HELP or HELD. "
-                        f"QUIET closes, fails, retries and unholds nothing ({item['name']})")
+            live = state["members"].get(event["owner"], {}).get("agent_session")
+            if live and live != event["session_id"]:
+                # Both are known; which one is the worker is not, so the row only says to look.
+                rows.append(f"QUIET {event['attempt']}: {event['owner']}'s session {event['session_id']} stopped "
+                            f"without a report ({event['reason']}{waiting}); Herdr now reports session {live} in "
+                            f"pane {event['pane']}; {QUIET_LOOK}. QUIET closes, fails, retries and unholds nothing "
+                            f"({item['name']})")
+            else:
+                rows.append(f"QUIET {event['attempt']}: {event['owner']} stopped without a report "
+                            f"({event['reason']}{waiting}); {QUIET_LOOK}. "
+                            f"QUIET closes, fails, retries and unholds nothing ({item['name']})")
     # The turn's reply is the only other place "look at its pane" is said, and a turn killed after its state write
     # loses it, so an actionable attendance stays on this surface for one further turn.
     for entry in state["progress"]:
         if (entry.get("action") == "attend-quiet" and "stale" not in entry and
-                isinstance(entry.get("turn"), int) and entry["turn"] >= state["turn"] - 1):
+                isinstance(entry.get("turn"), int) and entry["turn"] >= state["turn"] - 1 and
+                not quiet_stale(state, {"attempt": entry.get("attempt", entry.get("task")), "owner": entry.get("member"),
+                                        "pane": entry.get("pane"), "session_id": entry.get("session_id"),
+                                        "written_at": entry.get("written_at")}, [])):
             waiting = "; waiting: unknown" if entry.get("waiting") == "unknown" else ""
             rows.insert(len([r for r in rows if r.startswith("QUIET ")]), (
                 f"attended QUIET {entry.get('attempt', entry.get('task'))} from {entry.get('member')} "
                 f"({entry.get('event')}) on turn {entry['turn']}: it stopped without a report (no report{waiting}); "
-                "if that turn's reply was lost, look at its pane and ask for DONE, HELP or HELD. This row clears "
+                f"if that turn's reply was lost, {QUIET_LOOK}. This row clears "
                 "after one more turn"))
     return rows + problems
 
@@ -631,7 +644,7 @@ def attend_quiet(item):
         word, why = item["stale"]
         return {**entry, "stale": why, "reason": f"{word} QUIET: {why}; it moves nothing"}
     return {**entry, "reason": f"{event['owner']} stopped on {event['attempt']} without a report ({event['reason']}, "
-                               f"waiting {event['waiting']}); look at its pane and ask for DONE, HELP or HELD. "
+                               f"waiting {event['waiting']}); {QUIET_LOOK}. "
                                "QUIET closes, fails, retries and unholds nothing"}
 
 
@@ -820,6 +833,8 @@ def init(params):
         name = member["name"]
         if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]*", name) or name in members:
             invalid("member names must be unique safe names")
+        if len(name) > MAX_MEMBER_NAME:
+            invalid(f"member names must be at most {MAX_MEMBER_NAME} characters, the longest a QUIET event carries")
         identifier(member["pane_id"], "pane_id")
         object_fields(member["input_box"], {"agent", "start", "end"}, {"agent", "start", "end"})
         for value in member["input_box"].values():
@@ -838,6 +853,8 @@ def init(params):
         tid = supplied["id"]
         if not isinstance(tid, str) or not re.fullmatch(r"[0-9]+", tid) or tid in tasks:
             invalid("task ids must be unique plain numbers")
+        if len(tid) > MAX_TASK_ID:
+            invalid(f"task ids must be at most {MAX_TASK_ID} digits, the longest a QUIET event's attempt carries")
         if not isinstance(supplied["owner"], str) or supplied["owner"] not in members:
             invalid("unknown task owner")
         for key in ("why", "outcome", "stop_rule"):
@@ -1308,7 +1325,11 @@ def enqueue(root, state, member, line, source):
         key += "\0" + done_revision(root, task)
     if key not in state["seen"]:
         state["seen"].append(key)
-        state["pending"].append({**ring, "member": member, "line": line, "source": source})
+        session = state["members"].get(member, {}).get("agent_session") if source == "pane" else None
+        # A pane ring keeps the session Herdr reported when the lead saw it: a later ring from another session
+        # supersedes an earlier QUIET of the same attempt in that pane.
+        seen = {"session": session, "seen_at": stamp()} if session else {}
+        state["pending"].append({**ring, "member": member, "line": line, "source": source, **seen})
 
 
 def send_task(client, root, state, task, options):
@@ -1606,7 +1627,8 @@ def act_ring(root, state, ring):
     task = state["tasks"].get(ring["task"])
     active = ring["attempt"] or ring["task"]
     common = {"moment": "M5" if ring["type"] == "DONE" else "M4",
-              "task": active, "member": ring["member"], "doorbell": ring["line"]}
+              "task": active, "member": ring["member"], "doorbell": ring["line"],
+              **{k: ring[k] for k in ("session", "seen_at") if k in ring}}
     if (not task or task["owner"] != ring["member"] or task["active"] != active or
             task["status"] in {"queued", "accepted", "refused", "stopped", "review-refused"}):
         return {**common, "action": "reject-doorbell",
