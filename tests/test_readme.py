@@ -120,5 +120,15 @@ class Readme(Sandbox):
         self.assertIn("brew uninstall herdr", text(INSTALL))
 
 
+class RunScript(unittest.TestCase):
+    """Any argument to tests/run.sh skips the shipped suites; the person running it is told, and so is a contributor."""
+
+    def test_an_argument_says_the_shipped_suites_did_not_run(self):
+        result = subprocess.run(["/bin/bash", str(REPO / "tests" / "run.sh"), "-k", "no_test_is_named_this"],
+                                capture_output=True, text=True, timeout=600)
+        self.assertIn("the shipped suites did not run", result.stderr)
+        self.assertRegex(text(REPO / "CONTRIBUTING.md"), r"Any argument[^.]*skips the shipped suites")
+
+
 if __name__ == "__main__":
     unittest.main()
