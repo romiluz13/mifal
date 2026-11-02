@@ -42,6 +42,9 @@ class ResumeTest(unittest.TestCase):
     git = test_lead.LeadTest.git
     git_project = test_lead.LeadTest.git_project
     wake = test_wake.WakeTest.wake
+    quiet = test_lead.LeadTest.quiet
+    quiet_log = test_lead.LeadTest.quiet_log
+    lead_state = test_lead.LeadTest.lead_state
 
     def resume(self, resume_id="return-1", expected=0, **params):
         result = subprocess.run(
@@ -70,6 +73,22 @@ class ResumeTest(unittest.TestCase):
         if step:
             step()
         return json.loads((self.root / "lead-state.json").read_text())["tasks"]["7"]["status"]
+
+    def test_a_quiet_line_is_never_delivery_evidence_and_resuming_consumes_no_quiet_event(self):
+        self.init()
+        event = self.quiet()
+        self.ring(f"QUIET 7 {event.resolve()}")
+        resumed = self.resume()
+        self.assertEqual(resumed["plan"][0]["classification"], "never-sent", "a QUIET line is not a delivery")
+        self.assertEqual(resumed["outcome"]["action"], "dispatch")
+        self.assertEqual(len(self.sent_states), 1)
+        self.assertEqual(self.quiet_log(), [], "resume consumes nothing")
+        attended = self.turn()
+        self.assertEqual((attended["action"], attended["event"]), ("attend-quiet", "quiet/" + event.name))
+        self.assertEqual(self.lead_state()["pending"], [], "the lead's look never queues a QUIET line as a ring")
+        self.resume("again")
+        self.assertEqual(len(self.quiet_log()), 1, "resuming writes no second log line")
+        self.assertEqual(len(self.sent_states), 1)
 
     def test_resume_never_accepts_a_review_refused_task(self):
         path, good = self.refused_then_restored()

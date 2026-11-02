@@ -37,7 +37,7 @@ The record of what a member can use (skills, MCPs, harness features), built from
 _Avoid_: Skill registry, capability matrix
 
 **Doorbell**:
-A member's signal that attention is needed. Four types: `DONE`, `HELP`, `HELD`, `STOPPED`.
+A signal that attention is needed. Five types: `DONE`, `HELP`, `HELD`, `STOPPED`, `QUIET`. A member rings the first four; `QUIET` names an event file the team Stop hook wrote.
 _Avoid_: Notification (which is the transport mechanism, not the signal)
 
 **HELP**:
@@ -47,6 +47,10 @@ _Avoid_: Caller ping, escalation
 **HELD**:
 A doorbell type: blocked on an approval that belongs to the human.
 _Avoid_: Permission request
+
+**QUIET**:
+A doorbell type for attention only: an admitted worker's turn ended without a report. The team Stop hook writes it as an immutable event file, and the lead attends to it last. It never closes or fails a task, grants a retry or lifts a hold.
+_Avoid_: Idle alarm, timeout (it says no report was made, not that the worker stopped working or exited)
 
 **Recruitment**:
 The flow where the lead identifies a capability gap, searches the skill pool, and proposes a new member (role, skill fit, model) for the human to approve.
