@@ -4,15 +4,18 @@ The change set is every path that differs from BASE...HEAD, in the index, in the
 both sides of a rename and every deletion. Selection is sound or wide. test_readme and test_content always run;
 a docs-only path adds nothing; any file under tests/ runs all of tests/, because test modules import each other;
 shipped code runs all of tests/ and all four shipped suites, which read each other's code and the Pool; any
-other path runs everything. A deleted file under tests/, a docs path that is a symlink or that a symlink Git records
-reaches, and a repository with submodules, whose insides Git can't fully show, also run everything.
+other path runs everything. A deleted file under tests/, a changed path that is a symlink, and a repository that
+records any symlink or submodule also run everything: a symlink lets a reader reach a file by another path, and
+Git can't fully show a change inside a submodule.
 
     python3 tests/changed_tests.py REPO COMMIT    prints the plan for tests/run.sh, one line per suite
+    python3 tests/changed_tests.py --suite RECORD ARGS...    runs python -m unittest ARGS, then writes to RECORD
+        how many tests ran; an exit before unittest returns, even with status 0, leaves no RECORD
 """
 import os
-import posixpath
 import subprocess
 import sys
+import unittest
 from collections import namedtuple
 from pathlib import Path
 
@@ -28,11 +31,10 @@ Group = namedtuple("Group", "name tests shipped runs")
 DOCS_ONLY = Group("docs only", ALWAYS, (), "test_readme and test_content")
 TESTS = Group("under tests/", ALL, (), "all of tests/, since test modules import each other")
 SHIPPED_CODE = Group("shipped code", ALL, SHIPPED, "all of tests/ and all four shipped suites, which read it")
-NOT_PLAIN = Group("docs reached through a symlink", ALL, SHIPPED, "everything, since a reader can name them by "
-                  "another path")
+SYMLINK = Group("symlinks", ALL, SHIPPED, "everything, since a reader can reach a file by another path")
 DELETED_TEST = Group("deleted under tests/", ALL, SHIPPED, "everything, since a deleted test can't be selected")
 UNKNOWN = Group("not mapped", ALL, SHIPPED, "everything")
-ORDER = (DOCS_ONLY, TESTS, SHIPPED_CODE, NOT_PLAIN, DELETED_TEST, UNKNOWN)
+ORDER = (DOCS_ONLY, TESTS, SHIPPED_CODE, SYMLINK, DELETED_TEST, UNKNOWN)
 
 
 def change_set(repo, base):
@@ -60,43 +62,11 @@ def recorded(repo, base):
     return entries
 
 
-def symlinks(repo, entries):
-    """{link: {repository paths it resolves to}}, through chains; "" leaves the repository and reaches all."""
-    links = {}
-    for path, kinds in entries.items():
-        for mode, obj in kinds:
-            if mode == "120000":
-                target = subprocess.run(["git", "-C", str(repo), "cat-file", "blob", obj], capture_output=True,
-                                        check=True).stdout.decode("utf-8", "surrogateescape")
-                resolved = posixpath.normpath(posixpath.join(posixpath.dirname(path), target))
-                links.setdefault(path, set()).add("" if target.startswith("/") or resolved.startswith("..")
-                                                  else resolved)
-    for _ in range(40):
-        changed = False
-        for link, ends in links.items():
-            for end in list(ends):
-                for other, others in links.items():
-                    if other != link and (end == other or end.startswith(other + "/")):
-                        for o in others:
-                            new = posixpath.normpath(o + end[len(other):]) if o else ""
-                            if new not in ends:
-                                ends.add(new)
-                                changed = True
-        if not changed:
-            break
-    return links
-
-
-def reaching(repo, path, links):
-    """The symlinks through which a reader can reach path, path itself included when it is one."""
-    found = [path] if path in links or os.path.islink(os.path.join(str(repo), path)) else []
-    return found + sorted(link for link, ends in links.items() if link != path and any(
-        end == "" or path == end or path.startswith(end + "/") for end in ends))
-
-
-def group(path, repo, links):
+def group(path, repo):
+    if os.path.islink(os.path.join(str(repo), path)):
+        return SYMLINK
     if path in DOCS or path.startswith(DOCS_FOLDERS):
-        return NOT_PLAIN if reaching(repo, path, links) else DOCS_ONLY
+        return DOCS_ONLY
     if path.startswith("tests/") and path != "tests/run.sh":
         return TESTS if os.path.lexists(os.path.join(str(repo), path)) else DELETED_TEST
     if path.startswith(("skills/", "tools/")):
@@ -110,11 +80,9 @@ def shown(path):
 
 def select(paths, repo, base="HEAD"):
     """Choice(tests, shipped, reasons): tests is ALL or the tests/ modules to name, shipped the shipped suites."""
-    entries = recorded(repo, base)
-    links = symlinks(repo, entries)
     found = {}
     for path in paths:
-        found.setdefault(group(path, repo, links), []).append(path)
+        found.setdefault(group(path, repo), []).append(path)
     reasons = []
     for kind in ORDER:
         if kind in found:
@@ -123,21 +91,34 @@ def select(paths, repo, base="HEAD"):
             reasons.append(f"{len(names)} {kind.name} ({listed}): {kind.runs}")
     widest = ORDER[max((ORDER.index(kind) for kind in found), default=0)]
     tests, shipped = widest.tests, widest.shipped
-    for path in found.get(NOT_PLAIN, []):
-        reasons.append(f"{shown(path)} is reached through {', '.join(shown(p) for p in reaching(repo, path, links))}")
     missing = [m for m in ALWAYS if not (Path(repo) / "tests" / (m + ".py")).is_file()]
     if missing:
         tests, shipped = ALL, SHIPPED
         reasons.append(f"tests/{missing[0]}.py, which always runs, is missing: everything")
-    gitlinks = sorted(p for p, kinds in entries.items() if any(mode == "160000" for mode, _ in kinds))
-    if gitlinks or ".gitmodules" in entries or os.path.lexists(os.path.join(str(repo), ".gitmodules")):
+    entries = recorded(repo, base)
+    links = sorted(p for p, kinds in entries.items() if any(mode in ("120000", "160000") for mode, _ in kinds))
+    if ".gitmodules" in entries or os.path.lexists(os.path.join(str(repo), ".gitmodules")):
+        links.append(".gitmodules")
+    if links:
         tests, shipped = ALL, SHIPPED
-        reasons.append(f"the repository has submodules ({', '.join(map(shown, gitlinks)) or '.gitmodules'}), "
-                       "and Git can't fully show a change inside one: everything")
+        listed = ", ".join(shown(p) for p in links[:3]) + (f" and {len(links) - 3} more" if len(links) > 3 else "")
+        reasons.append(f"the repository records a symlink or submodule ({listed}), so a file can be reached by "
+                       "another path or changed where Git can't show it: everything")
     return Choice(tests, shipped, reasons)
 
 
+def run_suite(record, args):
+    """python -m unittest ARGS, and only once it has returned, the count of tests it ran written to record."""
+    sys.path[0] = os.getcwd()
+    result = unittest.main(module=None, argv=["python -m unittest", *args], exit=False).result
+    with open(record, "w") as f:
+        f.write(str(result.testsRun))
+    return 0 if result.wasSuccessful() else 1
+
+
 def main(argv):
+    if argv[:1] == ["--suite"]:
+        return run_suite(argv[1], argv[2:])
     repo, base = argv
     paths = change_set(repo, base)
     choice = select(paths, repo, base)
@@ -151,4 +132,4 @@ def main(argv):
 
 
 if __name__ == "__main__":
-    main(sys.argv[1:])
+    sys.exit(main(sys.argv[1:]))

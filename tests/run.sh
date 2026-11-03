@@ -46,29 +46,42 @@ if [ -n "$changed" ]; then
     modules="$(printf '%s\n' "$plan" | sed -n 's/^tests //p')"
     roots="$(printf '%s\n' "$plan" | sed -n 's/^shipped //p')"
     [ -n "$modules" ] || { echo "tests/run.sh --changed: no plan from tests/changed_tests.py" >&2; exit 2; }
-    log="$(mktemp)"
-    trap 'rm -rf "${home:?}" "${log:?}"' EXIT
-    in_tests() { (cd "$here" && MIFAL_TEST_PYTHON="$1" "$1" -B -m unittest "${@:2}"); }
-    # Python before 3.12 calls a run of no tests OK, so the count decides, under every interpreter.
-    counted() {
-        local what="$1" rc
+    records="$(mktemp -d)"
+    trap 'rm -rf "${home:?}" "${records:?}"' EXIT
+    # A suite passes only if it exits 0 and its own completion record, written once unittest returns, counts a test.
+    suite=0
+    completed() {
+        local what="$1" rc=0 record
         shift
-        { "$@" 2>&1 1>&3 | tee "$log" >&2; rc=${PIPESTATUS[0]}; } 3>&1
-        if grep -E '^Ran [0-9]+ tests? in ' "$log" | tail -n 1 | grep -q '^Ran 0 '; then
+        suite=$((suite + 1))
+        record="$records/$suite"
+        "$@" "$record" || rc=$?
+        if [ ! -f "$record" ]; then
+            echo "tests/run.sh --changed: $what did not finish, so it isn't a pass" >&2
+            return 1
+        elif [ "$(cat "$record")" = 0 ]; then
             echo "tests/run.sh --changed: $what ran no tests, which is never a pass" >&2
             return 1
         fi
         return "$rc"
     }
+    in_tests() {
+        (cd "$here" && MIFAL_TEST_PYTHON="$1" "$1" -B "$here/changed_tests.py" --suite "${@: -1}" "${@:2:$#-2}")
+    }
+    in_shipped() {
+        echo "-- $2"
+        (cd "$repo" && env -i HOME="$home" PATH=/usr/bin:/bin TERM=dumb LANG=en_US.UTF-8 \
+            "$1" -B "$here/changed_tests.py" --suite "$3" discover -s "$2" -p 'test_*.py')
+    }
     for py in /usr/bin/python3 "$(command -v python3)"; do
         echo "== $("$py" --version 2>&1) ($py), $(/bin/bash --version | head -1)"
         if [ "$modules" = all ]; then
-            counted tests/ in_tests "$py" discover -s . -p 'test_*.py' || status=1
+            completed tests/ in_tests "$py" discover -s . -p 'test_*.py' || status=1
         else
-            counted tests/ in_tests "$py" $modules || status=1
+            completed tests/ in_tests "$py" $modules || status=1
         fi
         for dir in $roots; do
-            counted "$dir" shipped "$py" "$dir" || status=1
+            completed "$dir" in_shipped "$py" "$dir" || status=1
         done
     done
     echo "tests/run.sh --changed: a selection for one change, not release evidence;" \

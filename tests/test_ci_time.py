@@ -78,12 +78,13 @@ class Report(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("of its 30-minute limit", result.stdout)
 
-    def test_a_job_without_a_limit_fails(self):
-        for job in ("untimed", "missing", "zero"):
-            with self.subTest(job=job):
-                result = self.report(job, 0, 60)
-                self.assertEqual(result.returncode, 1)
-                self.assertIn(f"no timeout-minutes for job {job}", result.stderr)
+    def test_a_missing_limit_or_workflow_warns_and_does_not_fail_the_job(self):
+        for job, workflow in (("untimed", None), ("missing", None), ("zero", None),
+                              ("first", self.workflow.parent / "absent.yml"), ("first", self.workflow.parent)):
+            with self.subTest(job=job, workflow=workflow):
+                result = self.report(job, 0, 60, workflow)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertRegex(result.stdout, rf"(?m)^::warning title=Job time::{job}: no report, since ")
                 self.assertNotIn("Traceback", result.stderr)
 
 

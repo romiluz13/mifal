@@ -216,12 +216,12 @@ class DocsConsumers(unittest.TestCase):
                                 *changed_tests.DOCS_FOLDERS], capture_output=True, check=True).stdout.decode()
         return [p for p in files.split("\0") if p]
 
-    def test_no_symlink_reaches_a_docs_only_file(self):
-        docs = self.docs()
-        links = changed_tests.symlinks(REPO, changed_tests.recorded(REPO, "HEAD"))
-        self.assertEqual([p for p in docs if changed_tests.reaching(REPO, p, links)], [],
-                         "a docs-only file is a symlink or a symlink reaches it, so a reader can name it by another "
-                         "path: make it a plain file")
+    def test_the_repository_records_no_symlink_or_submodule(self):
+        recorded = changed_tests.recorded(REPO, "HEAD")
+        self.assertEqual(sorted(p for p, kinds in recorded.items() if any(m in ("120000", "160000") for m, _ in kinds)
+                                or p == ".gitmodules"), [],
+                         "a recorded symlink or submodule makes every tests/run.sh --changed run wide, since a reader "
+                         "can reach a docs file by another path: keep the tree plain, or accept wide runs")
 
     def test_no_other_code_reads_a_docs_only_file(self):
         docs = self.docs()
@@ -255,34 +255,46 @@ class NotPlain(Disposable):
     def assertEverything(self, choice):
         self.assertEqual((choice.tests, choice.shipped), (changed_tests.ALL, SHIPPED), choice.reasons)
 
-    def test_a_docs_file_a_symlink_reaches_is_not_docs_only(self):
-        self.write("docs/adr/TRUST.md", "permission rules in settings.json are not read\n")
-        os.symlink("adr/TRUST.md", self.repo / "docs" / "TRUST.md")
-        base = self.commit("move TRUST.md under adr/, keeping its old path as a symlink")
-        self.write("docs/adr/TRUST.md", "permission policy is inspected\n")
-        choice = self.choose(base)
-        self.assertEverything(choice)
-        self.assertIn("docs/TRUST.md", "\n".join(choice.reasons))
-
-    def test_a_docs_file_inside_a_symlinked_folder_is_not_docs_only(self):
-        os.symlink("../docs/adr", self.repo / "lib" / "decisions")
-        base = self.commit()
-        self.write("docs/adr/a.md", "edited\n")
-        self.assertEverything(self.choose(base))
-
-    def test_a_docs_path_that_is_itself_a_symlink_is_not_docs_only(self):
-        os.symlink("../lib/code.py", self.repo / "docs" / "adr" / "link.md")
-        base = self.commit()
-        (self.repo / "docs" / "adr" / "link.md").unlink()
-        os.symlink("../lib/other.py", self.repo / "docs" / "adr" / "link.md")
-        self.assertEverything(self.choose(base))
-
-    def test_an_unrelated_symlink_leaves_a_docs_change_narrow(self):
-        os.symlink("code.py", self.repo / "lib" / "alias.py")
-        base = self.commit()
-        self.write("docs/adr/a.md", "edited\n")
-        choice = self.choose(base)
+    def assertNarrow(self, choice):
         self.assertEqual((choice.tests, choice.shipped), (ALWAYS, ()), choice.reasons)
+
+    def linked(self, *links):
+        for link, target in links:
+            (self.repo / link).parent.mkdir(parents=True, exist_ok=True)
+            os.symlink(target, self.repo / link)
+        base = self.commit()
+        self.write("docs/adr/a.md", "edited\n")
+        return self.choose(base)
+
+    def test_a_plain_repository_stays_narrow(self):
+        self.assertNarrow(self.linked())
+
+    def test_any_recorded_symlink_runs_everything(self):
+        cases = {"root-dot": [("alias", ".")], "root-parent": [("lib/alias", "..")],
+                 "chain-root": [("alias", "second"), ("second", ".")], "unrelated": [("lib/alias.py", "code.py")],
+                 "review 202's TRUST.md": [("docs/TRUST.md", "adr/a.md")]}
+        for case, links in cases.items():
+            with self.subTest(case=case):
+                choice = self.linked(*links)
+                self.assertEverything(choice)
+                self.assertIn("symlink", "\n".join(choice.reasons))
+                self.git("rm", "-rq", "--cached", *(link for link, _ in links))
+                for link, _ in links:
+                    (self.repo / link).unlink()
+                self.commit()
+
+    def test_a_symlink_only_at_base_runs_everything(self):
+        os.symlink(".", self.repo / "alias")
+        base = self.commit()
+        (self.repo / "alias").unlink()
+        self.commit()
+        self.write("docs/adr/a.md", "edited\n")
+        self.assertEverything(self.choose(base))
+
+    def test_a_changed_path_that_is_a_symlink_on_disk_runs_everything(self):
+        base = self.commit()
+        os.symlink("a.md", self.repo / "docs" / "adr" / "new.md")
+        self.assertEverything(self.choose(base))
 
     def test_a_change_inside_a_submodule_git_is_told_to_ignore_runs_everything(self):
         sub = self.root / "sub"
@@ -340,10 +352,11 @@ class RunChanged(Disposable):
     def fake_test(self, rel, ok=True):
         self.write(rel, self.TEST.format(log=str(self.log), name=rel, ok=ok))
 
-    def run_sh(self, *args, script=None):
+    def run_sh(self, *args, script=None, merged=False):
         env = {"PATH": f"{self.bin}:/usr/bin:/bin", "HOME": str(self.root), "LANG": "en_US.UTF-8", **GIT_ENV}
         return subprocess.run(["/bin/bash", str(script or self.repo / "tests" / "run.sh"), *args],
-                              capture_output=True, text=True, env=env, timeout=300)
+                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT if merged else subprocess.PIPE,
+                              text=True, env=env, timeout=300)
 
     def ran(self):
         return sorted(self.log.read_text().splitlines()) if self.log.exists() else []
@@ -432,6 +445,52 @@ class RunChanged(Disposable):
         result = self.run_sh("--changed", "HEAD")
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertEqual(result.stderr.count("tests/run.sh --changed: tools ran no tests, which is never a pass"), 2)
+
+    def test_a_suite_passes_only_on_its_own_completion_record(self):
+        cases = {"early-zero": ("tests/test_readme.py", "import os\nos._exit(0)\n", "tests/"),
+                 "import-exit-zero": ("tests/test_readme.py", "raise SystemExit(0)\n", "tests/"),
+                 "nested-positive-no-outer": ("tests/test_readme.py", "import unittest, os\nunittest.TextTestRunner()"
+                                              ".run(unittest.FunctionTestCase(lambda: None))\nos._exit(0)\n", "tests/"),
+                 "shipped-early-zero": ("tools/test_tools.py", "import os\nos._exit(0)\n", "tools")}
+        for case, (rel, body, suite) in cases.items():
+            with self.subTest(case=case):
+                self.write(rel, body)
+                base = self.commit(case)
+                self.write("CHANGELOG.md" if suite == "tests/" else "lib/code.py", case + "\n")
+                result = self.run_sh("--changed", base)
+                self.fake_test(rel)
+                self.commit()
+                self.assertEqual(result.returncode, 1, result.stderr)
+                self.assertEqual(result.stderr.count(f"tests/run.sh --changed: {suite} did not finish, so it isn't "
+                                                     "a pass"), 2, result.stderr)
+
+    def test_output_keeps_the_order_of_a_run_without_changed(self):
+        self.write("tests/test_other.py", "import sys\nimport unittest\n\n\nclass T(unittest.TestCase):\n"
+                   "    def test_it(self):\n        sys.stderr.write('ERR-before\\n')\n        sys.stderr.flush()\n"
+                   "        sys.stdout.write('OUT-after\\n')\n        sys.stdout.flush()\n")
+        orders = []
+        for args in (["--changed", self.base], ["-q"]):
+            out = self.run_sh(*args, merged=True).stdout
+            orders.append(re.findall("ERR-before|OUT-after", out))
+        self.assertEqual(orders[0], ["ERR-before", "OUT-after"] * 2)
+        self.assertEqual(orders[0], orders[1])
+
+    def test_the_suite_entry_names_discovers_and_fails_as_python_m_unittest_does(self):
+        self.fake_test("tests/test_other.py", ok=False)
+        record = self.root / "record"
+        tests = self.repo / "tests"
+        same = lambda text: re.sub(r"Ran (\d+) tests? in [0-9.]+s", r"Ran \1", text)
+        for args in (["discover", "-v", "-s", ".", "-p", "test_*.py"], ["-v", "test_readme", "test_other"],
+                     ["-v", "-k", "test_it", "test_content"], ["-v", "test_other.T.test_it"]):
+            with self.subTest(args=args):
+                plain = subprocess.run([PYTHON, "-B", "-m", "unittest", *args], cwd=tests, capture_output=True,
+                                       text=True, timeout=60)
+                entry = subprocess.run([PYTHON, "-B", str(tests / "changed_tests.py"), "--suite", str(record), *args],
+                                       cwd=tests, capture_output=True, text=True, timeout=60)
+                self.assertEqual(same(entry.stderr), same(plain.stderr))
+                self.assertEqual((entry.stdout, entry.returncode), (plain.stdout, plain.returncode))
+                self.assertEqual(record.read_text(), re.search(r"Ran (\d+)", plain.stderr).group(1))
+                record.unlink()
 
     def test_without_changed_the_runner_behaves_as_before(self):
         result = self.run_sh()
