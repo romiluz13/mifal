@@ -10,7 +10,7 @@ repo="$(dirname "$here")"
 # Everything about --changed is checked here, before any interpreter starts.
 changed=
 for arg in "$@"; do
-    case "$arg" in --changed|--changed=*) changed=1 ;; esac
+    case "$arg" in --changed*) changed=1 ;; esac
 done
 if [ -n "$changed" ]; then
     if [ $# -ne 2 ] || [ "$1" != --changed ]; then

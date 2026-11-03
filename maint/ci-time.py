@@ -15,8 +15,8 @@ WARN_PERCENT = 75
 
 def limit_minutes(workflow, job):
     with open(workflow, encoding="utf-8") as f:
-        block = re.search(rf"(?ms)^  {re.escape(job)}:\n(.*?)(?=^  \S|\Z)", f.read())
-    found = block and re.search(r"(?m)^    timeout-minutes: (\d+)\s*$", block.group(1))
+        block = re.search(rf"(?ms)^  {re.escape(job)}:[ \t]*(?:#[^\n]*)?\n(.*?)(?=^  \S|\Z)", f.read())
+    found = block and re.search(r"(?m)^    timeout-minutes: ([1-9][0-9]*)[ \t]*(?:#.*)?$", block.group(1))
     return int(found.group(1)) if found else None
 
 

@@ -180,13 +180,11 @@ class Selection(unittest.TestCase):
             self.assertIn(path, said)
 
 
-
 class DocsConsumers(unittest.TestCase):
     """A docs-only path may narrow the run only while no code outside test_readme and test_content reads it."""
 
     READERS = {"tests/test_readme.py", "tests/test_content.py", "tests/helpers/readme_writes.py",
                "tests/changed_tests.py", "tests/test_changed.py"}
-    # Code that names a docs file without reading what it says.
     NAMES_ONLY = {("README.md", "tests/test_update.py"): "copies a disposable clone's README into a commit",
                   ("MAINTAINING.md", "maint/upstream.py"): "prints the file's name",
                   ("MAINTAINING.md", ".github/workflows/upstream.yml"): "prints the file's name",
@@ -216,7 +214,6 @@ class DocsConsumers(unittest.TestCase):
                     found.append(f"{path} names {doc}")
         self.assertEqual(found, [], "a docs-only file has a new reader: map it in tests/changed_tests.py, "
                                     "or show the reader ignores its content")
-
 
 
 class RunChanged(Disposable):
@@ -284,7 +281,7 @@ class RunChanged(Disposable):
 
     def test_conflicting_arguments_stop_before_any_interpreter_starts(self):
         for args in (["--changed"], ["--changed", "HEAD", "-q"], ["-q", "--changed", "HEAD"], ["--changed=HEAD"],
-                     ["--changed", "HEAD", "--changed", "HEAD"]):
+                     ["--changed", "HEAD", "--changed", "HEAD"], ["--changed HEAD"]):
             with self.subTest(args=args):
                 result, calls = self.interpreters_recorded(*args)
                 self.assertEqual(result.returncode, 2, result.stderr)
@@ -297,13 +294,14 @@ class RunChanged(Disposable):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.ran(), ["tests/test_content.py"] * 2 + ["tests/test_readme.py"] * 2)
         self.assertIn("not release evidence", result.stderr)
+        self.assertIn("--changed: 1 path changed since", result.stderr)
 
     def test_an_unmapped_change_runs_everything_under_both_pythons(self):
         self.write("lib/code.py", "edited\n")
         self.commit()
         result = self.run_sh("--changed", self.base)
         self.assertEqual(result.returncode, 0, result.stderr)
-        everything = [line for line in self.ran()]
+        everything = self.ran()
         self.assertEqual(len(everything), 2 * 7)
         self.assertEqual(len(set(everything)), 7)
 

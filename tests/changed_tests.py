@@ -21,11 +21,11 @@ DOCS = ("CHANGELOG.md", "CONTRIBUTING.md", "GLOSSARY.md", "MAINTAINING.md", "REA
         "docs/INSTALL.md")
 DOCS_FOLDERS = ("docs/adr/", "docs/assets/", "docs/team-lead/")
 Choice = namedtuple("Choice", "tests shipped reasons")
-# (name, tests, shipped, what runs), narrowest first.
-DOCS_ONLY = ("docs only", ALWAYS, (), "test_readme and test_content")
-TESTS = ("under tests/", ALL, (), "all of tests/, since test modules import each other")
-SHIPPED_CODE = ("shipped code", ALL, SHIPPED, "all of tests/ and all four shipped suites, which read it")
-UNKNOWN = ("not mapped", ALL, SHIPPED, "everything")
+Group = namedtuple("Group", "name tests shipped runs")
+DOCS_ONLY = Group("docs only", ALWAYS, (), "test_readme and test_content")
+TESTS = Group("under tests/", ALL, (), "all of tests/, since test modules import each other")
+SHIPPED_CODE = Group("shipped code", ALL, SHIPPED, "all of tests/ and all four shipped suites, which read it")
+UNKNOWN = Group("not mapped", ALL, SHIPPED, "everything")
 
 
 def change_set(repo, base):
@@ -63,9 +63,9 @@ def select(paths, repo):
         if kind in found:
             names = found[kind]
             listed = ", ".join(shown(p) for p in names[:3]) + (f" and {len(names) - 3} more" if len(names) > 3 else "")
-            reasons.append(f"{len(names)} {kind[0]} ({listed}): {kind[3]}")
-    widest = max((order.index(kind) for kind in found), default=0)
-    _, tests, shipped, _ = order[widest]
+            reasons.append(f"{len(names)} {kind.name} ({listed}): {kind.runs}")
+    widest = order[max((order.index(kind) for kind in found), default=0)]
+    tests, shipped = widest.tests, widest.shipped
     missing = [m for m in ALWAYS if not (Path(repo) / "tests" / (m + ".py")).is_file()]
     if tests != ALL and missing:
         tests, shipped = ALL, SHIPPED
@@ -77,7 +77,7 @@ def main(argv):
     repo, base = argv
     paths = change_set(repo, base)
     choice = select(paths, repo)
-    print(f"tests/run.sh --changed: {len(paths)} paths changed since {base[:12]} "
+    print(f"tests/run.sh --changed: {len(paths)} path{'' if len(paths) == 1 else 's'} changed since {base[:12]} "
           "(committed, staged, unstaged and untracked)", file=sys.stderr)
     for line in choice.reasons:
         print("  " + line, file=sys.stderr)

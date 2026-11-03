@@ -20,6 +20,10 @@ jobs:
     steps: []
   untimed:
     steps: []
+  commented:  # a job line with a comment
+    timeout-minutes: 30  # half an hour
+  zero:
+    timeout-minutes: 0
 """
 
 
@@ -68,8 +72,13 @@ class Report(unittest.TestCase):
                 self.assertRegex(result.stdout, r"(?m)^::warning title=Job time::first: no elapsed time")
                 self.assertNotIn("Traceback", result.stderr)
 
+    def test_yaml_comments_do_not_hide_a_limit(self):
+        result = self.report("commented", 0, 60)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("of its 30-minute limit", result.stdout)
+
     def test_a_job_without_a_limit_fails(self):
-        for job in ("untimed", "missing"):
+        for job in ("untimed", "missing", "zero"):
             with self.subTest(job=job):
                 result = self.report(job, 0, 60)
                 self.assertEqual(result.returncode, 1)
@@ -92,6 +101,26 @@ class Workflows(unittest.TestCase):
                     self.assertIn("if: always()", steps[-1])
                     self.assertIn(f'python3 maint/ci-time.py {workflow} "$GITHUB_JOB" "${{MIFAL_JOB_START:-}}" '
                                   '"$(date +%s)"', steps[-1])
+
+    def test_the_report_runs_from_the_workflow_s_own_commands_after_a_failed_step(self):
+        for workflow, jobs in TIMED.items():
+            for job in jobs:
+                with self.subTest(workflow=workflow, job=job):
+                    steps = job_block((REPO / workflow).read_text(), job).split("\n      - ")[1:]
+                    command = lambda step: re.search(r"(?m)^ *run: (.*)$", step).group(1)
+                    with tempfile.TemporaryDirectory() as tmp:
+                        env_file = Path(tmp) / "env"
+                        env = {"PATH": "/usr/bin:/bin", "GITHUB_ENV": str(env_file), "GITHUB_JOB": job}
+                        subprocess.run(["/bin/bash", "-eo", "pipefail", "-c", command(steps[0])], env=env,
+                                       cwd=REPO, check=True)
+                        failed = subprocess.run(["/bin/bash", "-c", "exit 1"], env=env)
+                        self.assertEqual(failed.returncode, 1)
+                        env.update(line.split("=", 1) for line in env_file.read_text().splitlines())
+                        env["PATH"] = f"{Path(PYTHON).parent}:/usr/bin:/bin"
+                        result = subprocess.run(["/bin/bash", "-eo", "pipefail", "-c", command(steps[-1])], env=env,
+                                                cwd=REPO, capture_output=True, text=True, timeout=60)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertRegex(result.stdout, rf"^{job} ran 0m \d+s of its \d+-minute limit \(0%\)\.$")
 
     def test_the_report_takes_each_limit_from_its_workflow(self):
         for workflow, jobs in TIMED.items():
