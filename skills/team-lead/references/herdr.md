@@ -101,9 +101,11 @@ The check-to-send race with human typing or a changing UI remains: no atomic
 lock or compare-and-swap is claimed. Herdr's structured `agent_blocked` submit
 error rejects before input and leaves a retryable hold; retry the full checks
 after it is clear. Any other submission failure is `send_uncertain`: do not
-retry until the pane and durable Return have been reconciled. An unreadable
-supported frame names its cause and says retrying will not clear it: the Return
-file stays authoritative and the lead's deadline check will find it.
+retry until the pane and durable Return have been reconciled. A Codex pane
+whose status line is off or holds one item refuses, and says so: its footer
+can't be told from a draft without a captured form. Claude's box is the last
+two column-0 rules in the frame: a footer drawing rules of its own could move
+it, though no captured footer does.
 
 - Launch a fresh worker plainly: Mifal's Guide makes Matt the owner in every
   harness. Preserve the requested account, provider, model and effort. Use
@@ -170,18 +172,15 @@ The return happens in three parts:
    ~/.agents/mifal/tools/herdr_adapter/guard_send.py <lead> "DONE <id> <path>"`. Use
    `HELP <id> <specific question>` for guidance, `HELD <id> <approval needed>`
    for a human approval, or `STOPPED <id> <reason>` after a stop. These follow
-   the [doorbell contract](contracts/doorbell.md). If the wait times out, the
-   prompt is refused with `agent_blocked` (you are at a question or approval
-   dialog), or your composer holds a draft, the worker leaves
-   your input alone and tries the whole step again every 2 minutes for up to
-   30 minutes. The worker runs the wait and every retry in the foreground,
+   the [doorbell contract](contracts/doorbell.md). If the wait times out, or
+   the guard refuses for any reason but `unsupported_profile` or
+   `send_uncertain` (you are at a dialog, you scrolled up, your composer holds
+   a draft or can't be read), the worker leaves your input alone and tries the
+   whole step again every 2 minutes for up to 30 minutes. The worker runs the wait and every retry in the foreground,
    never as a background task: a background task that finishes may start no
    new turn, and the ring then comes late or not at all. It never sends to a
-   busy lead, for any kind of lead. After 30 minutes it stops trying; the file
-   is enough. If a supported frame is unreadable or truncated, retry this whole
-   step once, then stop ringing. Retrying will not clear the frame; leave its
-   cause in the Return, which stays authoritative, and the lead's deadline
-   check will find it. This refusal never offers a manual send path.
+   busy lead, for any kind of lead. After 30 minutes it stops trying, and notes
+   the last refusal in its Return; the file is enough.
 
 Put these steps and your pane's name in every brief that expects a return.
 Tell workers to deliver one ring: a refused or skipped attempt is retried,

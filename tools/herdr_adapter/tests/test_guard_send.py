@@ -108,13 +108,28 @@ print(json.dumps({'id': 'fixture', 'result': result}))
                 self.assertEqual(len([c for c in self.calls() if c[:2] == ['agent', 'prompt']]), 1)
                 (self.directory / 'calls.ndjson').unlink()
 
-    def test_unreadable_supported_frame_explains_durable_recovery(self):
+    def test_a_codex_footer_it_cannot_read_names_the_status_line(self):
+        for footer in ['  ? for shortcuts\n', '  model\n  ? for shortcuts\n']:
+            self.frame = '› Ask Codex to do anything\n\n' + footer
+            result = self.send()
+            self.assert_refusal(result, 'unreadable')
+            self.assertIn('status line', json.loads(result.stdout)['error']['message'])
+
+    def test_no_refusal_says_retrying_cannot_help(self):
         self.frame = 'Transcript without a composer'
         result = self.send()
         self.assert_refusal(result, 'unreadable')
-        message = json.loads(result.stdout)['error']['message']
-        for text in ['missing', 'retrying will not clear', 'Return file stays authoritative', "lead's deadline check will find it"]:
-            self.assertIn(text, message)
+        self.assertNotIn('retrying', result.stdout)
+        self.pane['scroll']['offset_from_bottom'] = 12
+        result = self.send()
+        self.assert_refusal(result, 'unreadable')
+        self.assertNotIn('retrying', result.stdout)
+
+    def test_a_failed_get_says_which_command_failed(self):
+        self.cli_failure = 'get'
+        result = self.send()
+        self.assert_refusal(result, 'cli_failure')
+        self.assertIn('Herdr agent get failed', result.stdout)
 
     def test_pre_input_blocked_submit_can_retry_after_clear(self):
         self.frame = (FRAMES / 'codex-empty-composer.txt').read_text()

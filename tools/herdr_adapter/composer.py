@@ -48,7 +48,8 @@ def codex_composer(text):
         lines.pop()
     if (len(lines) < 3 or not re.fullmatch(r'  .+ · .+', lines[-2])
             or not re.fullmatch(r'  \? for shortcuts(?: +.*)?', lines[-1])):
-        raise Refusal('unreadable', 'composer footer is missing or ambiguous; leave the pane held')
+        raise Refusal('unreadable', 'Codex footer is not the captured two-row form, which a status line '
+                      'that is off or holds one item also causes; leave the pane held')
     index = len(lines) - 3
     while index >= 0 and not lines[index].strip():
         index -= 1

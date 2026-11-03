@@ -28,7 +28,7 @@ def cli(*args):
                             or not isinstance(response.get('result'), dict)):
             raise ValueError('no result')
     except (ValueError, TypeError, AttributeError, Refusal) as error:
-        raise Refusal('cli_failure', 'Herdr returned an unreadable response; leave the pane held') from error
+        raise Refusal('cli_failure', 'Herdr ' + ' '.join(args[:2]) + ' failed; leave the pane held') from error
     if blocked:
         raise Refusal('agent_blocked', 'Herdr rejected submission before input; '
                       'leave the pane held and retry the full check after it is clear')
@@ -108,9 +108,6 @@ def main():
         return 0
     except (Refusal, KeyError, TypeError, ValueError) as error:
         detail = {'code': getattr(error, 'code', 'unreadable'), 'message': str(error)}
-        if detail['code'] in {'unreadable', 'truncated'}:
-            detail['message'] += ("; retrying will not clear this frame; the Return file stays authoritative "
-                                  "and the lead's deadline check will find it")
         if detail['code'] == 'unsupported_profile':
             detail['manual_path'] = ('Manual path: follow ~/.agents/skills/team-lead/references/herdr.md; '
                                      'a lead, agent or human may use herdr agent prompt only after '

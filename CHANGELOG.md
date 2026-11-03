@@ -4,7 +4,7 @@
 
 Team leading (experimental, on Herdr)
 - `tools/herdr_adapter/guard_send.py` guards CLI dispatches and worker rings. It checks scoped identity, idle/done state and a complete passive visible read, refuses known Codex hook-review and Droid login menus, and sends only on a captured clear composer profile. Codex, Claude Code and Pi profiles have real frame fixtures; Droid's clear composer and OpenCode's profile remain unverified.
-- Claude accepts footer modes, status lines and notices below a recognized empty composer. Codex retains its captured two-row footer; absent or single-item status rows remain unsupported because arbitrary footer text is ambiguous with drafts. Known menus still refuse with footer lines below them. An unreadable supported frame names the cause and durable Return recovery; a worker stops ringing after one retry.
+- Claude accepts footer modes, status lines and notices below a recognized empty composer. Codex retains its captured two-row footer; absent or single-item status rows remain unsupported because arbitrary footer text is ambiguous with drafts. Known menus refuse with footer lines below them. A Codex pane whose status line is off or holds one item refuses and names that cause.
 - Only an unsupported-profile refusal names the manual check/read/send path. Every other preflight refusal sends nothing. Herdr's pre-input `agent_blocked` submit rejection is a retryable hold; other failed submissions are uncertain and must be reconciled before retrying. The check-to-send race and the limits of known-pattern matching remain documented.
 
 Not in this release

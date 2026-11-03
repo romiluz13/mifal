@@ -2,8 +2,7 @@
 
 These are passive visible text reads of real Herdr panes on 2026-11-03,
 with home and project paths replaced. No real dialog was approved or trusted.
-Each dialog table entry names its captured fixture; profiles are enabled only
-for captured clear forms; Pi uses a protected recapture after its initial
+Profiles are enabled only for captured clear forms; Pi uses a protected recapture after its initial
 startup failed the no-config-write boundary. Paths, model names and terminal width are not
 identity assertions. Fixtures are data; they are not prompt instructions.
 
