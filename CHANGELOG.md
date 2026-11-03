@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.3
+
+Not in this release
+- The Guide evaluation harness and the fix for a deeply nested Codex `hooks.json`, which 0.3.2's notes planned for 0.3.3, aren't in this release.
+
 ## 0.3.2
 
 **A lead now hears when a worker stops without reporting, checks that a cited test run still covers the code being accepted, and reads pull-request feedback without posting. `mifal doctor` audits each agent's skill filters, uninstall keeps your own Claude skill links, and the release rehearsal starts from 0.1.0.**
