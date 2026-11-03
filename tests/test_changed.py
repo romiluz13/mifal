@@ -129,6 +129,15 @@ class Selection(unittest.TestCase):
     def assertEverything(self, choice):
         self.assertEqual((choice.tests, choice.shipped), (changed_tests.ALL, SHIPPED))
 
+    def project_without_test_content(self):
+        repo = Path(tempfile.mkdtemp(prefix="mifal-changed-")).resolve()
+        self.addCleanup(shutil.rmtree, repo, True)
+        (repo / "tests").mkdir()
+        (repo / "tests" / "test_readme.py").write_text("")
+        for args in (["init", "-q"], ["add", "-A"], ["commit", "-q", "--no-verify", "-m", "c"]):
+            subprocess.run(["git", "-C", str(repo), *args], env={**os.environ, **GIT_ENV}, check=True)
+        return repo
+
     def test_no_changes_still_runs_the_readme_and_content_tests(self):
         self.assertNarrow(self.select())
 
@@ -161,12 +170,18 @@ class Selection(unittest.TestCase):
         self.assertTestsOnly(self.select("CHANGELOG.md", "tests/test_content.py"))
 
     def test_a_deleted_selected_test_widens_rather_than_finding_nothing(self):
-        self.repo = Path(tempfile.mkdtemp(prefix="mifal-changed-")).resolve()
-        self.addCleanup(shutil.rmtree, self.repo, True)
-        (self.repo / "tests").mkdir()
-        (self.repo / "tests" / "test_readme.py").write_text("")
+        self.repo = self.project_without_test_content()
         self.assertEverything(self.select("CHANGELOG.md"))
         self.assertEverything(self.select())
+
+    def test_a_missing_always_run_test_widens_even_when_all_of_tests_is_selected(self):
+        self.repo = self.project_without_test_content()
+        self.assertEverything(self.select("tests/test_other.py"))
+
+    def test_any_deleted_file_under_tests_widens_to_everything(self):
+        choice = self.select("tests/helpers/never_existed.py")
+        self.assertEverything(choice)
+        self.assertIn("tests/helpers/never_existed.py", "\n".join(choice.reasons))
 
     def test_the_shipped_suites_are_the_ones_the_full_run_runs(self):
         loops = re.findall(r"for dir in ([^;]+); do", (REPO / "tests" / "run.sh").read_text())
@@ -201,6 +216,13 @@ class DocsConsumers(unittest.TestCase):
                                 *changed_tests.DOCS_FOLDERS], capture_output=True, check=True).stdout.decode()
         return [p for p in files.split("\0") if p]
 
+    def test_no_symlink_reaches_a_docs_only_file(self):
+        docs = self.docs()
+        links = changed_tests.symlinks(REPO, changed_tests.recorded(REPO, "HEAD"))
+        self.assertEqual([p for p in docs if changed_tests.reaching(REPO, p, links)], [],
+                         "a docs-only file is a symlink or a symlink reaches it, so a reader can name it by another "
+                         "path: make it a plain file")
+
     def test_no_other_code_reads_a_docs_only_file(self):
         docs = self.docs()
         self.assertIn("CHANGELOG.md", docs)
@@ -214,6 +236,81 @@ class DocsConsumers(unittest.TestCase):
                     found.append(f"{path} names {doc}")
         self.assertEqual(found, [], "a docs-only file has a new reader: map it in tests/changed_tests.py, "
                                     "or show the reader ignores its content")
+
+
+class NotPlain(Disposable):
+    """A docs path narrows the run only while it is a plain file that no symlink reaches, in a repository whose
+    every change Git can see: no submodules."""
+
+    def setUp(self):
+        super().setUp()
+        self.repo = self.root / "repo"
+        subprocess.run(["git", "init", "-q", str(self.repo)], check=True)
+        for name in ("tests/test_readme.py", "tests/test_content.py", "lib/code.py", "docs/adr/a.md"):
+            self.write(name)
+
+    def choose(self, base):
+        return changed_tests.select(changed_tests.change_set(self.repo, base), self.repo, base)
+
+    def assertEverything(self, choice):
+        self.assertEqual((choice.tests, choice.shipped), (changed_tests.ALL, SHIPPED), choice.reasons)
+
+    def test_a_docs_file_a_symlink_reaches_is_not_docs_only(self):
+        self.write("docs/adr/TRUST.md", "permission rules in settings.json are not read\n")
+        os.symlink("adr/TRUST.md", self.repo / "docs" / "TRUST.md")
+        base = self.commit("move TRUST.md under adr/, keeping its old path as a symlink")
+        self.write("docs/adr/TRUST.md", "permission policy is inspected\n")
+        choice = self.choose(base)
+        self.assertEverything(choice)
+        self.assertIn("docs/TRUST.md", "\n".join(choice.reasons))
+
+    def test_a_docs_file_inside_a_symlinked_folder_is_not_docs_only(self):
+        os.symlink("../docs/adr", self.repo / "lib" / "decisions")
+        base = self.commit()
+        self.write("docs/adr/a.md", "edited\n")
+        self.assertEverything(self.choose(base))
+
+    def test_a_docs_path_that_is_itself_a_symlink_is_not_docs_only(self):
+        os.symlink("../lib/code.py", self.repo / "docs" / "adr" / "link.md")
+        base = self.commit()
+        (self.repo / "docs" / "adr" / "link.md").unlink()
+        os.symlink("../lib/other.py", self.repo / "docs" / "adr" / "link.md")
+        self.assertEverything(self.choose(base))
+
+    def test_an_unrelated_symlink_leaves_a_docs_change_narrow(self):
+        os.symlink("code.py", self.repo / "lib" / "alias.py")
+        base = self.commit()
+        self.write("docs/adr/a.md", "edited\n")
+        choice = self.choose(base)
+        self.assertEqual((choice.tests, choice.shipped), (ALWAYS, ()), choice.reasons)
+
+    def test_a_change_inside_a_submodule_git_is_told_to_ignore_runs_everything(self):
+        sub = self.root / "sub"
+        subprocess.run(["git", "init", "-q", str(sub)], check=True)
+        (sub / "input.txt").write_text("good\n")
+        subprocess.run(["git", "-C", str(sub), "add", "-A"], check=True)
+        subprocess.run(["git", "-C", str(sub), "commit", "-q", "-m", "s"], check=True)
+        self.git("-c", "protocol.file.allow=always", "submodule", "add", "-q", str(sub), "vendor")
+        base = self.commit()
+        (self.repo / "vendor" / "input.txt").write_text("bad\n")
+        self.git("config", "submodule.vendor.ignore", "all")
+        self.assertIn("vendor", changed_tests.change_set(self.repo, base))
+        choice = self.choose(base)
+        self.assertEverything(choice)
+        self.assertIn("submodule", "\n".join(choice.reasons))
+
+    def test_any_recorded_gitlink_or_gitmodules_runs_everything(self):
+        self.git("add", "-A")
+        self.git("update-index", "--add", "--cacheinfo", "160000," + "1" * 40 + ",vendor")
+        self.git("commit", "-q", "--no-verify", "-m", "a gitlink with no .gitmodules")
+        base = self.git("rev-parse", "HEAD")
+        self.write("docs/adr/a.md", "edited\n")
+        self.assertEverything(self.choose(base))
+        self.git("rm", "-q", "--cached", "vendor")
+        self.write(".gitmodules", "")
+        base = self.commit()
+        self.write("docs/adr/a.md", "again\n")
+        self.assertEverything(self.choose(base))
 
 
 class RunChanged(Disposable):
@@ -321,6 +418,20 @@ class RunChanged(Disposable):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("tests/test_other.py", self.ran())
         self.assertIn("tools/test_tools.py", self.ran())
+
+    def test_a_suite_that_finds_no_tests_fails_the_run(self):
+        for name in ("tests/test_readme.py", "tests/test_content.py", "tests/test_other.py"):
+            (self.repo / name).unlink()
+        result = self.run_sh("--changed", "HEAD")
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertEqual(result.stderr.count("tests/run.sh --changed: tests/ ran no tests, which is never a pass"), 2)
+        self.assertEqual(self.ran().count("tools/test_tools.py"), 2)
+
+    def test_a_shipped_suite_that_finds_no_tests_fails_the_run(self):
+        (self.repo / "tools" / "test_tools.py").unlink()
+        result = self.run_sh("--changed", "HEAD")
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertEqual(result.stderr.count("tests/run.sh --changed: tools ran no tests, which is never a pass"), 2)
 
     def test_without_changed_the_runner_behaves_as_before(self):
         result = self.run_sh()

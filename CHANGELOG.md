@@ -3,8 +3,8 @@
 ## 0.3.3
 
 For contributors
-- `tests/run.sh --changed BASE` picks the tests for your changes since the commit BASE: committed, staged, unstaged and untracked, both sides of a rename and every deletion. A docs-only change runs test_readme and test_content; a change under `tests/` runs all of `tests/`; shipped code, `tests/run.sh` itself and any path it doesn't know run everything, under both Pythons. A bad BASE, or any other argument beside it, stops the run before any Python starts. The run says why it chose its tests, and that it isn't release evidence.
-- The `mifal`, `shipped` and `release` CI jobs report their elapsed time against their `timeout-minutes` and warn from 75% of it. A job cancelled at its limit may print no report.
+- `tests/run.sh --changed BASE` picks the tests for your changes since the commit BASE: committed, staged, unstaged and untracked, both sides of a rename and every deletion. A docs-only change runs test_readme and test_content; a change under `tests/` runs all of `tests/`; shipped code, `tests/run.sh` itself and any path it doesn't know run everything, under both Pythons, and so do a deleted file under `tests/`, a docs file that is a symlink or that a symlink reaches, and a repository with submodules. A suite that finds no tests fails the run. A bad BASE, or any other argument beside it, stops the run before any Python starts. The run says why it chose its tests, and that it isn't release evidence.
+- The `mifal`, `shipped` and `release` CI jobs report their elapsed time against their `timeout-minutes` and warn from 75% of it. Timing can't fail a job. A job cancelled at its limit may print no report.
 - MAINTAINING's Releasing section says to raise VERSION in the first commit of a release's integration branch and open the draft pull request then, so the release checks run on every push.
 
 Not in this release

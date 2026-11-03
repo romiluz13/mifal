@@ -65,8 +65,9 @@ class Report(unittest.TestCase):
         self.assertIn("of its 40-minute limit", self.report("first", 0, 60).stdout)
 
     def test_bad_clock_input_warns_and_does_not_fail_the_job(self):
-        for start, end in (("", 100), ("abc", 100), (100, ""), (100, 99), ("-5", 100), ("1e3", 2000), ("\u00b2", 100)):
-            with self.subTest(start=start, end=end):
+        for start, end in (("", 100), ("abc", 100), (100, ""), (100, 99), ("-5", 100), ("1e3", 2000), ("\u00b2", 100),
+                           ("1" * 5000, "2" * 5000)):
+            with self.subTest(start=str(start)[:20], end=str(end)[:20]):
                 result = self.report("first", start, end)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertRegex(result.stdout, r"(?m)^::warning title=Job time::first: no elapsed time")
@@ -101,6 +102,14 @@ class Workflows(unittest.TestCase):
                     self.assertIn("if: always()", steps[-1])
                     self.assertIn(f'python3 maint/ci-time.py {workflow} "$GITHUB_JOB" "${{MIFAL_JOB_START:-}}" '
                                   '"$(date +%s)"', steps[-1])
+
+    def test_timing_can_never_fail_a_job(self):
+        for workflow, jobs in TIMED.items():
+            for job in jobs:
+                with self.subTest(workflow=workflow, job=job):
+                    steps = job_block((REPO / workflow).read_text(), job).split("\n      - ")[1:]
+                    for step in (steps[0], steps[-1]):
+                        self.assertRegex(step, r"(?m)^        continue-on-error: true$", step)
 
     def test_the_report_runs_from_the_workflow_s_own_commands_after_a_failed_step(self):
         for workflow, jobs in TIMED.items():

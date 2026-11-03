@@ -46,15 +46,29 @@ if [ -n "$changed" ]; then
     modules="$(printf '%s\n' "$plan" | sed -n 's/^tests //p')"
     roots="$(printf '%s\n' "$plan" | sed -n 's/^shipped //p')"
     [ -n "$modules" ] || { echo "tests/run.sh --changed: no plan from tests/changed_tests.py" >&2; exit 2; }
+    log="$(mktemp)"
+    trap 'rm -rf "${home:?}" "${log:?}"' EXIT
+    in_tests() { (cd "$here" && MIFAL_TEST_PYTHON="$1" "$1" -B -m unittest "${@:2}"); }
+    # Python before 3.12 calls a run of no tests OK, so the count decides, under every interpreter.
+    counted() {
+        local what="$1" rc
+        shift
+        { "$@" 2>&1 1>&3 | tee "$log" >&2; rc=${PIPESTATUS[0]}; } 3>&1
+        if grep -E '^Ran [0-9]+ tests? in ' "$log" | tail -n 1 | grep -q '^Ran 0 '; then
+            echo "tests/run.sh --changed: $what ran no tests, which is never a pass" >&2
+            return 1
+        fi
+        return "$rc"
+    }
     for py in /usr/bin/python3 "$(command -v python3)"; do
         echo "== $("$py" --version 2>&1) ($py), $(/bin/bash --version | head -1)"
         if [ "$modules" = all ]; then
-            (cd "$here" && MIFAL_TEST_PYTHON="$py" "$py" -B -m unittest discover -s . -p 'test_*.py') || status=1
+            counted tests/ in_tests "$py" discover -s . -p 'test_*.py' || status=1
         else
-            (cd "$here" && MIFAL_TEST_PYTHON="$py" "$py" -B -m unittest $modules) || status=1
+            counted tests/ in_tests "$py" $modules || status=1
         fi
         for dir in $roots; do
-            shipped "$py" "$dir" || status=1
+            counted "$dir" shipped "$py" "$dir" || status=1
         done
     done
     echo "tests/run.sh --changed: a selection for one change, not release evidence;" \

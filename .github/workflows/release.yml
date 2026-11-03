@@ -15,6 +15,7 @@ jobs:
     timeout-minutes: 120
     steps:
       - name: Note when the job started
+        continue-on-error: true
         run: echo "MIFAL_JOB_START=$(date +%s)" >> "$GITHUB_ENV"
       - uses: actions/checkout@v4
         with:
@@ -47,4 +48,5 @@ jobs:
           /bin/bash maint/rehearse-upgrade.sh "$GITHUB_WORKSPACE" "$previous"
       - name: Elapsed time against the job's timeout-minutes
         if: always()
+        continue-on-error: true
         run: python3 maint/ci-time.py .github/workflows/release.yml "$GITHUB_JOB" "${MIFAL_JOB_START:-}" "$(date +%s)"

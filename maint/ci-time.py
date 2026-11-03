@@ -5,7 +5,8 @@
 
 Each timed job stamps START in its first step and calls this from a last step that runs even after a failure.
 A job that reaches its limit is cancelled, and a cancelled job may never get here: no report is not proof the job
-had time to spare. Bad clock input is a warning, never a failed job; a job with no limit in WORKFLOW exits 1.
+had time to spare. Any unusable clock input, an oversized number included, is a warning, never a failed job; a job
+with no limit in WORKFLOW exits 1, and the workflow's continue-on-error keeps even that from failing the job.
 """
 import re
 import sys
@@ -26,7 +27,7 @@ def main(argv):
     if limit is None:
         print(f"ci-time: no timeout-minutes for job {job} in {workflow}", file=sys.stderr)
         return 1
-    if not (re.fullmatch("[0-9]+", start) and re.fullmatch("[0-9]+", end)) or int(end) < int(start):
+    if not (re.fullmatch("[0-9]{1,18}", start) and re.fullmatch("[0-9]{1,18}", end)) or int(end) < int(start):
         print(f"::warning title=Job time::{job}: no elapsed time, since the clock input was start {start!r}, "
               f"end {end!r}. Its limit is {limit} minutes.")
         return 0
