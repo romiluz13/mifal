@@ -73,8 +73,9 @@ def claude_composer(text):
         raise Refusal('unreadable', 'Claude composer borders are missing; leave the pane held')
     start, end = bars[-2:]
     footer = [line for line in lines[end + 1:] if line.strip()]
-    control = r'  (?:⏵⏵ bypass permissions on \(shift\+tab to cycle\)|\? for shortcuts(?: +.*)?)'
-    status = r'  (?:⬢ .+ │ ctx .+|└ .+|"name": "[^"\n]+"|})'
+    control = r'  (?:⏵⏵ bypass permissions on(?: \(shift\+tab to cycle\)| · \d+ shells?)|\? for shortcuts(?: +.*)?)'
+    status = (r'  (?:⬢ .+ │ ctx .+|└ .+|"name": "[^"\n]+"|})'
+              r'|   (?:◆ .+ │ .+|ctx .+ │ .+|\$[\d.]+ │ .+)')
     if (not footer or not re.fullmatch(control, footer[-1])
             or any(not re.fullmatch(status, line) for line in footer[:-1])):
         raise Refusal('unreadable', 'Claude composer footer is ambiguous; leave the pane held')
@@ -86,32 +87,9 @@ def claude_composer(text):
         raise Refusal('draft', 'composer holds a draft; preserve it and leave the pane held')
 
 
-def opencode_composer(text):
-    lines = [line.strip() for line in text.splitlines() if line.strip()]
-    models = [i for i, line in enumerate(lines) if re.fullmatch(r'┃  Build · .+', line)]
-    if not models:
-        raise Refusal('unreadable', 'OpenCode composer model row is missing; leave the pane held')
-    end = models[-1]
-    footer = lines[end + 1:]
-    if (len(footer) not in {3, 4} or not re.fullmatch(r'╹▀{5,}', footer[0])
-            or not re.fullmatch(r'tab agents +ctrl\+p commands', footer[1])
-            or (len(footer) == 4 and not re.fullmatch(r'● Tip .+', footer[2]))
-            or not re.fullmatch(r'(?:/|~).+ +\d+\.\d+\.\d+', footer[-1])):
-        raise Refusal('unreadable', 'OpenCode composer footer is ambiguous; leave the pane held')
-    start = end - 1
-    while start >= 0 and lines[start].startswith('┃'):
-        start -= 1
-    content = [line for line in lines[start + 1:end] if line != '┃']
-    if content and (len(content) != 1 or not re.fullmatch(r'┃  Ask anything… "[^"\n]+"', content[0])):
-        raise Refusal('draft', 'composer holds a draft; preserve it and leave the pane held')
-    if end - start < 3:
-        raise Refusal('unreadable', 'OpenCode composer borders are missing; leave the pane held')
-
-
 PROFILES = {
     'codex': ('codex-empty-composer.txt', codex_composer),
     'pi': ('pi-empty-composer.txt', pi_composer),
-    'opencode': ('opencode-empty-composer.txt', opencode_composer),
     'claude': ('claude-empty-composer-placeholder.txt', claude_composer),
 }
 

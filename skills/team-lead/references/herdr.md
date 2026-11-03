@@ -84,8 +84,10 @@ unreadable, truncated, identity-change and CLI-failure refusals stay held;
 none permits a raw-send bypass. Preserve drafts and leave a visible summary.
 An unseen dialog on an uncaptured agent remains exposed on the manual path.
 
-Profiles cover the captured Codex, Claude, Pi and OpenCode frames only; Droid's
-clear composer is unverified. The signature table currently covers Codex hook
+Profiles cover the captured Codex, Claude and Pi frames only. Droid's clear
+composer and OpenCode's profile are unverified. OpenCode startup installed
+dependencies in its disposable Home despite suppression flags, so its captured
+frame is retained as evidence but is not enabled as a profile. The signature table currently covers Codex hook
 review and Droid login menus. Changed layouts or unknown footers on a supported
 agent refuse. This is known-pattern detection, not general dialog recognition.
 Quoted dialog text above a real composer does not match a bottom dialog footer;

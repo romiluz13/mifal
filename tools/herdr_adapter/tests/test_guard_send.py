@@ -179,14 +179,27 @@ print(json.dumps({'id': 'fixture', 'result': result}))
         self.frame = self.frame.replace('❯\u00a0Try "fix typecheck errors"', '❯ unfinished draft')
         self.assert_refusal(self.send(), 'draft')
 
-    def test_captured_opencode_composer_sends_and_draft_refuses(self):
-        self.agent['agent'] = self.pane['agent'] = 'opencode'
-        self.frame = (FRAMES / 'opencode-empty-composer.txt').read_text()
+    def test_captured_claude_status_footer_sends_and_draft_refuses(self):
+        self.agent['agent'] = self.pane['agent'] = 'claude'
+        original = (FRAMES / 'claude-empty-composer-placeholder.txt').read_text()
+        bars = [i for i, line in enumerate(original.splitlines()) if line.startswith('─────')]
+        self.frame = '\n'.join(original.splitlines()[:bars[-1] + 1]) + '\n' + '   ◆ Opus 5.5 ◕ high ✦ │ project │ ⎇ branch ~1 ?5 · 11d ago\n   ctx █▉             13% 134k/1M │ 7d ██████  ┃  60% ⇣21 ↻1d 8h │ cache ♨ 95% 41m miss×1\n   $60.92 │ $2.1/h │ ⏱ 1d 4h │ +91 −0 │ “Disposable task” │ 11:34 │ v2.1.316\n  ⏵⏵ bypass permissions on · 1 shell\n'
         result = self.send()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         (self.directory / 'calls.ndjson').unlink()
-        self.frame = self.frame.replace('Ask anything… "Fix broken tests"', 'unfinished draft')
+        self.frame = self.frame.replace('❯\u00a0Try "fix typecheck errors"', '❯ preserved draft')
         self.assert_refusal(self.send(), 'draft')
+
+    def test_opencode_frame_is_unverified_and_offers_manual_path(self):
+        self.agent['agent'] = self.pane['agent'] = 'opencode'
+        self.frame = (FRAMES / 'opencode-empty-composer.txt').read_text()
+        result = self.send()
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn('unsupported_profile', result.stdout)
+        self.assertIn('Manual path:', result.stdout)
+        self.assertFalse(any(c[:2] == ['agent', 'prompt'] for c in self.calls()))
+        self.frame = (FRAMES / 'codex-hooks-need-review.txt').read_text()
+        self.assert_refusal(self.send(), 'known_dialog')
 
     def test_captured_droid_login_refuses_without_manual_path(self):
         self.agent['agent'] = self.pane['agent'] = 'droid'

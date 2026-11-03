@@ -3,7 +3,7 @@
 ## 0.3.3
 
 Team leading (experimental, on Herdr)
-- `tools/herdr_adapter/guard_send.py` guards CLI dispatches and worker rings. It checks scoped identity, idle/done state and a complete passive visible read, refuses known Codex hook-review and Droid login menus, and sends only on a captured clear composer profile. Codex, Claude Code, Pi and OpenCode profiles have real frame fixtures; Droid's clear composer remains unverified.
+- `tools/herdr_adapter/guard_send.py` guards CLI dispatches and worker rings. It checks scoped identity, idle/done state and a complete passive visible read, refuses known Codex hook-review and Droid login menus, and sends only on a captured clear composer profile. Codex, Claude Code and Pi profiles have real frame fixtures; Droid's clear composer and OpenCode's profile remain unverified.
 - Only an unsupported-profile refusal names the manual check/read/send path. Every other preflight refusal sends nothing; a failed submission is reported as uncertain and must be reconciled before retrying. The check-to-send race and the limits of known-pattern matching remain documented.
 
 Not in this release
