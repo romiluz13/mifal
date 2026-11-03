@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.3.3
+
+Team leading (experimental, on Herdr)
+- `tools/herdr_adapter/guard_send.py` guards CLI dispatches and worker rings. It checks scoped identity, idle/done state and a complete passive visible read, refuses known Codex hook-review and Droid login menus, and sends only on a captured clear composer profile. Codex, Claude Code and Pi profiles have real frame fixtures; Droid's clear composer and OpenCode's profile remain unverified.
+- Claude accepts footer modes, status lines and notices below a recognized empty composer. Codex retains its captured two-row footer; absent or single-item status rows remain unsupported because arbitrary footer text is ambiguous with drafts. Known menus refuse with footer lines below them. A Codex pane whose status line is off or holds one item refuses and names that cause.
+- Only an unsupported-profile refusal names the manual check/read/send path. Every other preflight refusal sends nothing. Herdr's pre-input `agent_blocked` submit rejection is a retryable hold; other failed submissions are uncertain and must be reconciled before retrying. The check-to-send race and the limits of known-pattern matching remain documented.
+
+For contributors
+- `tests/run.sh --changed BASE` picks the tests for your changes since the commit BASE: committed, staged, unstaged and untracked, both sides of a rename and every deletion. A docs-only change runs test_readme and test_content; a change under `tests/` runs all of `tests/`; shipped code, `tests/run.sh` itself and any path it doesn't know run everything, under both Pythons, and so do a deleted file under `tests/`, a changed symlink, and a repository that records any symlink or submodule. A suite counts as passed only when it finishes and has run at least one test; one whose tests all skip still counts. A bad BASE, or any other argument beside it, stops the run before any Python starts. The run says why it chose its tests, and that it isn't release evidence.
+- The `mifal`, `shipped` and `release` CI jobs report their elapsed time against their `timeout-minutes` and warn from 75% of it. Timing can't fail a job. A job cancelled at its limit may print no report.
+- MAINTAINING's Releasing section says to raise VERSION in the first commit of a release's integration branch and open the draft pull request then, so the release checks run on every push.
+
+Not in this release
+- The Guide evaluation harness and the fix for a deeply nested Codex `hooks.json`, which 0.3.2's notes planned for 0.3.3, aren't in this release.
+
 ## 0.3.2
 
 **A lead now hears when a worker stops without reporting, checks that a cited test run still covers the code being accepted, and reads pull-request feedback without posting. `mifal doctor` audits each agent's skill filters, uninstall keeps your own Claude skill links, and the release rehearsal starts from 0.1.0.**
