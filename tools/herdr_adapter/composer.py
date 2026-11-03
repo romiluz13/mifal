@@ -4,13 +4,13 @@ from adapter import Refusal
 
 
 DIALOGS = (
-    ('droid_login', 'droid-login.txt', (
+    ('droid_login', (
         r'Please login with your Factory account to continue\.',
         r'(?:> |  )Login',
         r'(?:> |  )Sign into a Factory Private deployment',
         r'(?:> |  )Exit',
     )),
-    ('codex_hooks', 'codex-hooks-need-review.txt', (
+    ('codex_hooks', (
         r'  Hooks need review',
         r'  \d+ hooks? (?:is|are) new or changed\.',
         r'  Hooks can run outside the sandbox after you trust them\.',
@@ -23,12 +23,23 @@ DIALOGS = (
 
 
 def refuse_dialog(text):
-    lines = [line.rstrip() for line in text.splitlines() if line.strip()]
-    for name, fixture, patterns in DIALOGS:
-        footer = lines[-len(patterns):]
-        if len(footer) == len(patterns) and all(
-                re.fullmatch(pattern, line) for pattern, line in zip(patterns, footer)):
-            raise Refusal('known_dialog', 'known dialog: ' + name + '; leave the pane held')
+    raw = text.splitlines()
+    positions = [i for i, line in enumerate(raw) if line.strip()]
+    lines = [raw[i].rstrip() for i in positions]
+    for name, patterns in DIALOGS:
+        for start in range(len(lines) - len(patterns) + 1):
+            if not all(re.fullmatch(pattern, line) for pattern, line in
+                       zip(patterns, lines[start:start + len(patterns)])):
+                continue
+            tail = '\n'.join(raw[positions[start + len(patterns) - 1] + 1:])
+            for profile in PROFILES.values():
+                try:
+                    profile(tail)
+                except Refusal:
+                    continue
+                break
+            else:
+                raise Refusal('known_dialog', 'known dialog: ' + name + '; leave the pane held')
 
 
 def codex_composer(text):
@@ -72,13 +83,6 @@ def claude_composer(text):
     if len(bars) < 2:
         raise Refusal('unreadable', 'Claude composer borders are missing; leave the pane held')
     start, end = bars[-2:]
-    footer = [line for line in lines[end + 1:] if line.strip()]
-    control = r'  (?:⏵⏵ bypass permissions on(?: \(shift\+tab to cycle\)| · \d+ shells?)|\? for shortcuts(?: +.*)?)'
-    status = (r'  (?:⬢ .+ │ ctx .+|└ .+|"name": "[^"\n]+"|})'
-              r'|   (?:◆ .+ │ .+|ctx .+ │ .+|\$[\d.]+ │ .+)')
-    if (not footer or not re.fullmatch(control, footer[-1])
-            or any(not re.fullmatch(status, line) for line in footer[:-1])):
-        raise Refusal('unreadable', 'Claude composer footer is ambiguous; leave the pane held')
     content = [line for line in lines[start + 1:end] if line.strip()]
     if len(content) != 1 or not content[0].startswith('❯'):
         raise Refusal('draft' if content else 'unreadable',
@@ -88,9 +92,9 @@ def claude_composer(text):
 
 
 PROFILES = {
-    'codex': ('codex-empty-composer.txt', codex_composer),
-    'pi': ('pi-empty-composer.txt', pi_composer),
-    'claude': ('claude-empty-composer-placeholder.txt', claude_composer),
+    'codex': codex_composer,
+    'pi': pi_composer,
+    'claude': claude_composer,
 }
 
 
@@ -98,4 +102,4 @@ def empty_composer(agent, text):
     profile = PROFILES.get(agent)
     if profile is None:
         raise Refusal('unsupported_profile', 'no captured composer profile for this agent')
-    profile[1](text)
+    profile(text)

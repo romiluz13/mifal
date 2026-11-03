@@ -70,7 +70,7 @@ worker from the record, and don't assume it remembers anything.
 For CLI dispatches and worker rings, use
 `python3 ~/.agents/mifal/tools/herdr_adapter/guard_send.py <target> "<text>"`.
 It resolves the target, checks identity and idle/done state, passively reads the
-complete visible frame with truncation metadata, refuses known dialog footers
+complete visible frame with truncation metadata, refuses known dialog menus
 before selecting a captured composer profile, and rechecks identity before
 sending once to the pinned pane. It never clears input or focuses a pane.
 The socket controller keeps its existing two-read draft guard; its generic
@@ -88,14 +88,22 @@ Profiles cover the captured Codex, Claude and Pi frames only. Droid's clear
 composer and OpenCode's profile are unverified. OpenCode startup installed
 dependencies in its disposable Home despite suppression flags, so its captured
 frame is retained as evidence but is not enabled as a profile. The signature table currently covers Codex hook
-review and Droid login menus. Changed layouts or unknown footers on a supported
-agent refuse. This is known-pattern detection, not general dialog recognition.
-Quoted dialog text above a real composer does not match a bottom dialog footer;
-plain text cannot distinguish a perfectly copied footer at the bottom from UI,
+review and Droid login menus, including a menu with footer lines below it.
+Claude matches the empty composer itself; footer modes, status lines and
+notices below it do not decide whether it is clear. Codex keeps its captured
+two-row footer boundary; missing or changed footer rows remain unsupported.
+Arbitrary footer text is ambiguous with multiline draft text. Missing or
+ambiguous composer boundaries refuse. This is known-pattern detection, not
+general dialog recognition. Quoted dialog text above a real clear composer
+does not refuse; plain text cannot distinguish a perfectly copied menu from UI,
 or a draft that exactly reproduces an accepted placeholder.
 The check-to-send race with human typing or a changing UI remains: no atomic
-lock or compare-and-swap is claimed. `send_uncertain` after a submission failure
-means do not retry until the pane and durable Return have been reconciled.
+lock or compare-and-swap is claimed. Herdr's structured `agent_blocked` submit
+error rejects before input and leaves a retryable hold; retry the full checks
+after it is clear. Any other submission failure is `send_uncertain`: do not
+retry until the pane and durable Return have been reconciled. An unreadable
+supported frame names its cause and says retrying will not clear it: the Return
+file stays authoritative and the lead's deadline check will find it.
 
 - Launch a fresh worker plainly: Mifal's Guide makes Matt the owner in every
   harness. Preserve the requested account, provider, model and effort. Use
@@ -164,13 +172,16 @@ The return happens in three parts:
    for a human approval, or `STOPPED <id> <reason>` after a stop. These follow
    the [doorbell contract](contracts/doorbell.md). If the wait times out, the
    prompt is refused with `agent_blocked` (you are at a question or approval
-   dialog), or your composer holds a draft or can't be read, the worker leaves
+   dialog), or your composer holds a draft, the worker leaves
    your input alone and tries the whole step again every 2 minutes for up to
    30 minutes. The worker runs the wait and every retry in the foreground,
    never as a background task: a background task that finishes may start no
    new turn, and the ring then comes late or not at all. It never sends to a
    busy lead, for any kind of lead. After 30 minutes it stops trying; the file
-   is enough.
+   is enough. If a supported frame is unreadable or truncated, retry this whole
+   step once, then stop ringing. Retrying will not clear the frame; leave its
+   cause in the Return, which stays authoritative, and the lead's deadline
+   check will find it. This refusal never offers a manual send path.
 
 Put these steps and your pane's name in every brief that expects a return.
 Tell workers to deliver one ring: a refused or skipped attempt is retried,

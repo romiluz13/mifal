@@ -36,6 +36,10 @@ state = json.loads((root / 'state.json').read_text())
 if args[1] == state['cli_failure']: sys.exit(1)
 if args[:2] == ['agent', 'prompt'] and state['cli_failure'] == 'undecodable':
     sys.stdout.buffer.write(bytes([255])); sys.exit(0)
+if args[:2] == ['agent', 'prompt'] and state['cli_failure'] in ['agent_blocked', 'timeout']:
+    print(json.dumps({'id': 'fixture', 'error': {'code': state['cli_failure'], 'message': 'blocked'}})); sys.exit(1)
+if args[:2] == ['agent', 'prompt']:
+    with (root / 'inputs.ndjson').open('a') as f: f.write(json.dumps(args) + '\\n')
 if args[:2] == ['agent', 'get']: result = {'agent': state['agent']}
 elif args[:2] == ['pane', 'get']: result = {'pane': state['pane']}
 else: result = {'type': 'agent_prompted'}
@@ -84,6 +88,55 @@ print(json.dumps({'id': 'fixture', 'result': result}))
     def test_real_codex_hook_dialog_refuses_without_input(self):
         self.assert_refusal(self.send(), 'known_dialog')
 
+    def test_known_dialog_with_footer_stays_a_dialog(self):
+        self.frame += '\n  model · project\n  ? for shortcuts\n'
+        self.assert_refusal(self.send(), 'known_dialog')
+
+    def test_clear_claude_composer_allows_footer_variants(self):
+        self.agent['agent'] = self.pane['agent'] = 'claude'
+        lines = (FRAMES / 'claude-empty-composer-placeholder.txt').read_text().splitlines()
+        end = [i for i, line in enumerate(lines) if line.startswith('─────')][-1]
+        box = '\n'.join(lines[:end + 1]) + '\n'
+        for footer in ['  ⏵⏵ accept edits on (shift+tab to cycle)',
+                       '  ⏸ plan mode on (shift+tab to cycle)',
+                       '  ⏵⏵ auto mode on (shift+tab to cycle)',
+                       '  custom status\n  any notice', '']:
+            with self.subTest(footer=footer):
+                self.frame = box + footer + '\n'
+                result = self.send()
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertEqual(len([c for c in self.calls() if c[:2] == ['agent', 'prompt']]), 1)
+                (self.directory / 'calls.ndjson').unlink()
+
+    def test_unreadable_supported_frame_explains_durable_recovery(self):
+        self.frame = 'Transcript without a composer'
+        result = self.send()
+        self.assert_refusal(result, 'unreadable')
+        message = json.loads(result.stdout)['error']['message']
+        for text in ['missing', 'retrying will not clear', 'Return file stays authoritative', "lead's deadline check will find it"]:
+            self.assertIn(text, message)
+
+    def test_pre_input_blocked_submit_can_retry_after_clear(self):
+        self.frame = (FRAMES / 'codex-empty-composer.txt').read_text()
+        self.cli_failure = 'agent_blocked'
+        result = self.send()
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertEqual(json.loads(result.stdout)['error']['code'], 'agent_blocked')
+        self.assertIn('before input', result.stdout)
+        self.assertNotIn('manual_path', result.stdout)
+        self.assertFalse((self.directory / 'inputs.ndjson').exists())
+        self.assertEqual(len([c for c in self.calls() if c[:2] == ['agent', 'prompt']]), 1)
+        self.cli_failure = ''
+        self.assertEqual(self.send().returncode, 0)
+        self.assertEqual(len((self.directory / 'inputs.ndjson').read_text().splitlines()), 1)
+
+    def test_other_structured_submit_failure_remains_uncertain(self):
+        self.frame = (FRAMES / 'codex-empty-composer.txt').read_text()
+        self.cli_failure = 'timeout'
+        result = self.send()
+        self.assertEqual(json.loads(result.stdout)['error']['code'], 'send_uncertain')
+        self.assertEqual(len([c for c in self.calls() if c[:2] == ['agent', 'prompt']]), 1)
+
     def test_captured_clear_codex_sends_once_to_pinned_pane(self):
         self.frame = (FRAMES / 'codex-empty-composer.txt').read_text()
         result = self.send()
@@ -101,6 +154,11 @@ print(json.dumps({'id': 'fixture', 'result': result}))
     def test_multiline_draft_is_preserved(self):
         self.frame = (FRAMES / 'codex-empty-composer.txt').read_text().replace(
             '› Ask Codex to do anything', '› Ask Codex to do anything\n  another line')
+        self.assert_refusal(self.send(), 'draft')
+
+    def test_blank_continuation_draft_is_preserved(self):
+        self.frame = (FRAMES / 'codex-empty-composer.txt').read_text().replace(
+            '› Ask Codex to do anything\n', '›\n\n  continued draft\n')
         self.assert_refusal(self.send(), 'draft')
 
     def test_blocked_and_working_agent_refuse(self):
@@ -256,7 +314,8 @@ print(json.dumps({'id': 'fixture', 'result': result}))
 
     def test_missing_or_ambiguous_supported_composer_never_offers_manual_path(self):
         for frame in ['', 'A transcript with no composer',
-                      (FRAMES / 'codex-empty-composer.txt').read_text() + '\nenter confirm']:
+                      (FRAMES / 'codex-empty-composer.txt').read_text() + '\nenter confirm',
+                      (FRAMES / 'codex-empty-composer.txt').read_text().replace('› Ask Codex to do anything', '')]:
             with self.subTest(frame=frame[-30:]):
                 self.frame = frame
                 self.assert_refusal(self.send(), 'unreadable')

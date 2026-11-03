@@ -17,15 +17,22 @@ def cli(*args):
         result = subprocess.run(['herdr', *args], capture_output=True, text=True, timeout=20)
     except (OSError, subprocess.TimeoutExpired, UnicodeError) as error:
         raise Refusal('cli_failure', 'Herdr ' + ' '.join(args[:2]) + ' failed; leave the pane held') from error
-    if result.returncode:
-        raise Refusal('cli_failure', 'Herdr ' + ' '.join(args[:2]) + ' failed; leave the pane held')
     try:
         response = json_loads(result.stdout)
-        if 'error' in response or not isinstance(response.get('result'), dict):
+        error = response.get('error')
+        blocked = (args[:2] == ('agent', 'prompt') and result.returncode
+                   and isinstance(response.get('id'), str) and isinstance(error, dict)
+                   and error.get('code') == 'agent_blocked' and isinstance(error.get('message'), str)
+                   and 'result' not in response)
+        if not blocked and (result.returncode or 'error' in response
+                            or not isinstance(response.get('result'), dict)):
             raise ValueError('no result')
-        return response['result']
     except (ValueError, TypeError, AttributeError, Refusal) as error:
         raise Refusal('cli_failure', 'Herdr returned an unreadable response; leave the pane held') from error
+    if blocked:
+        raise Refusal('agent_blocked', 'Herdr rejected submission before input; '
+                      'leave the pane held and retry the full check after it is clear')
+    return response['result']
 
 
 def identity(target):
@@ -79,6 +86,8 @@ def send(target, text):
     try:
         cli('agent', 'prompt', agent['pane_id'], text)
     except Refusal as error:
+        if error.code == 'agent_blocked':
+            raise
         raise Refusal('send_uncertain', 'submission failed or its acknowledgement was lost; '
                       'do not retry; reconcile the pane and durable Return first') from error
     print(json.dumps({'ok': True, 'pane_id': agent['pane_id'], 'delivery': 'unverified'}))
@@ -99,6 +108,9 @@ def main():
         return 0
     except (Refusal, KeyError, TypeError, ValueError) as error:
         detail = {'code': getattr(error, 'code', 'unreadable'), 'message': str(error)}
+        if detail['code'] in {'unreadable', 'truncated'}:
+            detail['message'] += ("; retrying will not clear this frame; the Return file stays authoritative "
+                                  "and the lead's deadline check will find it")
         if detail['code'] == 'unsupported_profile':
             detail['manual_path'] = ('Manual path: follow ~/.agents/skills/team-lead/references/herdr.md; '
                                      'a lead, agent or human may use herdr agent prompt only after '
