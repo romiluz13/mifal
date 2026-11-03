@@ -13,14 +13,24 @@ jobs:
     runs-on: macos-latest
     timeout-minutes: 90
     steps:
+      - name: Note when the job started
+        run: echo "MIFAL_JOB_START=$(date +%s)" >> "$GITHUB_ENV"
       - uses: actions/checkout@v4
       - name: Mifal's own tests under the system Python and the current python3
         run: /bin/bash tests/run.sh -q
+      - name: Elapsed time against the job's timeout-minutes
+        if: always()
+        run: python3 maint/ci-time.py .github/workflows/test.yml "$GITHUB_JOB" "${MIFAL_JOB_START:-}" "$(date +%s)"
   shipped:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: macos-latest
     timeout-minutes: 90
     steps:
+      - name: Note when the job started
+        run: echo "MIFAL_JOB_START=$(date +%s)" >> "$GITHUB_ENV"
       - uses: actions/checkout@v4
       - name: Every suite, including the shipped validator and adapter suites
         run: /bin/bash tests/run.sh
+      - name: Elapsed time against the job's timeout-minutes
+        if: always()
+        run: python3 maint/ci-time.py .github/workflows/test.yml "$GITHUB_JOB" "${MIFAL_JOB_START:-}" "$(date +%s)"
