@@ -10,6 +10,45 @@ reconciles disk and current member identities before returning control to that l
 Automatic QUIET events cover Claude Code workers with the team Stop hook only;
 workers on other Harnesses stay on the manual quiet-worker check.
 
+## Guarded CLI send
+
+```sh
+python3 ~/.agents/mifal/tools/herdr_adapter/guard_send.py worker "Task 7: read /tmp/tasks/7.md and start."
+```
+
+Run inside Herdr (`HERDR_ENV=1`) with its CLI on PATH. This separate command
+uses `agent get` and `pane get` to pin identity/readiness, the socket adapter's
+complete passive visible read (CLI text reads omit truncation metadata), then
+rechecks identity and invokes `herdr agent prompt` once on the pinned pane.
+It does not change the controller's generic-frame guards or timing.
+Exit 0 and `delivery: unverified` mean submission acknowledged, not that work
+started. No delivery wait, focus, draft clearing or automatic retry occurs.
+
+`composer.py` owns the dialog signature table and captured profiles. A known
+dialog footer refuses before profile selection, on any agent. The shipped
+[frame evidence](tests/fixtures/composers/README.md) covers Codex 0.166.0,
+Claude Code 2.1.317 and Pi 1.4.0 clear profiles, plus Codex hook review and
+Droid 1.2.0 login dialogs. Droid's clear composer and OpenCode 1.19.4's profile
+are unverified. The captured OpenCode frame is retained as evidence only:
+startup installed dependencies in its disposable Home despite suppression
+flags, so that capture does not satisfy the no-install boundary.
+These profiles are layout forms, not promises about other versions or settings.
+
+Preflight refusals make zero input calls. Known dialog, draft, blocked,
+not-idle, unreadable, truncated, changed identity and CLI failure stay held.
+Only `unsupported_profile` prints the manual path: a lead, agent or human
+checks scoped identity, idle/done and a readable empty composer before using
+raw `herdr agent prompt`, as [Herdr dispatch](../../skills/team-lead/references/herdr.md#dispatch)
+describes. An unseen dialog on an uncaptured agent stays exposed on that path.
+A CLI error or timeout during submission reports `send_uncertain`: input may
+already have landed; reconcile the pane and durable Return before retrying.
+
+This catches known patterns, not every dialog. Quoted dialog text above a
+composer sends; an exact dialog footer at the bottom cannot be distinguished
+from UI by plain text. A draft identical to a placeholder is also
+indistinguishable. A human or UI can change between the check and send;
+this command has no atomic lock or server-side compare-and-swap.
+
 ## Interface
 
 One JSON object on stdin; one JSON object on stdout. Exit 0 means the command

@@ -124,6 +124,12 @@ DONE 7.2 .team/tasks/7.md
 - **Write the file first, ring once.** The file is authoritative; the
   doorbell is a hint pointing at it. If the lead isn't ready within a bounded
   wait, leave the file — it stands alone.
+- **Use the guarded send on Herdr.** After the bounded idle/done wait, ring
+  with `python3 ~/.agents/mifal/tools/herdr_adapter/guard_send.py <lead> "DONE <id> <path>"`.
+  [Herdr dispatch](../herdr.md#dispatch) defines its captured profiles, known
+  patterns and the check-to-send race. Only `unsupported_profile` permits the
+  named manual check/read/send path, by a lead, agent or human. Every other
+  refusal stays held; an uncertain submission is reconciled before retrying.
 - **The ring proves nothing by itself.** Delivery is proven by the receipt
   the ring names, never by the transport's return code. A lead that timed
   out inspects the member and the record before resending.

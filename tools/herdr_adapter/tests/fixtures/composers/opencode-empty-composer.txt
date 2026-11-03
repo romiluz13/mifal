@@ -1,0 +1,49 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                      ▄
+                                                     █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                     █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                     ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                   ┃
+                                   ┃  Ask anything… "Fix broken tests"
+                                   ┃
+                                   ┃  Build · Big Pickle OpenCode
+                                   ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                                                   tab agents  ctrl+p commands
+
+
+
+                                            ● Tip Run /connect to add an AI provider and start coding
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  /tmp/project                                                                               1.19.4
