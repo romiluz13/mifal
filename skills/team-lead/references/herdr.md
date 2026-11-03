@@ -24,7 +24,7 @@ chat summaries. For a sustained fleet loop, read the agency tooling guide
 controller and resume reconciliation. This is tooling, not another skill or an
 automatically running scheduler. Its verified input-box framing and trusted
 expected-artifact digests are prerequisites; the zero-model live fixtures do
-not establish native Claude, Codex, Droid or Pi framing. Keep the raw CLI path
+not establish native Claude, Codex, Droid or Pi framing. Use the guarded CLI send below
 when that controller is unsuitable, after checking the receiving harness.
 Do not invent frame delimiters or weaken the production draft guards.
 
@@ -67,6 +67,34 @@ worker from the record, and don't assume it remembers anything.
 
 ## Dispatch
 
+For CLI dispatches and worker rings, use
+`python3 ~/.agents/mifal/tools/herdr_adapter/guard_send.py <target> "<text>"`.
+It resolves the target, checks identity and idle/done state, passively reads the
+complete visible frame with truncation metadata, refuses known dialog footers
+before selecting a captured composer profile, and rechecks identity before
+sending once to the pinned pane. It never clears input or focuses a pane.
+The socket controller keeps its existing two-read draft guard; its generic
+frame delimiters do not establish native composer support.
+
+A refusal names its reason. Only `unsupported_profile` prints the manual path:
+the lead, agent or human may check the scoped identity and idle/done state,
+read the visible composer, and use `herdr agent prompt <target> "<text>"` only
+if that composer is readable and empty. Known dialog, draft, blocked, not-idle,
+unreadable, truncated, identity-change and CLI-failure refusals stay held;
+none permits a raw-send bypass. Preserve drafts and leave a visible summary.
+An unseen dialog on an uncaptured agent remains exposed on the manual path.
+
+Profiles cover the captured Codex, Claude, Pi and OpenCode frames only; Droid's
+clear composer is unverified. The signature table currently covers Codex hook
+review and Droid login menus. Changed layouts or unknown footers on a supported
+agent refuse. This is known-pattern detection, not general dialog recognition.
+Quoted dialog text above a real composer does not match a bottom dialog footer;
+plain text cannot distinguish a perfectly copied footer at the bottom from UI,
+or a draft that exactly reproduces an accepted placeholder.
+The check-to-send race with human typing or a changing UI remains: no atomic
+lock or compare-and-swap is claimed. `send_uncertain` after a submission failure
+means do not retry until the pane and durable Return have been reconciled.
+
 - Launch a fresh worker plainly: Mifal's Guide makes Matt the owner in every
   harness. Preserve the requested account, provider, model and effort. Use
   documented `pane run <pane-id> <shell command>` in an available shell, then
@@ -89,8 +117,8 @@ worker from the record, and don't assume it remembers anything.
 - Put the brief in `<record>/tasks/<id>.md`, where `<record>` is the
   record root's absolute path
   ([communication](communication.md#parallel-agents-in-one-repository)), and
-  send a short prompt that points to it: `herdr agent prompt <name> "Task
-  <id>: read <record>/tasks/<id>.md and start. Ring me when done."` Tiny
+  send a short prompt that points to it: `python3
+  ~/.agents/mifal/tools/herdr_adapter/guard_send.py <name> "Task <id>: read <record>/tasks/<id>.md and start. Ring me when done."` Tiny
   tasks can go inline. A correction uses its attempt id (`Task 7.2`).
 - Pin the brief before you send it: `validate_contracts.py brief-digest
   <record>/tasks/<id>.md` prints `sha256:<digest>`, and you stamp
@@ -100,11 +128,11 @@ worker from the record, and don't assume it remembers anything.
   refuses a brief that changed in any way but its ticks ([phase
   record](../../engineering-workflow/references/phase-record.md)).
 - Before direct prompts, check the scoped pane identity and readiness, then
-  read the composer; if it holds a draft or is unreadable, do not send. An
-  idle state alone does not prove the input is empty. Preserve the draft, skip
-  the send and leave the durable return plus a visible summary. Never clear a
-  user's draft. This manual check/send sequence has a race with human typing;
-  it is not atomic.
+  use the guarded send above to read the composer; if it holds a draft or is
+  unreadable, do not send. An idle state alone does not prove the input is empty.
+  Preserve the draft, skip the send and leave the durable return plus a visible
+  summary. Never clear a user's draft. The manual check/send sequence available
+  only after `unsupported_profile` has the same race with human typing.
 - Prompt only a teammate that is `idle` or `done`. Text sent to a `working`
   agent may interleave, queue, or behave differently depending on the
   receiving harness; verify per harness. If you need to stop work, use the
@@ -114,7 +142,8 @@ worker from the record, and don't assume it remembers anything.
   unassigned.
 - A successful prompt only proves the text was submitted, not that work
   started. If a prompt times out or stalls, run `agent get` and `agent read`
-  before sending anything again. The first one may already have landed.
+  before sending anything again. The first one may already have landed. A
+  `send_uncertain` result requires reconciliation before another attempt.
 
 ## The doorbell
 
@@ -127,7 +156,8 @@ The return happens in three parts:
 3. The worker waits up to about a minute for your pane to be free
    (`herdr agent wait <lead> --until idle --until done --timeout 60000`),
    then verifies the lead's identity and empty readable composer before
-   sending one line: `herdr agent prompt <lead> "DONE <id> <path>"`. Use
+   sending one line: `python3
+   ~/.agents/mifal/tools/herdr_adapter/guard_send.py <lead> "DONE <id> <path>"`. Use
    `HELP <id> <specific question>` for guidance, `HELD <id> <approval needed>`
    for a human approval, or `STOPPED <id> <reason>` after a stop. These follow
    the [doorbell contract](contracts/doorbell.md). If the wait times out, the
@@ -228,7 +258,7 @@ Take one bounded action and record it.
 
 To interrupt, use the kind's interrupt, usually
 `herdr agent send-keys <name> esc` (see the herdr skill for other kinds).
-Wait for `idle`, then send a plain message saying what stopped, what to keep,
+Wait for `idle`, then use the guarded send for a plain message saying what stopped, what to keep,
 and what happens next. A stop that hasn't been acknowledged is unconfirmed.
 Record it that way. A thank-you or a reflection message is not an instruction
 to resume old work. Say so if the teammate could read it that way.
