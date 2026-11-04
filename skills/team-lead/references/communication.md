@@ -267,8 +267,7 @@ first read. Give it the brief, the review snapshot, the earlier findings, the
 builder's responses and the open objections. A new session resets neither the
 review history nor the retry count. A mechanical recheck, such as rerunning a
 test or the validator, needs no new judgment review. The lead may fix a small
-finding itself; every fix the lead writes gets its own fresh independent
-review before it merges (SKILL.md, M5).
+finding itself; SKILL.md's M5 says how a fix the lead writes is reviewed.
 Record each review's cost with its findings.
 
 **Review depth.** Every change gets a bounded independent review; risk sets

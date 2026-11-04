@@ -4,8 +4,12 @@ import hashlib
 import importlib.util
 import json
 import re
+import shlex
 import subprocess
+import sys
+import tempfile
 import unittest
+from pathlib import Path
 from unittest import mock
 
 from support import REPO
@@ -402,14 +406,16 @@ class TeamRules(unittest.TestCase):
         review = section(TEAM_LEAD + "references/communication.md", "Review and disagreement")
         self.assertTerms(review, "re-review", "new reviewer session", "earlier findings", "builder's responses",
                          "open objections", "review history", "retry count", "mechanical recheck",
-                         "fresh independent review", "cost")
+                         "cost")
         self.assertRegex(review, r"(?i)\bevery re-review\b[^.]{0,60}\bnew reviewer session\b|"
                                  r"\bnew reviewer session for every re-review\b")
         self.assertNotRegex(review, r"new reviewer session is optional|may reuse the first reviewer")
         self.assertRegex(review, r"\b(?:resets? neither|does not reset|doesn't reset|never resets?)\b[^.]{0,30}"
                                  r"review history\b[^.]{0,30}\bretry count")
         self.assertRegex(review, r"mechanical recheck\b[^.]*\bno new judgment review")
-        self.assertRegex(review, r"every fix[^.]{0,40}\bgets its own fresh independent review before it merges")
+        assert_pinned(self, "a fix the lead writes is reviewed as M5 says", TEAM_LEAD + "references/communication.md",
+                      "The lead may fix a small finding itself; SKILL.md's M5 says how a fix the lead writes is "
+                      "reviewed.")
         pointer = "communication.md#review-and-disagreement"
         keep = section(TEAM_LEAD + "references/herdr.md", "Keeping or restarting")
         self.assertIn(pointer, keep)
@@ -696,255 +702,220 @@ class FreeCore(unittest.TestCase):
         self.assertFalse(names_a_paid_service("a runway of light, a kiosk, and a cling film"))
 
 
-def sentences(text, *patterns):
-    """The sentences of a flattened `text` that match every pattern, case-insensitive. A sentence ends at `.`, `!`,
-    `?` or `:` followed by a space and a capital, a digit, a backtick, a quote or a bracket."""
-    found = [s for s in re.split(r"(?<=[.!?:])\s+(?=[A-Z`\"(\[*0-9])", text)
-             if all(re.search(p, s, re.I) for p in patterns)]
-    if not found:
-        raise AssertionError(f"no sentence matches all of {patterns!r}")
-    return found
+def flat(rel):
+    return " ".join(shipped_text(rel).split())
 
 
-def raw_section(rel, title):
-    """The unflattened lines under the first heading whose title starts with `title`."""
-    lines = shipped_text(rel).splitlines()
-    for n, line in enumerate(lines):
-        m = re.match(r"(#+) (.*)", line)
-        if m and m.group(2).startswith(title):
-            level, body, fenced = len(m.group(1)), [], False
-            for rest in lines[n + 1:]:
-                if rest.startswith("```"):
-                    fenced = not fenced
-                h = re.match(r"(#+) ", rest)
-                if h and not fenced and len(h.group(1)) <= level:
-                    break
-                body.append(rest)
-            return "\n".join(body)
-    raise AssertionError(f"{rel} has no heading starting with {title!r}")
+def assert_pinned(test, rule, rel, sentence):
+    """A rule sentence must stay whole in the file that owns it. Rewording is allowed: change the pin with it."""
+    test.assertIn(" ".join(sentence.split()), flat(rel),
+                  f"{rel} no longer holds the sentence that carries the rule '{rule}'. This sentence carries a rule: "
+                  f"keep its meaning, and update this pin in tests/test_content.py in the same commit, so a reviewer "
+                  f"sees both. Pinned: {sentence!r}")
 
 
-# A weakener or a negation inside a rule's own sentence turns "do X" into "you could do X" or "don't do X".
-WEAK = r"\b(?:may|might|could|optional\w*|if (?:you have time|practical|possible|convenient)|where practical|" \
-       r"when convenient|ideally|not|never|no longer|need not|needn't|don't|do not|isn't|no need)\b"
-# A command that only one operating system has: rules stay agnostic and name the outcome, not the tool.
-PLATFORM = r"\b(?:pmset|sysctl|ioreg|journalctl|systemctl|last reboot|uptime|log show|powercfg|Get-EventLog|" \
-           r"Get-WinEvent|caffeinate|dmesg)\b"
+HERDR_MD = TEAM_LEAD + "references/herdr.md"
+SKILL_MD = TEAM_LEAD + "SKILL.md"
+COMMUNICATION_MD = TEAM_LEAD + "references/communication.md"
+PHASE_RECORD_MD = "skills/engineering-workflow/references/phase-record.md"
+
+RULE_SENTENCES = (
+    ("no doorbell-only wait, core loop", SKILL_MD,
+     "5. **Wait** with a limit, never on a teammate's signal alone: every assignment has a deadline, and a bounded "
+     "wait wakes you by then even if the signal never comes."),
+    ("no doorbell-only wait, Herdr loop", HERDR_MD, "5. **Wait** with a limit, and never on the doorbell alone."),
+    ("a bounded wait starts at dispatch", HERDR_MD,
+     "At dispatch, start `herdr agent wait <name> --timeout <ms>` running to the assignment's [deadline](#deadlines), "
+     "in the background where your harness allows, so its end wakes you; a ring only wakes you sooner."),
+    ("the wait and the deadline replace polling", HERDR_MD,
+     "That wait and the deadline replace polling: don't run a bare polling loop."),
+    ("age is measured from the recorded dispatch time", HERDR_MD,
+     "Herdr reports no activity time, so an assignment's age is now minus the dispatch time you recorded."),
+    ("every assignment records a deadline", HERDR_MD,
+     "Record a deadline for every assignment, whatever agent runs it: the task line in `state.md` carries the "
+     "dispatch time and the expected duration (`Sent 10:00Z; deadline 10:00Z plus 90 min`)."),
+    ("each correction and re-review gets its own deadline", HERDR_MD,
+     "A correction and a re-review each get their own."),
+    ("a deadline counts working time", HERDR_MD,
+     "A deadline counts working time, and time the machine slept is not a teammate's overrun."),
+    ("check for sleep before calling a hang", HERDR_MD,
+     "Before you treat a jump in the clock as a hang, check whether the machine slept, however your system shows "
+     "that."),
+    ("the deadline is worked out fresh from dispatch", HERDR_MD,
+     "Work the deadline out fresh each time: dispatch time plus expected duration plus all the sleep since dispatch, "
+     "never sleep added to a deadline you already moved."),
+    ("the worked sleep example", HERDR_MD,
+     "Sent 10:00Z for 90 minutes with 10 minutes asleep gives 11:40Z on every pass."),
+    ("the Return is read first at the deadline", HERDR_MD,
+     "At the deadline, read the Return first, then the pane if no Return closes the attempt, even when the pane went "
+     "idle long before."),
+    ("an idle wake with no Return is not completion", HERDR_MD,
+     "Read an earlier wake the same way: an idle wake with no Return is not completion."),
+    ("the timed-out idle pane case", HERDR_MD,
+     "When a deadline passes on an idle pane with no ring, walk this case:"),
+    ("the chain's order", HERDR_MD, "A lead's chain of commands checks its gates, then records, then prompts."),
+    ("the task line comes first", HERDR_MD,
+     "Write the task line (`- Task <id>: ...`), with its dispatch time and deadline, before you run it."),
+    ("a failed step stops the chain", HERDR_MD,
+     "A failed gate or a missing task line stops the chain before it stamps or sends, and a failed stamp stops it "
+     "before it sends."),
+    ("a deciding search stays bare, a looking one ends in || true", HERDR_MD,
+     "A search that decides something, like the task-line check, stays bare so its failure stops the chain; a search "
+     "you run only to look ends in `|| true`, because finding nothing is not a failure."),
+    ("grep -q in a pipefail chain", HERDR_MD,
+     "`grep -q` in a `pipefail` chain can kill the command feeding it: it exits at the first match, the writer dies "
+     "on the closed pipe, and `pipefail` reports the pipe as failed, which reads as no match."),
+    ("capture the output before searching it", HERDR_MD,
+     "Capture the output first, then search it: `out=$(herdr agent read <name> --source visible)`, then "
+     "`grep -q \"<pattern>\" <<<\"$out\"`."),
+    ("closing the last pane removes the workspace", HERDR_MD,
+     "Closing a workspace's last pane removes the workspace too, so close a last pane only when you mean to end its "
+     "workspace."),
+    ("a Claude builder checks git diff --stat", HERDR_MD,
+     "In a Claude Code builder's brief, add one line: check `git diff --stat` after the first edit to each file and "
+     "before each commit."),
+    ("why the diff check", HERDR_MD,
+     "A formatter hook can rewrite a whole file on a one-line edit, and the stat shows that before a commit carries "
+     "it."),
+    ("a universal claim cites its search", COMMUNICATION_MD,
+     "A claim of the form \"no X anywhere\" (nothing calls this, no message spans lines) cites the search that shows "
+     "it: the command, where it looked and what it printed."),
+    ("every review brief asks for the search", COMMUNICATION_MD,
+     "Every review brief asks for that, of the reviewer's claims and of the builder's."),
+    ("the reviewer reruns it, and no search means untested", COMMUNICATION_MD,
+     "The reviewer reruns the builder's search; a universal claim without its search is untested."),
+    ("a finding's evidence runs before a ruling", SKILL_MD,
+     "When the report is a review, run each finding's evidence before you rule on it: its command, case or trace, at "
+     "the revision it names."),
+    ("an unreproduced finding is inconclusive", SKILL_MD,
+     "A finding you can't reproduce is recorded as inconclusive, with what you ran."),
+    ("a repeated finding class means a redesign note", SKILL_MD,
+     "When a re-review finds the same class of problem as an earlier review of the task, write a redesign note "
+     "before the next attempt, at any attempt: the class, why the last fix didn't close it, and the changed "
+     "approach."),
+    ("a fix the lead writes gets its own fresh review", SKILL_MD,
+     "A fix you write yourself gets its own small fresh review before it merges, by a reviewer outside your session, "
+     "and `state.md` records that review's task id on the fix's line; the whole-branch review doesn't stand in for "
+     "it."),
+    ("the whole-branch review starts at two thirds", SKILL_MD,
+     "On a multi-ticket build, the whole-branch review is a milestone: start it at the first merge that brings the "
+     "merged tickets to two thirds of the total, ceil(2N/3) of N (3 of 4, 4 of 6), on a pinned snapshot with no "
+     "merge under it."),
+    ("later merges get their own review", SKILL_MD,
+     "It doesn't cover what merges after it: each later merge or fix gets a fresh bounded review of its diff and the "
+     "seams it touches, or a whole review where a seam warrants it, before final verification."),
+    ("ticket-level reviews sit inside Implement", PHASE_RECORD_MD, "Ticket-level reviews sit inside Implement."),
+    ("ticket reviews say start implement", PHASE_RECORD_MD,
+     "A review of one ticket's diff, its re-reviews and their acceptances are part of building that ticket, so the "
+     "Checks that open them say `Check: start implement`."),
+    ("start review opens Review", PHASE_RECORD_MD,
+     "`Check: start review` opens the Review step, which begins with the whole-branch review of the integrated "
+     "work."),
+    ("why ticket reviews don't say start review", PHASE_RECORD_MD,
+     "A read is held to the earliest start Check of its step, so a ticket review logged as `start review` opens "
+     "Review early and makes the lead's later code-review read late."),
+)
+
+DEADLINE_CHECKLIST = (
+    "1. Read the Return file. If a Return closes the attempt, the work came back and the ring was lost: take it to "
+    "M5. A Claude worker whose ring couldn't land is this case: it wrote its Return, so its Stop hook left no QUIET "
+    "event, and only the deadline woke you.",
+    "2. No Return: work the deadline out again with the sleep since dispatch. If it is still ahead, wait until then; "
+    "if it has passed, go straight on to the pane.",
+    "3. Read a small window of the pane and name what it shows: a model or service timeout, a question or approval, "
+    "a lost thread, or nothing.",
+    "4. Take one bounded action. A question or approval goes to [blocked](#blocked), and a timeout or lost thread to "
+    "[quiet teammates](#quiet-teammates). A pane that shows nothing gets one short status question, sent after the "
+    "pane checks in Dispatch, asking for `DONE`, `HELP` or `HELD`.",
+    "5. Record the diagnosis, the action and a new deadline in `state.md`, and start a new bounded `herdr agent "
+    "wait` to that deadline, because a wait that ended on idle doesn't restart itself.",
+)
+
+CHAIN_VALIDATOR_STUB = """import json, os, subprocess, sys
+with open(os.environ["CHAIN_TRACE"], "a") as f:
+    f.write(json.dumps(sys.argv[1:]) + "\\n")
+if sys.argv[1] == os.environ["CHAIN_FAIL"]:
+    sys.exit(1)
+if sys.argv[1] == "brief-digest":
+    print("sha256:" + "0" * 64)
+if sys.argv[1] == "stamp":
+    sys.exit(subprocess.run([sys.executable, os.environ["CHAIN_VALIDATOR"]] + sys.argv[1:]).returncode)
+"""
+CHAIN_SENDER_STUB = """import json, os, sys
+with open(os.environ["CHAIN_TRACE"], "a") as f:
+    f.write(json.dumps(["send"] + sys.argv[1:]) + "\\n")
+"""
 
 
 class RetroRules(unittest.TestCase):
     """Ticket 04 of the release that applied 0.3.2's retro: plan decisions 6 and 7, with the lead's change from review
-    206 (a deadline for every assignment). Each test pins one rule in the file a lead or worker reads at that moment.
-    The patterns hold each clause's direction, so reversing or weakening a clause fails while an equivalent rewording
-    passes; the ticket's Return records a mutation table for both. String contracts: they show the text is present,
-    not that any agent follows it."""
+    206 (a deadline for every assignment). Each rule sentence is pinned whole in the file that owns it, after
+    whitespace and line wraps are normalised, so it can't change or vanish by accident: rewording a rule means updating
+    its pin in the same commit, where a reviewer sees both. A pin can't judge meaning. It doesn't catch a new sentence
+    elsewhere that contradicts the rule, or a rule that stops being true; review catches those. The command chain is
+    pinned by running it."""
 
-    HERDR = TEAM_LEAD + "references/herdr.md"
+    def test_each_rule_sentence_stays_whole_in_the_file_that_owns_it(self):
+        for rule, rel, sentence in RULE_SENTENCES:
+            with self.subTest(rule=rule):
+                assert_pinned(self, rule, rel, sentence)
 
-    def test_the_lead_never_waits_on_the_doorbell_alone(self):
-        loop = section(self.HERDR, "The attention loop")
-        self.assertNotRegex(loop, r"(?i)either the doorbell wakes you")
-        wait = loop[loop.index("**Wait**"):]
-        self.assertRegex(wait, r"(?i)\b(?:never|not)\b[^.]{0,40}\bdoorbell alone\b|"
-                               r"\bdoorbell\b[^.]{0,40}\b(?:never|is not|isn't)\b[^.]{0,20}\bthe only wake")
-        self.assertRegex(wait, r"(?i)\bClaude\b[^.]*\bReturn\b[^.]*\b(?:couldn't|could not|can't|cannot)\b[^.]*"
-                               r"\bring\b[^.]*\bno QUIET")
-        self.assertRegex(wait, r"(?i)\bdeadline")
-        self.assertIn("#deadlines", wait)
-        self.assertRegex(wait, r"(?i)\bherdr agent wait\b[^.]*\b(?:at|on) dispatch")
+    def test_the_timed_out_idle_pane_case_keeps_its_steps_in_order(self):
+        text = flat(HERDR_MD)
+        for n, step in enumerate(DEADLINE_CHECKLIST, 1):
+            with self.subTest(step=n):
+                assert_pinned(self, f"timed-out idle pane, step {n}", HERDR_MD, step)
+        at = [text.find(step) for step in DEADLINE_CHECKLIST]
+        self.assertEqual(at, sorted(at), "references/herdr.md: the timed-out idle pane case reads the Return first, "
+                                         "then the sleep, then the pane, then acts and records, in that order")
 
-    def test_every_assignment_records_a_deadline_and_the_return_is_read_first(self):
-        text = section(self.HERDR, "Deadlines")
-        self.assertNotRegex(text, r"(?i)non-Claude|\bexcept\b[^.]{0,20}\bClaude|\bonly\b[^.]{0,30}\bassignments? "
-                                  r"(?:on|for|to) (?:Codex|Droid|Pi|OpenCode|other)")
-        for s in sentences(text, r"\b(?:every|each|all) assignments?\b", r"\bdeadline"):
-            self.assertNotRegex(s, WEAK)
-        self.assertRegex(text, r"(?i)\brecord\w*\b[^.]*\bdeadline\b[^.]*\b(?:every|each|all) assignments?\b|"
-                               r"\b(?:every|each|all) assignments?\b[^.]*\b(?:gets|has|carries|records?)\b[^.]*"
-                               r"\bdeadline")
-        self.assertRegex(text, r"(?i)\bdispatch time\b")
-        first = sentences(text, r"\bat the deadline\b", r"\bReturn\b")
-        self.assertTrue(any(re.search(r"(?i)\bReturn first\b|\bfirst,? read\w* the Return\b|"
-                                      r"\bstart\w* with the Return\b", s) for s in first), first)
-        for s in first:
-            self.assertNotRegex(s, r"(?i)\bpane first\b|\bfirst,? read\w* the pane\b")
-        self.assertRegex(text, r"(?i)\beven (?:if|when)\b[^.]*\bidle\b")
-        self.assertRegex(text, r"(?i)\bidle\b[^.]*\bno Return\b[^.]*\b(?:is not|isn't|is never)\b[^.]{0,20}"
-                               r"\bcomplet")
-        self.assertRegex(text, r"(?i)\bidle\b[^.]*\bno Return\b[^.]*:[^.]*\bnew deadline")
-
-    def test_the_timed_out_idle_pane_with_no_return_is_walked_as_a_checklist(self):
-        raw = raw_section(self.HERDR, "Deadlines")
-        steps = re.findall(r"(?m)^\d+\. (.*(?:\n(?!\d+\. ).*)*)", raw)
-        self.assertGreaterEqual(len(steps), 4, raw)
-        steps = [" ".join(s.split()) for s in steps]
-        order = [r"\bReturn\b", r"\b(?:slept|asleep|sleep)\b", r"\bpane\b", r"\bnew deadline\b"]
-        at = [next((i for i, s in enumerate(steps) if re.search(p, s, re.I)), None) for p in order]
-        self.assertNotIn(None, at, steps)
-        self.assertEqual(at, sorted(at), steps)
-        self.assertRegex(steps[at[0]], r"(?i)\b(?:read|open|check)\w*\b[^.]*\bReturn|\bReturn\b[^.]*\bread")
-        self.assertRegex(steps[at[0]], r"(?i)\bClaude\b[^.]*\bring\b[^.]*\b(?:couldn't|could not|didn't|did not|"
-                                       r"failed to|never)\b[^.]{0,10}\bland")
-        self.assertRegex(steps[at[0]], r"(?i)\bno QUIET\b")
-
-    def test_a_lead_command_chain_gates_then_records_then_prompts_last(self):
-        raw = raw_section(self.HERDR, "Command chains and the clock")
-        block = re.search(r"(?ms)^```(?:bash|sh)\n(.*?)^```", raw)
-        self.assertIsNotNone(block, raw)
-        lines = [l.strip() for l in block.group(1).splitlines() if l.strip() and not l.strip().startswith("#")]
-        self.assertTrue(any(re.search(r"^(?:bash|set) -[a-z]*e[a-z]*u[a-z]*o pipefail\b|"
-                                      r"^(?:bash|set) -[a-z]*u[a-z]*e[a-z]*o pipefail\b", l) for l in lines[:2]),
-                        lines[:2])
-        def first(p):
-            return next((i for i, l in enumerate(lines) if re.search(p, l)), None)
-        gate, brief, record, prompt = (first(r"--gate\b"), first(r"\bbrief\b.*--matt\b"),
-                                       first(r"\bstamp\b|>>\s*\S*state\.md"),
-                                       first(r"guard_send\.py|herdr agent prompt"))
-        self.assertNotIn(None, (gate, brief, record, prompt), lines)
-        self.assertLess(max(gate, brief), record)
-        self.assertLess(record, prompt)
-        self.assertTrue(re.search(r"guard_send\.py|herdr agent prompt", lines[-1]) or
-                        lines[-1] in ("EOF", "'"), lines[-1])
-        self.assertEqual(prompt, max(i for i, l in enumerate(lines) if not re.fullmatch(r"EOF|'", l)))
-        searches = [l for l in lines if re.match(r"(?:\S+=\$\()?(?:grep|rg)\b", l)]
-        self.assertTrue(searches, lines)
-        self.assertTrue(all(l.endswith("|| true") for l in searches), searches)
-        script = re.search(r"(?ms)<<'?EOF'?\n(.*?)^EOF$", block.group(1))
-        parsed = subprocess.run(["bash", "-n"], input=script.group(1) if script else block.group(1), text=True,
-                                capture_output=True)
-        self.assertEqual(parsed.returncode, 0, parsed.stderr)
-        prose = " ".join(raw.replace(block.group(0), "").split())
-        self.assertRegex(prose, r"(?i)\bgates?\b[^.]*\bfirst\b[^.]*\brecord\b[^.]*\bprompt\b[^.]*\blast\b")
-        self.assertRegex(prose, r"(?i)\bfailed (?:gate|check)\b[^.,;]*\brecords? nothing\b")
-        self.assertRegex(prose, r"(?i)\|\| true`?[^.]*\b(?:only to look|informational|just to look)|"
-                                r"(?:only to look|informational)\b[^.]*\|\| true")
-
-    def test_grep_q_in_a_pipefail_chain_is_named_and_the_output_captured_first(self):
-        text = " ".join(raw_section(self.HERDR, "Command chains and the clock").split())
-        note = sentences(text, r"`grep -q`", r"pipefail")
-        self.assertTrue(any(re.search(r"(?i)\b(?:kill|kills|SIGPIPE)\b", s) for s in note), note)
-        self.assertRegex(text, r"(?i)\bpipefail\b[^.]*\b(?:no match|as if nothing matched|nothing matched)")
-        self.assertRegex(text, r"(?i)\bcaptur\w*\b[^.]{0,30}\boutput\b[^.]{0,30}\bfirst\b|"
-                               r"\bfirst\b[^.]{0,10}\bcaptur\w*\b[^.]{0,30}\boutput")
-        self.assertNotRegex(text, r"(?i)\|\s*grep -q\b[^`]*`[^.]*\b(?:is fine|is safe|works)\b")
-
-    def test_a_deadline_counts_working_time_and_sleep_is_checked_before_a_hang(self):
-        text = " ".join(raw_section(self.HERDR, "Command chains and the clock").split())
-        self.assertRegex(text, r"(?i)\bdeadline\b[^.]{0,20}\bcounts?\b[^.]{0,20}\bworking time\b")
-        self.assertNotRegex(text, r"(?i)\bdeadline\b[^.]{0,20}\bcounts?\b[^.]{0,20}\b(?:wall|clock|elapsed)")
-        self.assertRegex(text, r"(?i)\b(?:asleep|sleep\w*)\b[^.]*\b(?:is not|isn't|not)\b[^.]{0,20}\boverrun")
-        self.assertRegex(text, r"(?i)\bbefore\b[^.]*\btreat\w*\b[^.]*\bhang\b[^.]*\bcheck\w*\b[^.]*\b(?:slept|"
-                               r"asleep|sleep)|\bcheck\w*\b[^.]*\b(?:slept|asleep|sleep)\b[^.]*\bbefore\b[^.]*"
-                               r"\bhang")
-        self.assertRegex(text, r"(?i)\bhowever your system shows\b|\bwhatever your system\b|"
-                               r"\bby your system's own\b")
-        for rel in (self.HERDR, TEAM_LEAD + "SKILL.md", TEAM_LEAD + "references/communication.md",
-                    "skills/engineering-workflow/references/phase-record.md"):
-            with self.subTest(rel=rel):
-                self.assertNotRegex(shipped_text(rel), PLATFORM)
-
-    def test_closing_a_workspaces_last_pane_removes_the_workspace(self):
-        rules = section(self.HERDR, "House rules")
-        self.assertRegex(rules, r"(?i)\bclos\w*\b[^.]*\blast pane\b[^.]*\b(?:removes?|deletes?|closes?)\b[^.]*"
-                                r"\bworkspace\b")
-        for s in sentences(rules, r"\blast pane\b"):
-            self.assertNotRegex(s, r"(?i)\b(?:keeps?|leaves?|survives?)\b[^.]*\bworkspace\b[^.]*\b(?:open|"
-                                   r"in place|alive)")
-
-    def test_a_claude_builder_checks_git_diff_stat(self):
-        dispatch = section(self.HERDR, "Dispatch")
-        rule = sentences(dispatch, r"\bClaude\b", r"`git diff --stat`")
-        for s in rule:
-            self.assertRegex(s, r"(?i)\bbuilder")
-            self.assertNotRegex(s, WEAK)
-        self.assertTrue(any(re.search(r"(?i)\bbefore (?:each|every|the|its) commit", s) for s in rule), rule)
-        self.assertRegex(dispatch, r"(?i)\bformatter\b[^.]*\b(?:whole|entire) file")
-
-    def test_a_universal_claim_cites_its_search(self):
-        review = section(TEAM_LEAD + "references/communication.md", "Review and disagreement")
-        rule = sentences(review, r"no X anywhere", r"\bsearch\b")
-        for s in rule:
-            self.assertRegex(s, r"(?i)\b(?:cites?|names?|carr(?:y|ies)|comes? with|includes?|shows?)\b[^.]*"
-                                r"\bsearch\b")
-            self.assertNotRegex(s, WEAK)
-            self.assertNotRegex(s, r"(?i)\b(?:when|if) (?:asked|requested|challenged)\b")
-        self.assertRegex(review, r"(?i)\breviewer\b[^.]{0,40}\breruns?\b[^.]{0,20}\bsearch")
-        self.assertRegex(review, r"(?i)\buniversal claim\b[^.]*\bwithout\b[^.]*\bsearch\b[^.]*\bis untested\b")
-
-    def test_m5_runs_a_findings_evidence_before_ruling_and_records_an_unreproduced_one_inconclusive(self):
-        m5 = section(TEAM_LEAD + "SKILL.md", "M5.")
-        rule = sentences(m5, r"\bevidence\b", r"\brul(?:e|ing)\b", r"\bfinding")
-        self.assertTrue(any(re.search(r"(?i)\brun\b[^.]{0,40}\bevidence\b[^.]{0,40}\bbefore\b[^.]{0,30}\brul|"
-                                      r"\bbefore\b[^.]{0,30}\brul\w*\b[^.]{0,60}\brun\b[^.]{0,40}\bevidence", s)
-                            for s in rule), rule)
-        for s in rule:
-            self.assertNotRegex(s, WEAK)
-            self.assertNotRegex(s, r"(?i)\bafter\b[^.]{0,20}\brul")
-        self.assertRegex(m5, r"(?i)\b(?:can't|cannot|couldn't|could not|don't|didn't|un)\s?reproduc\w*\b[^.]*"
-                             r"\b(?:is|stays?|as)\b[^.]{0,20}\binconclusive\b")
-        self.assertNotRegex(m5, r"(?i)\bnot\b[^.]{0,10}\binconclusive\b|\binconclusive\b[^.]{0,30}\b(?:dismiss|"
-                                r"reject|close)\w*\b(?! )|reproduc\w*\b[^.]*\b(?:is|as) (?:dismissed|rejected)")
-
-    def test_m5_a_repeated_finding_class_means_a_redesign_note_before_the_next_attempt(self):
-        m5 = section(TEAM_LEAD + "SKILL.md", "M5.")
-        rule = sentences(m5, r"\bredesign note\b")
-        hit = [s for s in rule if re.search(r"(?i)\b(?:same|repeat\w*|recur\w*)\b[^.]{0,30}\b(?:class|kind)\b[^.]*"
-                                            r"\bredesign note\b[^.]*\bbefore\b[^.]{0,20}\b(?:the next|another|any "
-                                            r"further|a further|any more) attempt", s)]
-        self.assertTrue(hit, rule)
-        for s in hit:
-            self.assertRegex(s, r"(?i)\b(?:at any|whatever|every|regardless of the) attempt\b|"
-                                r"\bwhatever (?:its|the) attempt number\b")
-            self.assertNotRegex(s, r"(?i)\battempt [2-9]\b|\b(?:second|third|fourth) attempt\b|\bat the cap\b")
-            self.assertNotRegex(s, r"(?i)\b(?:may|optional\w*|not|instead of)\b[^.]{0,20}\bredesign note")
-
-    def test_m5_a_fix_the_lead_writes_gets_its_own_fresh_review_before_merge(self):
-        m5 = section(TEAM_LEAD + "SKILL.md", "M5.")
-        rule = sentences(m5, r"\bfix\b", r"\byou write yourself\b|\bthe lead writes\b|\blead-written\b")
-        hit = [s for s in rule if re.search(r"(?i)\bown\b[^.]{0,20}\bfresh review\b[^.]*\bbefore\b[^.]{0,10}"
-                                            r"\b(?:it )?merg", s)]
-        self.assertTrue(hit, rule)
-        for s in hit:
-            self.assertNotRegex(s.split(";")[0], WEAK)
-            self.assertRegex(s, r"(?i)\brecords?\b[^.]*\b(?:task|review) id\b")
-            self.assertRegex(s, r"(?i)\bwhole-branch review\b[^.]{0,20}\b(?:doesn't|does not|never|can't|cannot)\b"
-                                r"[^.]{0,10}\b(?:stand in|count|substitute|replace)")
-        review = section(TEAM_LEAD + "references/communication.md", "Review and disagreement")
-        self.assertNotRegex(review, r"(?i)\bindependent final review\b")
-        self.assertRegex(review, r"(?i)\bevery fix the lead writes\b[^.]{0,20}\bgets its own\b[^.]{0,30}\breview\b"
-                                 r"[^.]{0,10}\bbefore it merges")
-
-    def test_m8_the_whole_branch_review_runs_at_two_thirds_of_the_tickets(self):
-        m8 = section(TEAM_LEAD + "SKILL.md", "M8.")
-        start = sentences(m8, r"\bwhole-branch review\b", r"\bfirst merge\b")
-        self.assertTrue(any(re.search(r"(?i)\b(?:start|run|begin)\w*\b[^.]*\bfirst merge\b[^.]*"
-                                      r"(?:\btwo thirds\b|ceil\(2N/3\))", s) for s in start), start)
-        for s in start:
-            self.assertNotRegex(s, r"(?i)\b(?:after|once) (?:the last|every|all)\b[^.]{0,20}\bmerge|\bhalf\b|"
-                                   r"ceil\(N/2\)|\bone third\b")
-        self.assertIn("ceil(2N/3)", m8)
-        self.assertRegex(m8, r"(?i)\b3 of 4\b")
-        later = sentences(m8, r"\blater merge|\bafter it\b|\bmerges after\b")
-        self.assertTrue(any(re.search(r"(?i)\bfresh\b[^.]{0,20}\breview\b[^.]*\bbefore\b[^.]{0,20}\bfinal "
-                                      r"verification", s) for s in later), later)
-        for s in later:
-            self.assertNotRegex(s, r"(?i)\b(?:need|needs|get|gets) no\b[^.]{0,20}\breview|"
-                                   r"\b(?:covers|includes) (?:every|all|later)")
-
-    def test_ticket_level_reviews_sit_inside_implement(self):
-        phase = section("skills/engineering-workflow/references/phase-record.md", "Phase checklist")
-        rule = sentences(phase, r"\bticket(?:-level)? reviews?\b")
-        self.assertTrue(any(re.search(r"(?i)\binside\b[^.]{0,20}\bImplement\b", s) for s in rule), rule)
-        for s in rule:
-            self.assertNotRegex(s, r"(?i)\b(?:sit|sits|belong|belongs|are|is)\b[^.]{0,20}\b(?:inside|in|part of)\b"
-                                   r"[^.]{0,10}\b(?:the )?Review\b")
-        checks = sentences(phase, r"\bticket\b", r"`Check: start (?:implement|review)`")
-        for s in checks:
-            self.assertIn("`Check: start implement`", s)
-            self.assertNotRegex(s, r"(?i)ticket[^.]*\b(?:say|says|log|logs|use|uses)\b[^.]{0,10}"
-                                   r"`Check: start review`")
-        self.assertRegex(phase, r"(?i)`Check: start review` opens\b[^.]*\bwhole-branch review")
-        self.assertRegex(phase, r"(?i)\bcode-review read\b[^.]*\blate\b")
+    def test_the_command_chain_template_gates_needs_its_task_line_stamps_then_sends_once(self):
+        doc = shipped_text(HERDR_MD)
+        self.assertIn("\n## Command chains\n", doc, f"{HERDR_MD} has no Command chains section to run")
+        chain = doc.split("\n## Command chains\n", 1)[1].split("\n## ", 1)[0]
+        block = re.search(r"(?ms)^```bash\n(.*?)^```", chain)
+        self.assertIsNotNone(block, "the Command chains section has no ```bash template to run")
+        template = block.group(1)
+        placeholders = "record='<record root>'; task='<id>'; name='<teammate>'"
+        self.assertIn(placeholders, template, "the test fills in this placeholder line; update both together")
+        state = "# State\n\n## Assignments\n{row}\n## Workflow\nMethodology: matt\n"
+        row = "- Task 7: owner w1. Sent 10:00Z; deadline 10:00Z plus 90 min. Return: tasks/7.md.\n"
+        cases = (("a failed workflow gate", "workflow", row), ("a failed brief gate", "brief", row),
+                 ("a missing task line", "-", ""), ("a passing chain", "-", row))
+        for label, fail, task_row in cases:
+            with self.subTest(case=label), tempfile.TemporaryDirectory() as tmp:
+                tmp = Path(tmp)
+                home, record, bindir = tmp / "home", tmp / "record", tmp / "bin"
+                for d in (home / ".agents/skills/team-lead/scripts", home / ".agents/mifal/tools/herdr_adapter",
+                          record / "tasks", bindir):
+                    d.mkdir(parents=True)
+                (home / ".agents/skills/team-lead/scripts/validate_contracts.py").write_text(CHAIN_VALIDATOR_STUB)
+                (home / ".agents/mifal/tools/herdr_adapter/guard_send.py").write_text(CHAIN_SENDER_STUB)
+                (bindir / "python3").symlink_to(sys.executable)
+                (record / "tasks/7.md").write_text("# Task 7\n")
+                before = state.format(row=task_row)
+                (record / "state.md").write_text(before)
+                trace = tmp / "trace.jsonl"
+                script = template.replace(placeholders, f"record={shlex.quote(str(record))}; task='7'; name='w1'")
+                env = {"HOME": str(home), "PATH": f"{bindir}:/usr/bin:/bin", "LANG": "en_US.UTF-8",
+                       "CHAIN_TRACE": str(trace), "CHAIN_FAIL": fail,
+                       "CHAIN_VALIDATOR": str(REPO / "skills/team-lead/scripts/validate_contracts.py")}
+                run = subprocess.run(["bash"], input=script, env=env, capture_output=True, text=True, timeout=60)
+                calls = [json.loads(l) for l in trace.read_text().splitlines()] if trace.exists() else []
+                sends = [i for i, c in enumerate(calls) if c[0] == "send"]
+                stamps = [i for i, c in enumerate(calls) if c[0] == "stamp"]
+                after = (record / "state.md").read_text()
+                if label != "a passing chain":
+                    self.assertNotEqual(run.returncode, 0, f"the chain template ran on after {label}")
+                    self.assertEqual((sends, stamps, after), ([], [], before),
+                                     f"the chain template stamped or sent after {label}")
+                    continue
+                self.assertEqual(run.returncode, 0, run.stderr)
+                self.assertEqual(len(sends), 1, f"the chain template sent {len(sends)} prompts, not one")
+                self.assertEqual(len(stamps), 1, calls)
+                self.assertLess(stamps[0], sends[0], "the chain template sent before it stamped")
+                self.assertTrue(calls[stamps[0]][2].startswith("start implement | passed | "), calls[stamps[0]])
+                self.assertRegex(after, r"(?m)^Check: start implement \| passed \| .* at:\S+Z$")
 
 
 class Provenance(unittest.TestCase):

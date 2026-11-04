@@ -88,7 +88,9 @@ specific. Small tasks get small messages.
 3. **Act** on that moment, below.
 4. **Record** in `state.md`; a task line goes in before its prompt is sent.
    Later comes after compaction.
-5. **Wait** with a limit: the doorbell, or a wait with a timeout. Never a bare poll.
+5. **Wait** with a limit, never on a teammate's signal alone: every
+   assignment has a deadline, and a bounded wait wakes you by then even if
+   the signal never comes. Never a bare poll.
 
 The record lives in the project's existing team folder (`.team/`,
 `.orchestrator/`, whatever exists): [team memory](references/team-memory.md).
