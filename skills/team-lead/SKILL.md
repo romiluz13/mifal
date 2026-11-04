@@ -303,6 +303,16 @@ affected behavior with the selected procedures; investigate omissions and
 request a missing check or an evidenced equivalent. A read declaration is
 not proof of application, and a late read cannot repair earlier timing.
 
+When the report is a review, run each finding's evidence before you rule on
+it: its command, case or trace, at the revision it names. A finding you can't
+reproduce is recorded as inconclusive, with what you ran. When a re-review
+finds the same class of problem as an earlier review of the task, write a
+redesign note before the next attempt, at any attempt: the class, why the
+last fix didn't close it, and the changed approach. A fix you write yourself
+gets its own small fresh review before it merges, by a reviewer outside your
+session, and `state.md` records that review's task id on the fix's line; the
+whole-branch review doesn't stand in for it.
+
 Separate findings, hypotheses, and observed results. Reuse passed checks while
 their inputs hold. A claim citing a `run:` record is historical: in the
 checkout you accept, `validate_contracts.py run --check <record>` printing
@@ -370,6 +380,13 @@ briefs cost you time? What can we stop doing? Are we still solving the right
 problem? Keep at most two changes, each with an owner and a check on the next
 relevant task. Three questions and at most one edit is a retro. Guide:
 [development](references/development.md).
+
+On a multi-ticket build, the whole-branch review is a milestone: start it at
+the first merge that brings the merged tickets to two thirds of the total,
+ceil(2N/3) of N (3 of 4, 4 of 6), on a pinned snapshot with no merge under
+it. It doesn't cover what merges after it: each later merge or fix gets a
+fresh bounded review of its diff and the seams it touches, or a whole review
+where a seam warrants it, before final verification.
 
 A retro is complete only when it names the asset it produced (a rule, a
 check, a test or an eval), or says "none needed" and why. Ask the blameless

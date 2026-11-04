@@ -59,11 +59,14 @@ worker from the record, and don't assume it remembers anything.
    quiet past its expected time, then a reflection that's due.
 3. **Act** on that moment.
 4. **Record** in `state.md`; a task line goes in before its prompt is sent.
-5. **Wait** with a limit. Either the doorbell wakes you, or you use
-   `herdr agent wait <name> --timeout <ms>`. Pick the timeout from how long
-   the task should take. Don't run a bare polling loop. If your harness can
-   run commands in the background, run the wait there so finishing it wakes
-   you.
+5. **Wait** with a limit, and never on the doorbell alone: a ring can fail
+   to land, and a Claude worker that wrote its Return but couldn't ring
+   leaves no QUIET event. Every assignment has a deadline
+   ([deadlines](#deadlines)). Start `herdr agent wait <name> --timeout <ms>`
+   at dispatch, with the timeout running to that deadline, in the background
+   where your harness allows, so its end wakes you. A ring only wakes you
+   sooner. That wait and the deadline replace polling: don't run a bare
+   polling loop.
 
 ## Dispatch
 
@@ -132,6 +135,10 @@ it, though no captured footer does.
   send a short prompt that points to it: `python3
   ~/.agents/mifal/tools/herdr_adapter/guard_send.py <name> "Task <id>: read <record>/tasks/<id>.md and start. Ring me when done."` Tiny
   tasks can go inline. A correction uses its attempt id (`Task 7.2`).
+- In a Claude Code builder's brief, add one line: check `git diff --stat`
+  after the first edit to each file and before each commit. A formatter
+  hook can rewrite a whole file on a one-line edit, and the stat shows that
+  before a commit carries it.
 - Pin the brief before you send it: `validate_contracts.py brief-digest
   <record>/tasks/<id>.md` prints `sha256:<digest>`, and you stamp
   `brief=sha256:<digest>` in the dispatch Check line. Re-stamp after any
@@ -193,6 +200,73 @@ command/output exchange still applies there.
 A foreground `agent wait` on a worker shows you as `working`, so its ring
 has to wait: run your wait in the background where the harness allows,
 otherwise keep it short.
+
+## Deadlines
+
+Herdr reports no activity time, so an assignment's age is now minus the
+dispatch time you recorded. Record a deadline for every assignment, whatever
+agent runs it: the task line in `state.md` carries the dispatch time and the
+expected duration (`Sent 10:00Z; deadline 10:00Z plus 90 min`). A correction
+and a re-review each get their own.
+
+At the deadline, read the Return first, then the pane if no Return closes the
+attempt, even when the pane went idle long before. Read an earlier wake the
+same way. An idle wake with no Return is not completion: read a small window
+of the pane and record a new deadline. A deadline counts working time
+([command chains and the clock](#command-chains-and-the-clock)).
+
+When a deadline passes on an idle pane with no ring, walk this case:
+
+1. Read the Return file. If a Return closes the attempt, the work came back
+   and the ring was lost: take it to M5. A Claude worker whose ring couldn't
+   land is this case: it wrote its Return, so its Stop hook left no QUIET
+   event, and only the deadline woke you.
+2. No Return: check whether the machine slept since dispatch. If it did,
+   move the deadline by the time asleep and wait again.
+3. Still past it: read a small window of the pane and name what it shows: a
+   model or service timeout, a question or approval, a lost thread, or
+   nothing.
+4. Take one bounded action from [quiet teammates](#quiet-teammates) or
+   [blocked](#blocked), and record the diagnosis, the action and a new
+   deadline in `state.md`.
+
+## Command chains and the clock
+
+When one chain of commands checks a gate, records the result and prompts a
+teammate, a failed step has to stop it before anything is recorded. Use one
+shape:
+
+```bash
+bash -euo pipefail <<'EOF'
+v=~/.agents/skills/team-lead/scripts/validate_contracts.py
+record='<record root>'; task='<id>'; name='<teammate>'
+python3 "$v" workflow "$record/state.md" --gate entry
+python3 "$v" brief "$record/tasks/$task.md" --matt
+digest=$(python3 "$v" brief-digest "$record/tasks/$task.md")
+python3 "$v" stamp "$record/state.md" "implement | passed | brief --matt exit 0 brief=$digest"
+grep -n "Task $task" "$record/state.md" || true
+python3 ~/.agents/mifal/tools/herdr_adapter/guard_send.py "$name" "Task $task: read $record/tasks/$task.md and start. Ring me when done."
+EOF
+```
+
+Gates come first, the record next and the prompt last, so a failed gate
+records nothing and a failed record sends nothing. The task line, with its
+deadline, goes in at the record step too. `-e` stops at the first
+failed command, `-u` at an unset name and `pipefail` at a failure inside a
+pipe. A search you run only to look ends in `|| true`, because finding
+nothing is not a failure; a search that decides something stays bare, so
+its failure stops the chain.
+
+`grep -q` in a `pipefail` chain can kill the command feeding it: it exits at
+the first match, the writer dies on the closed pipe, and `pipefail` reports
+the pipe as failed, which reads as no match. Capture the output first, then
+search it: `out=$(herdr agent read <name> --source visible)`, then
+`grep -q "<pattern>" <<<"$out"`.
+
+A deadline counts working time. A jump in the clock between two of your
+turns can be the machine asleep, and sleep is not a teammate's overrun.
+Before you treat a jump as a hang, check whether the machine slept, however
+your system shows that, and move each deadline by the time asleep.
 
 ## Reading a pane
 
@@ -296,5 +370,7 @@ as [review and disagreement](communication.md#review-and-disagreement) says.
 ## House rules inherited from the herdr skill
 
 Use `--no-focus`, and leave the user's focus where it is. Don't close panes,
-tabs, or workspaces you didn't create. Parse IDs from JSON rather than
-predicting them. Never stop the Herdr server.
+tabs, or workspaces you didn't create. Closing a workspace's last pane
+removes the workspace too, so close a last pane only when you mean to end its
+workspace. Parse IDs from JSON rather than predicting them. Never stop the
+Herdr server.
