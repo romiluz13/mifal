@@ -82,6 +82,7 @@ read the visible composer, and use `herdr agent prompt <target> "<text>"` only
 if that composer is readable and empty. Known dialog, draft, blocked, not-idle,
 unreadable, truncated, identity-change and CLI-failure refusals stay held;
 none permits a raw-send bypass. Preserve drafts and leave a visible summary.
+A dim Claude prompt suggestion is empty input; the guarded ANSI read distinguishes it from a typed draft.
 An unseen dialog on an uncaptured agent remains exposed on the manual path.
 
 Profiles cover the captured Codex, Claude and Pi frames only. Droid's clear

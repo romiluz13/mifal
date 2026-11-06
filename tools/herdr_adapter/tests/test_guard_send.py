@@ -1,6 +1,7 @@
 import copy
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 import sys
@@ -57,7 +58,10 @@ print(json.dumps({'id': 'fixture', 'result': result}))
         }))
 
     def reply(self, request):
-        return {'read': {'pane_id': self.read_pane, 'text': self.frame,
+        frame = self.frame
+        if isinstance(frame, str) and request['params'].get('strip_ansi'):
+            frame = re.sub(r'\x1b\[[0-9;]*m', '', frame)
+        return {'read': {'pane_id': self.read_pane, 'text': frame,
                          'truncated': self.truncated}}
 
     def send(self, text='DONE 3 /tmp/return.md', env=None):
@@ -87,6 +91,65 @@ print(json.dumps({'id': 'fixture', 'result': result}))
 
     def test_real_codex_hook_dialog_refuses_without_input(self):
         self.assert_refusal(self.send(), 'known_dialog')
+
+    def test_real_claude_suggestions_send_once(self):
+        self.agent['agent'] = self.pane['agent'] = 'claude'
+        for fixture in ['claude-composer-suggestion-m33-rev103b.ansi.txt',
+                        'claude-composer-suggestion-m33-rev102b.ansi.txt']:
+            with self.subTest(fixture=fixture):
+                self.frame = (FRAMES / fixture).read_text()
+                result = self.send()
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertEqual([c for c in self.calls() if c[:2] == ['agent', 'prompt']],
+                                 [['agent', 'prompt', 'scratch:p1', 'DONE 3 /tmp/return.md']])
+                self.assertEqual(len(self.peer.requests), 1)
+                self.assertEqual(self.peer.requests[0]['params']['format'], 'ansi')
+                self.assertFalse(self.peer.requests[0]['params']['strip_ansi'])
+                self.assertNotIn('rm -rf', (self.directory / 'inputs.ndjson').read_text())
+                (self.directory / 'calls.ndjson').unlink()
+                self.peer.requests.clear()
+
+    def test_real_claude_typed_draft_refuses_and_empty_sends(self):
+        self.agent['agent'] = self.pane['agent'] = 'claude'
+        self.frame = (FRAMES / 'claude-composer-typed-draft.ansi.txt').read_text()
+        self.assert_refusal(self.send(), 'draft')
+        self.frame = (FRAMES / 'claude-composer-empty.ansi.txt').read_text()
+        self.assertEqual(self.send().returncode, 0)
+
+    def test_claude_plain_or_mixed_styling_preserves_draft(self):
+        self.agent['agent'] = self.pane['agent'] = 'claude'
+        original = (FRAMES / 'claude-composer-suggestion-m33-rev102b.ansi.txt').read_text()
+        for frame in [re.sub(r'\x1b\[[0-9;]*m', '', original),
+                      original.replace('\x1b[2mm -rf', '\x1b[2mm \x1b[22m-rf'),
+                      original.replace('\x1b[7mr', '\x1b[0mr'),
+                      original.replace('❯\u00a0', '❯\u00a0plain prefix '),
+                      original.replace('\x1b[2mm -rf', '\x1b[38;2;2;2;2mm -rf')]:
+            with self.subTest(frame=repr(frame)[-80:]):
+                self.frame = frame
+                result = self.send()
+                self.assert_refusal(result, 'draft')
+                self.assertIn('dim suggestion styling', result.stdout)
+
+    def test_claude_no_style_message_and_unparseable_styles_hold(self):
+        self.agent['agent'] = self.pane['agent'] = 'claude'
+        self.frame = (FRAMES / 'claude-composer-ghost-suggestion.txt').read_text()
+        result = self.send()
+        self.assert_refusal(result, 'draft')
+        self.assertIn('no dim suggestion styling', result.stdout)
+        original = (FRAMES / 'claude-composer-suggestion-m33-rev102b.ansi.txt').read_text()
+        for replacement in ['\x1b[nope', '\x1b[2;999m', '\x1b[38;2;1m', '\x1b[2m\r']:
+            with self.subTest(replacement=replacement):
+                self.frame = original.replace('\x1b[2m', replacement)
+                self.assert_refusal(self.send(), 'unreadable')
+
+    def test_ansi_dialog_text_and_quoted_dialog_still_work(self):
+        self.agent['agent'] = self.pane['agent'] = 'claude'
+        hooks = (FRAMES / 'codex-hooks-need-review.txt').read_text().replace(
+            'Hooks', '\x1b[38;2;2;2;2mHooks\x1b[0m')
+        self.frame = hooks
+        self.assert_refusal(self.send(), 'known_dialog')
+        self.frame = 'Quoted:\n' + hooks + '\n' + (FRAMES / 'claude-composer-suggestion-m33-rev103b.ansi.txt').read_text()
+        self.assertEqual(self.send().returncode, 0)
 
     def test_known_dialog_with_footer_stays_a_dialog(self):
         self.frame += '\n  model · project\n  ? for shortcuts\n'
