@@ -2,7 +2,6 @@
 ❯ Task 105: read your brief and do it
 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
   ⬢ Opus 5.5 │ ctx ██░░░░░░░░ 25% (2/1.0M) │ $8.44
-  └ Dev/mifal-wt-0.3.3-t04 on agent/claude-rules · {
   "name": "default"
   }
   ⏵⏵ bypass permissions on (shift+tab to cycle)
