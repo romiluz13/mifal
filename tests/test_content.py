@@ -710,7 +710,19 @@ SENTENCE_START = re.compile(r"(?:\A|[.!?][*_`\"')\]]*\s+|\n[ \t]*\n[ \t]*|^#+ [^
                             re.M)
 
 
-SENTENCE_END = re.compile(r"\A[*_`\"')\]]*(?:\Z|\s+(?![a-z]))")
+CLOSING_MARKUP = re.compile(r"[*_`\"')\]]*")
+
+
+def pin_ends(sentence, after):
+    """True when nothing after a pinned sentence reads as part of it. After a full stop comes the end, or a new
+    sentence that doesn't start in lowercase or with a parenthesis or footnote. After a colon, the line ends and
+    the next one is blank, a list item or a code fence."""
+    rest = after[CLOSING_MARKUP.match(after).end():]
+    if not rest.strip():
+        return True
+    if sentence.endswith(":"):
+        return re.match(r"[ \t]*\n[ \t]*(?:\n|(?:[-*+]|\d+\.)[ \t]|```)", rest) is not None
+    return re.match(r"\s+[^\sa-z(\[]", rest) is not None
 
 
 def assert_pinned(test, rule, rel, sentence):
@@ -725,7 +737,7 @@ def assert_pinned(test, rule, rel, sentence):
                     f"{rel}: words now come before the sentence that carries the rule '{rule}', so it no longer starts "
                     f"a sentence and may no longer bind. Keep its meaning, and update this pin in the same commit. "
                     f"Pinned: {sentence!r}")
-    test.assertTrue(any(SENTENCE_START.search(text[:m.start()]) and SENTENCE_END.search(text[m.end():])
+    test.assertTrue(any(SENTENCE_START.search(text[:m.start()]) and pin_ends(sentence, text[m.end():])
                         for m in found),
                     f"{rel}: words now follow the sentence that carries the rule '{rule}' before it ends, so they may "
                     f"change what it asks. Keep its meaning, and update this pin in the same commit. "
@@ -852,6 +864,27 @@ CHAIN_SENDER_STUB = """import json, os, sys
 with open(os.environ["CHAIN_TRACE"], "a") as f:
     f.write(json.dumps(["send"] + sys.argv[1:]) + "\\n")
 """
+
+
+class PinEnds(unittest.TestCase):
+    """A pinned sentence ends where its pin ends: nothing added after it can read as part of it."""
+
+    def test_nothing_that_reads_as_part_of_the_sentence_follows_it(self):
+        period, colon = "Read the Return first.", "walk this case:"
+        for after in (" only if you choose to.", "  only if you choose to.", "\t only if", "\n   only if",
+                      " (only if you choose to)", "[^note]"):
+            self.assertFalse(pin_ends(period, after), repr(after))
+        for after in (" only if you choose to.", "  only if you choose to.", " Only if you choose to.",
+                      "\nOnly if you choose to.", "\n  only if", " (only if)", " `if convenient`", " **Optional.**"):
+            self.assertFalse(pin_ends(colon, after), repr(after))
+
+    def test_a_new_sentence_paragraph_or_list_can_follow_it(self):
+        for after in ("", "\n", " Then read the pane.", "\nThen read the pane.", "\n\nNext paragraph.",
+                      "** Then", " `grep` comes next."):
+            self.assertTrue(pin_ends("Read the Return first.", after), repr(after))
+        for after in ("", "\n\n1. Read the Return file.", "\n1. Read the Return file.", "\n- a step",
+                      "\n```bash", "\n\n"):
+            self.assertTrue(pin_ends("walk this case:", after), repr(after))
 
 
 class RetroRules(unittest.TestCase):
