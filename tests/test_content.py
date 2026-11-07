@@ -710,6 +710,9 @@ SENTENCE_START = re.compile(r"(?:\A|[.!?][*_`\"')\]]*\s+|\n[ \t]*\n[ \t]*|^#+ [^
                             re.M)
 
 
+SENTENCE_END = re.compile(r"\A[*_`\"')\]]*(?:\Z|\s+(?![a-z]))")
+
+
 def assert_pinned(test, rule, rel, sentence):
     """A rule sentence must stay whole, and start a sentence, in the file that owns it. Rewording is allowed: change
     the pin with it."""
@@ -721,6 +724,11 @@ def assert_pinned(test, rule, rel, sentence):
     test.assertTrue(any(SENTENCE_START.search(text[:m.start()]) for m in found),
                     f"{rel}: words now come before the sentence that carries the rule '{rule}', so it no longer starts "
                     f"a sentence and may no longer bind. Keep its meaning, and update this pin in the same commit. "
+                    f"Pinned: {sentence!r}")
+    test.assertTrue(any(SENTENCE_START.search(text[:m.start()]) and SENTENCE_END.search(text[m.end():])
+                        for m in found),
+                    f"{rel}: words now follow the sentence that carries the rule '{rule}' before it ends, so they may "
+                    f"change what it asks. Keep its meaning, and update this pin in the same commit. "
                     f"Pinned: {sentence!r}")
 
 
@@ -899,6 +907,8 @@ class RetroRules(unittest.TestCase):
              False),
             ("correction 7.2 with its own line, brief in tasks/7.md", "7.2", "tasks/7.md", "-", row("7") + row("7.2"),
              True),
+            ("a failed brief digest", "7", "tasks/7.md", "brief-digest", row("7"), False),
+            ("an id with a backslash escape against task 7.2's line", "7\\0562", "tasks/7.md", "-", row("7.2"), False),
         )
         for label, task, brief_at, fail, rows, sends_prompt in cases:
             with self.subTest(case=label), tempfile.TemporaryDirectory() as tmp:

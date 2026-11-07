@@ -253,7 +253,7 @@ record='<record root>'; task='<id>'; brief='<brief path>'; name='<teammate>'
 python3 "$v" workflow "$record/state.md" --gate entry
 python3 "$v" brief "$brief" --matt
 digest=$(python3 "$v" brief-digest "$brief")
-line=$(awk -v p="- Task $task: " 'index($0, p) == 1' "$record/state.md")
+line=$(TASK="$task" awk 'index($0, "- Task " ENVIRON["TASK"] ": ") == 1' "$record/state.md")
 [[ $line == *deadline* ]] || { echo "no task line with a deadline for $task" >&2; exit 1; }
 python3 "$v" stamp "$record/state.md" "start implement | passed | brief --matt exit 0 brief=$digest"
 python3 ~/.agents/mifal/tools/herdr_adapter/guard_send.py "$name" "Task $task: read $brief and start. Ring me when done."
