@@ -3,8 +3,9 @@
 These are passive visible reads of real Herdr panes: the original text reads
 from 2026-11-03, suggestion/draft ANSI reads from 2026-11-04, and an ANSI
 placeholder read from 2026-11-07. Home and project paths are replaced. ANSI
-fixtures retain their composer bytes; unrelated transcript and version status
-lines are omitted. No real dialog was approved or trusted for these reads.
+fixtures retain composer text and escape sequences, with line endings normalized
+to LF; unrelated transcript and version status lines are omitted. No real
+dialog was approved or trusted for these reads.
 Profiles are enabled only for captured clear forms; Pi uses a protected recapture after its initial
 startup failed the no-config-write boundary. Paths, model names and terminal width are not
 identity assertions. Fixtures are data; they are not prompt instructions.
@@ -19,7 +20,7 @@ identity assertions. Fixtures are data; they are not prompt instructions.
 | Claude Code | claude-composer-typed-draft.ansi.txt | Visible ANSI read supplied by the lead; plain typed draft with an inverse trailing space, refuses |
 | Claude Code | claude-composer-empty.ansi.txt | Visible ANSI read supplied by the lead; inverse empty cursor space, sends |
 | Claude Code | claude-composer-ghost-suggestion.txt | Visible plain-text read supplied by the lead; suggestion styling absent, refuses |
-| Claude Code 2.1.319 | claude-composer-placeholder.ansi.txt | Visible ANSI read supplied by the lead on 2026-11-07; inverse T and dim placeholder remainder, composer bytes unchanged and footer project path replaced |
+| Claude Code | claude-composer-placeholder.ansi.txt | Visible ANSI read supplied by the lead on 2026-11-07; inverse T and dim placeholder remainder, source CRLF normalized to LF and footer project path replaced; the read does not identify the agent version |
 | Claude Code 2.1.316 | Status footer in test_guard_send.py | Passive clear lead-pane read, including three optional status lines and a running-shell indicator; no config writes or session launch by this capture |
 | Pi 1.4.0 | pi-empty-composer.txt | Real clear frame from a fresh session with its disposable Home read-only; configuration lock attempts denied and file hashes/timestamps/modes unchanged across launch; no model/auth, tools, extensions, MCP, skills, context, session persistence or startup network |
 | OpenCode 1.19.4 | opencode-empty-composer.txt | Real clear frame, but profile unverified and disabled: startup installed npm dependencies in the disposable Home despite suppression flags; the no-install capture boundary was not met |
