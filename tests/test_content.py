@@ -706,13 +706,22 @@ def flat(rel):
     return " ".join(shipped_text(rel).split())
 
 
-def assert_pinned(test, rule, rel, sentence):
-    """A rule sentence must stay whole in the file that owns it. Rewording is allowed: change the pin with it."""
-    test.assertIn(" ".join(sentence.split()), flat(rel),
-                  f"{rel} no longer holds the sentence that carries the rule '{rule}'. This sentence carries a rule: "
-                  f"keep its meaning, and update this pin in tests/test_content.py in the same commit, so a reviewer "
-                  f"sees both. Pinned: {sentence!r}")
+SENTENCE_START = re.compile(r"(?:\A|[.:;!?][*_`\"')\]]*\s+|\n[ \t]*\n[ \t]*|^#+ [^\n]*\n[ \t]*"
+                            r"|^[ \t]*(?:[-*+]|\d+\.)[ \t]+)\Z", re.M)
 
+
+def assert_pinned(test, rule, rel, sentence):
+    """A rule sentence must stay whole, and start a sentence, in the file that owns it. Rewording is allowed: change
+    the pin with it."""
+    text = shipped_text(rel)
+    found = list(re.finditer(r"\s+".join(map(re.escape, sentence.split())), text))
+    test.assertTrue(found, f"{rel} no longer holds the sentence that carries the rule '{rule}'. This sentence "
+                           f"carries a rule: keep its meaning, and update this pin in tests/test_content.py in the "
+                           f"same commit, so a reviewer sees both. Pinned: {sentence!r}")
+    test.assertTrue(any(SENTENCE_START.search(text[:m.start()]) for m in found),
+                    f"{rel}: words now come before the sentence that carries the rule '{rule}', so it no longer starts "
+                    f"a sentence and may no longer bind. Keep its meaning, and update this pin in the same commit. "
+                    f"Pinned: {sentence!r}")
 
 HERDR_MD = TEAM_LEAD + "references/herdr.md"
 SKILL_MD = TEAM_LEAD + "SKILL.md"
@@ -744,8 +753,6 @@ RULE_SENTENCES = (
     ("the deadline is worked out fresh from dispatch", HERDR_MD,
      "Work the deadline out fresh each time: dispatch time plus expected duration plus all the sleep since dispatch, "
      "never sleep added to a deadline you already moved."),
-    ("the worked sleep example", HERDR_MD,
-     "Sent 10:00Z for 90 minutes with 10 minutes asleep gives 11:40Z on every pass."),
     ("the Return is read first at the deadline", HERDR_MD,
      "At the deadline, read the Return first, then the pane if no Return closes the attempt, even when the pane went "
      "idle long before."),
@@ -759,12 +766,9 @@ RULE_SENTENCES = (
     ("a failed step stops the chain", HERDR_MD,
      "A failed gate or a missing task line stops the chain before it stamps or sends, and a failed stamp stops it "
      "before it sends."),
-    ("a deciding search stays bare, a looking one ends in || true", HERDR_MD,
-     "A search that decides something, like the task-line check, stays bare so its failure stops the chain; a search "
-     "you run only to look ends in `|| true`, because finding nothing is not a failure."),
-    ("grep -q in a pipefail chain", HERDR_MD,
-     "`grep -q` in a `pipefail` chain can kill the command feeding it: it exits at the first match, the writer dies "
-     "on the closed pipe, and `pipefail` reports the pipe as failed, which reads as no match."),
+    ("a deciding search stops the chain, a looking one ends in || true", HERDR_MD,
+     "A search that decides something, like the task-line check, stops the chain when it finds nothing; a search you "
+     "run only to look ends in `|| true`, because finding nothing is not a failure."),
     ("capture the output before searching it", HERDR_MD,
      "Capture the output first, then search it: `out=$(herdr agent read <name> --source visible)`, then "
      "`grep -q \"<pattern>\" <<<\"$out\"`."),
@@ -774,9 +778,6 @@ RULE_SENTENCES = (
     ("a Claude builder checks git diff --stat", HERDR_MD,
      "In a Claude Code builder's brief, add one line: check `git diff --stat` after the first edit to each file and "
      "before each commit."),
-    ("why the diff check", HERDR_MD,
-     "A formatter hook can rewrite a whole file on a one-line edit, and the stat shows that before a commit carries "
-     "it."),
     ("a universal claim cites its search", COMMUNICATION_MD,
      "A claim of the form \"no X anywhere\" (nothing calls this, no message spans lines) cites the search that shows "
      "it: the command, where it looked and what it printed."),
@@ -811,9 +812,6 @@ RULE_SENTENCES = (
     ("start review opens Review", PHASE_RECORD_MD,
      "`Check: start review` opens the Review step, which begins with the whole-branch review of the integrated "
      "work."),
-    ("why ticket reviews don't say start review", PHASE_RECORD_MD,
-     "A read is held to the earliest start Check of its step, so a ticket review logged as `start review` opens "
-     "Review early and makes the lead's later code-review read late."),
 )
 
 DEADLINE_CHECKLIST = (
@@ -848,12 +846,13 @@ with open(os.environ["CHAIN_TRACE"], "a") as f:
 
 
 class RetroRules(unittest.TestCase):
-    """Ticket 04 of the release that applied 0.3.2's retro: plan decisions 6 and 7, with the lead's change from review
-    206 (a deadline for every assignment). Each rule sentence is pinned whole in the file that owns it, after
-    whitespace and line wraps are normalised, so it can't change or vanish by accident: rewording a rule means updating
-    its pin in the same commit, where a reviewer sees both. A pin can't judge meaning. It doesn't catch a new sentence
-    elsewhere that contradicts the rule, or a rule that stops being true; review catches those. The command chain is
-    pinned by running it."""
+    """Ticket 04 of the release that applied 0.3.2's retro: plan decisions 6 and 7, with the lead's change from
+    review 206 (a deadline for every assignment). Each rule sentence is pinned whole, starting a sentence, in the
+    file that owns it, after whitespace and line wraps are normalised, so it can't change or vanish by accident:
+    rewording a rule means updating its pin in the same commit, where a reviewer sees both. Examples and
+    explanations aren't pinned. A pin can't judge meaning. It doesn't catch a new sentence elsewhere that
+    contradicts the rule, or a rule that stops being true; review catches those. The command chain is pinned by
+    running it."""
 
     def test_each_rule_sentence_stays_whole_in_the_file_that_owns_it(self):
         for rule, rel, sentence in RULE_SENTENCES:
@@ -869,20 +868,34 @@ class RetroRules(unittest.TestCase):
         self.assertEqual(at, sorted(at), "references/herdr.md: the timed-out idle pane case reads the Return first, "
                                          "then the sleep, then the pane, then acts and records, in that order")
 
-    def test_the_command_chain_template_gates_needs_its_task_line_stamps_then_sends_once(self):
+    def test_the_command_chain_template_gates_needs_its_own_task_line_stamps_then_sends_once(self):
         doc = shipped_text(HERDR_MD)
         self.assertIn("\n## Command chains\n", doc, f"{HERDR_MD} has no Command chains section to run")
         chain = doc.split("\n## Command chains\n", 1)[1].split("\n## ", 1)[0]
         block = re.search(r"(?ms)^```bash\n(.*?)^```", chain)
         self.assertIsNotNone(block, "the Command chains section has no ```bash template to run")
         template = block.group(1)
-        placeholders = "record='<record root>'; task='<id>'; name='<teammate>'"
+        placeholders = "record='<record root>'; task='<id>'; brief='<brief path>'; name='<teammate>'"
         self.assertIn(placeholders, template, "the test fills in this placeholder line; update both together")
-        state = "# State\n\n## Assignments\n{row}\n## Workflow\nMethodology: matt\n"
-        row = "- Task 7: owner w1. Sent 10:00Z; deadline 10:00Z plus 90 min. Return: tasks/7.md.\n"
-        cases = (("a failed workflow gate", "workflow", row), ("a failed brief gate", "brief", row),
-                 ("a missing task line", "-", ""), ("a passing chain", "-", row))
-        for label, fail, task_row in cases:
+        state = "# State\n\n## Assignments\n{rows}\n## Workflow\nMethodology: matt\n"
+
+        def row(task, deadline=True):
+            due = "; deadline 10:00Z plus 90 min" if deadline else ""
+            return f"- Task {task}: owner w1. Sent 10:00Z{due}. Return: tasks/7.md.\n"
+
+        refused, sent = "refused", "sent"
+        cases = (
+            ("a failed workflow gate", "7", "workflow", row("7"), refused),
+            ("a failed brief gate", "7", "brief", row("7"), refused),
+            ("a missing task line", "7", "-", "", refused),
+            ("a failed stamp", "7", "stamp", row("7"), refused),
+            ("a passing chain", "7", "-", row("7"), sent),
+            ("correction 7.2 with only task 712's line", "7.2", "-", row("712"), refused),
+            ("correction 7.2 with only task 7.3's line", "7.2", "-", row("7.3"), refused),
+            ("correction 7.2 whose own line has no deadline", "7.2", "-", row("7.2", False) + row("8"), refused),
+            ("correction 7.2 with its own line, brief in tasks/7.md", "7.2", "-", row("7") + row("7.2"), sent),
+        )
+        for label, task, fail, rows, outcome in cases:
             with self.subTest(case=label), tempfile.TemporaryDirectory() as tmp:
                 tmp = Path(tmp)
                 home, record, bindir = tmp / "home", tmp / "record", tmp / "bin"
@@ -892,31 +905,37 @@ class RetroRules(unittest.TestCase):
                 (home / ".agents/skills/team-lead/scripts/validate_contracts.py").write_text(CHAIN_VALIDATOR_STUB)
                 (home / ".agents/mifal/tools/herdr_adapter/guard_send.py").write_text(CHAIN_SENDER_STUB)
                 (bindir / "python3").symlink_to(sys.executable)
-                (record / "tasks/7.md").write_text("# Task 7\n")
-                before = state.format(row=task_row)
+                brief = record / "tasks/7.md"
+                brief.write_text("# Task 7\n")
+                before = state.format(rows=rows)
                 (record / "state.md").write_text(before)
                 trace = tmp / "trace.jsonl"
-                script = template.replace(placeholders, f"record={shlex.quote(str(record))}; task='7'; name='w1'")
+                script = template.replace(placeholders, f"record={shlex.quote(str(record))}; task='{task}'; "
+                                                        f"brief={shlex.quote(str(brief))}; name='w1'")
                 env = {"HOME": str(home), "PATH": f"{bindir}:/usr/bin:/bin", "LANG": "en_US.UTF-8",
                        "CHAIN_TRACE": str(trace), "CHAIN_FAIL": fail,
                        "CHAIN_VALIDATOR": str(REPO / "skills/team-lead/scripts/validate_contracts.py")}
                 run = subprocess.run(["bash"], input=script, env=env, capture_output=True, text=True, timeout=60)
                 calls = [json.loads(l) for l in trace.read_text().splitlines()] if trace.exists() else []
-                sends = [i for i, c in enumerate(calls) if c[0] == "send"]
+                sends = [c for c in calls if c[0] == "send"]
                 stamps = [i for i, c in enumerate(calls) if c[0] == "stamp"]
                 after = (record / "state.md").read_text()
-                if label != "a passing chain":
+                if outcome == refused:
                     self.assertNotEqual(run.returncode, 0, f"the chain template ran on after {label}")
-                    self.assertEqual((sends, stamps, after), ([], [], before),
-                                     f"the chain template stamped or sent after {label}")
+                    self.assertEqual((sends, after), ([], before), f"the chain template stamped or sent after {label}")
+                    self.assertEqual(len(stamps), int(fail == "stamp"), f"the chain template stamped after {label}")
                     continue
                 self.assertEqual(run.returncode, 0, run.stderr)
                 self.assertEqual(len(sends), 1, f"the chain template sent {len(sends)} prompts, not one")
                 self.assertEqual(len(stamps), 1, calls)
-                self.assertLess(stamps[0], sends[0], "the chain template sent before it stamped")
+                self.assertLess(stamps[0], calls.index(sends[0]), "the chain template sent before it stamped")
                 self.assertTrue(calls[stamps[0]][2].startswith("start implement | passed | "), calls[stamps[0]])
                 self.assertRegex(after, r"(?m)^Check: start implement \| passed \| .* at:\S+Z$")
-
+                self.assertIn(["brief", str(brief), "--matt"], calls, "the brief gate didn't check the brief path")
+                self.assertIn(["brief-digest", str(brief)], calls, "the stamp's digest isn't the brief path's")
+                self.assertEqual(sends[0][1], "w1", sends)
+                self.assertIn(f"Task {task}:", sends[0][2], "the prompt doesn't name the assignment id")
+                self.assertIn(str(brief), sends[0][2], "the prompt doesn't name the brief path")
 
 class Provenance(unittest.TestCase):
     def setUp(self):

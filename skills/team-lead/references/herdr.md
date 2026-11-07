@@ -240,28 +240,32 @@ passes on an idle pane with no ring, walk this case:
 
 A lead's chain of commands checks its gates, then records, then prompts.
 Write the task line (`- Task <id>: ...`), with its dispatch time and
-deadline, before you run it.
+deadline, before you run it. `task` is the assignment's id and `brief` its
+file, which differ for a correction: `7.2` keeps its brief in `tasks/7.md`.
 Use one shape:
 
 ```bash
 bash -euo pipefail <<'EOF'
 v=~/.agents/skills/team-lead/scripts/validate_contracts.py
-record='<record root>'; task='<id>'; name='<teammate>'
+record='<record root>'; task='<id>'; brief='<brief path>'; name='<teammate>'
 python3 "$v" workflow "$record/state.md" --gate entry
-python3 "$v" brief "$record/tasks/$task.md" --matt
-digest=$(python3 "$v" brief-digest "$record/tasks/$task.md")
-grep -q -- "^- Task $task: .*deadline" "$record/state.md"
+python3 "$v" brief "$brief" --matt
+digest=$(python3 "$v" brief-digest "$brief")
+line=$(awk -v p="- Task $task: " 'index($0, p) == 1' "$record/state.md")
+[[ $line == *deadline* ]] || { echo "no task line with a deadline for $task" >&2; exit 1; }
 python3 "$v" stamp "$record/state.md" "start implement | passed | brief --matt exit 0 brief=$digest"
-python3 ~/.agents/mifal/tools/herdr_adapter/guard_send.py "$name" "Task $task: read $record/tasks/$task.md and start. Ring me when done."
+python3 ~/.agents/mifal/tools/herdr_adapter/guard_send.py "$name" "Task $task: read $brief and start. Ring me when done."
 EOF
 ```
 
 A failed gate or a missing task line stops the chain before it stamps or
-sends, and a failed stamp stops it before it sends. `-e` stops at the first
-failed command, `-u` at an unset name and `pipefail` at a failure inside a
-pipe. A search that decides something, like the task-line check, stays bare
-so its failure stops the chain; a search you run only to look ends in
-`|| true`, because finding nothing is not a failure.
+sends, and a failed stamp stops it before it sends. The task-line check
+reads the id as fixed text at the start of a line, so `7.2` matches neither
+`- Task 712:` nor `- Task 7.3:`, and the deadline has to be on that same line.
+`-e` stops at the first failed command, `-u` at an unset name and `pipefail`
+at a failure inside a pipe. A search that decides something, like the
+task-line check, stops the chain when it finds nothing; a search you run only
+to look ends in `|| true`, because finding nothing is not a failure.
 
 `grep -q` in a `pipefail` chain can kill the command feeding it: it exits at
 the first match, the writer dies on the closed pipe, and `pipefail` reports
