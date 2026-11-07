@@ -116,6 +116,14 @@ print(json.dumps({'id': 'fixture', 'result': result}))
         self.frame = (FRAMES / 'claude-composer-empty.ansi.txt').read_text()
         self.assertEqual(self.send().returncode, 0)
 
+    def test_claude_ansi_crlf_frame_sends_original_prompt(self):
+        self.agent['agent'] = self.pane['agent'] = 'claude'
+        self.frame = (FRAMES / 'claude-composer-suggestion-m33-rev103b.ansi.txt').read_text().replace('\n', '\r\n')
+        result = self.send()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual([c for c in self.calls() if c[:2] == ['agent', 'prompt']],
+                         [['agent', 'prompt', 'scratch:p1', 'DONE 3 /tmp/return.md']])
+
     def test_claude_plain_or_mixed_styling_preserves_draft(self):
         self.agent['agent'] = self.pane['agent'] = 'claude'
         original = (FRAMES / 'claude-composer-suggestion-m33-rev102b.ansi.txt').read_text()

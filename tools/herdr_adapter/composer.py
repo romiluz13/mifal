@@ -23,6 +23,7 @@ DIALOGS = (
 
 
 def ansi_frame(text):
+    text = text.replace('\r\n', '\n')
     if '\x1b' not in text and '\x9b' not in text:
         return text, None
     plain, styles = [], [[]]
