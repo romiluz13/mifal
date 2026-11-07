@@ -9,7 +9,7 @@ import sys
 from types import SimpleNamespace
 
 from adapter import Client, Refusal, json_loads
-from composer import empty_composer, refuse_dialog
+from composer import ansi_frame, empty_composer, refuse_dialog
 
 
 def cli(*args):
@@ -69,7 +69,7 @@ def send(target, text):
         'HERDR_SOCKET_PATH', os.path.expanduser('~/.config/herdr/herdr.sock'))))
     try:
         read = client.request('pane.read', {
-            'pane_id': agent['pane_id'], 'source': 'visible', 'format': 'text', 'strip_ansi': True,
+            'pane_id': agent['pane_id'], 'source': 'visible', 'format': 'ansi', 'strip_ansi': False,
         }).get('read')
     except Refusal as error:
         raise Refusal('unreadable', 'passive visible read failed; leave the pane held') from error
@@ -79,10 +79,11 @@ def send(target, text):
         raise Refusal('truncated', 'visible read is truncated; leave the pane held')
     if read.get('truncated') is not False or not isinstance(read.get('text'), str):
         raise Refusal('unreadable', 'visible read is incomplete or unreadable; leave the pane held')
-    refuse_dialog(read['text'])
+    frame_text, styles = ansi_frame(read['text'])
+    refuse_dialog(frame_text, styles)
     if identity(agent['pane_id']) != agent:
         raise Refusal('identity_change', 'identity or idle sequence changed during the check; leave the pane held')
-    empty_composer(agent['agent'], read['text'])
+    empty_composer(agent['agent'], frame_text, styles)
     try:
         cli('agent', 'prompt', agent['pane_id'], text)
     except Refusal as error:

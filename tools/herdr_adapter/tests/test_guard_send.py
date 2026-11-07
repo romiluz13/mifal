@@ -1,6 +1,7 @@
 import copy
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 import sys
@@ -57,7 +58,10 @@ print(json.dumps({'id': 'fixture', 'result': result}))
         }))
 
     def reply(self, request):
-        return {'read': {'pane_id': self.read_pane, 'text': self.frame,
+        frame = self.frame
+        if isinstance(frame, str) and request['params'].get('strip_ansi'):
+            frame = re.sub(r'\x1b\[[0-9;]*m', '', frame)
+        return {'read': {'pane_id': self.read_pane, 'text': frame,
                          'truncated': self.truncated}}
 
     def send(self, text='DONE 3 /tmp/return.md', env=None):
@@ -88,14 +92,152 @@ print(json.dumps({'id': 'fixture', 'result': result}))
     def test_real_codex_hook_dialog_refuses_without_input(self):
         self.assert_refusal(self.send(), 'known_dialog')
 
+    def test_real_claude_suggestions_send_once(self):
+        self.agent['agent'] = self.pane['agent'] = 'claude'
+        for fixture in ['claude-composer-suggestion-m33-rev103b.ansi.txt',
+                        'claude-composer-suggestion-m33-rev102b.ansi.txt']:
+            with self.subTest(fixture=fixture):
+                self.frame = (FRAMES / fixture).read_text()
+                result = self.send()
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertEqual([c for c in self.calls() if c[:2] == ['agent', 'prompt']],
+                                 [['agent', 'prompt', 'scratch:p1', 'DONE 3 /tmp/return.md']])
+                self.assertEqual(len(self.peer.requests), 1)
+                self.assertEqual(self.peer.requests[0]['params']['format'], 'ansi')
+                self.assertFalse(self.peer.requests[0]['params']['strip_ansi'])
+                self.assertNotIn('rm -rf', (self.directory / 'inputs.ndjson').read_text())
+                (self.directory / 'calls.ndjson').unlink()
+                self.peer.requests.clear()
+
+    def test_real_claude_typed_draft_refuses_and_empty_sends(self):
+        self.agent['agent'] = self.pane['agent'] = 'claude'
+        self.frame = (FRAMES / 'claude-composer-typed-draft.ansi.txt').read_text()
+        self.assert_refusal(self.send(), 'draft')
+        self.frame = (FRAMES / 'claude-composer-empty.ansi.txt').read_text()
+        self.assertEqual(self.send().returncode, 0)
+
+    def test_claude_ansi_crlf_frame_sends_original_prompt(self):
+        self.agent['agent'] = self.pane['agent'] = 'claude'
+        self.frame = (FRAMES / 'claude-composer-suggestion-m33-rev103b.ansi.txt').read_text().replace('\n', '\r\n')
+        result = self.send()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual([c for c in self.calls() if c[:2] == ['agent', 'prompt']],
+                         [['agent', 'prompt', 'scratch:p1', 'DONE 3 /tmp/return.md']])
+
+    def test_unicode_transcript_rows_cannot_borrow_dim_footer_styles(self):
+        self.agent['agent'] = self.pane['agent'] = 'claude'
+        draft = (FRAMES / 'claude-composer-typed-draft.ansi.txt').read_text()
+        dim_footer = '  \x1b[2m? for shortcuts and esc to interrupt and more text here\x1b[0m'
+        shifted = draft.replace('\x1b[0m\n  \x1b[0m\x1b[1m\x1b[38;5;213m',
+                                '\x1b[0m\n' + dim_footer + '\n  \x1b[0m\x1b[1m\x1b[38;5;213m', 1)
+        for frame in ['a\u2028b\u2028c\n' + shifted,
+                      'a\u2029b\u2029c\n' + shifted,
+                      'a\u2028b\u2028c\u2028d\u2028e\u2028f\u2028g\u2028h\u2028i\n' + draft]:
+            with self.subTest(frame=repr(frame[:25])):
+                self.frame = frame
+                result = self.send()
+                self.assert_refusal(result, 'draft')
+                self.assertEqual(json.loads(result.stdout)['error']['code'], 'draft')
+                self.assertNotIn('Traceback', result.stderr)
+
+    def test_crlf_after_stripping_ansi_cannot_shift_composer_styles(self):
+        self.agent['agent'] = self.pane['agent'] = 'claude'
+        self.frame = 'a\r\x1b[0m\n\x1b[2m────────\x1b[0m\n❯\u00a0plain draft\n────────\n'
+        result = self.send()
+        self.assert_refusal(result, 'draft')
+        self.assertEqual(json.loads(result.stdout)['error']['code'], 'draft')
+
+    def test_transcript_reset_cannot_leave_stale_dim_composer_styles(self):
+        self.agent['agent'] = self.pane['agent'] = 'claude'
+        for reset in ['\x9b0m', '\x1b[0:0m']:
+            with self.subTest(reset=repr(reset)):
+                self.frame = '\x1b[2mtranscript' + reset + '\n────────\n❯\u00a0plain draft\n────────\n'
+                result = self.send()
+                self.assert_refusal(result, 'draft')
+
+    def test_claude_plain_or_mixed_styling_preserves_draft(self):
+        self.agent['agent'] = self.pane['agent'] = 'claude'
+        original = (FRAMES / 'claude-composer-suggestion-m33-rev102b.ansi.txt').read_text()
+        for frame in [re.sub(r'\x1b\[[0-9;]*m', '', original),
+                      original.replace('\x1b[2mm -rf', '\x1b[2mm \x1b[22m-rf'),
+                      original.replace('\x1b[7mr', '\x1b[0mr'),
+                      original.replace('❯\u00a0', '❯\u00a0plain prefix '),
+                      original.replace('\x1b[2mm -rf', '\x1b[38;2;2;2;2mm -rf')]:
+            with self.subTest(frame=repr(frame)[-80:]):
+                self.frame = frame
+                result = self.send()
+                self.assert_refusal(result, 'draft')
+                self.assertIn('dim suggestion styling', result.stdout)
+
+    def test_claude_no_style_message_and_unparseable_styles_hold(self):
+        self.agent['agent'] = self.pane['agent'] = 'claude'
+        self.frame = (FRAMES / 'claude-composer-ghost-suggestion.txt').read_text()
+        result = self.send()
+        self.assert_refusal(result, 'draft')
+        self.assertIn('no dim suggestion styling', result.stdout)
+        original = (FRAMES / 'claude-composer-suggestion-m33-rev102b.ansi.txt').read_text()
+        for replacement in ['\x1b[nope', '\x1b[2;999m', '\x1b[38;2;1m', '\x1b[2m\r']:
+            with self.subTest(replacement=replacement):
+                self.frame = original.replace('\x1b[2m', replacement)
+                self.assert_refusal(self.send(), 'unreadable')
+
+    def test_ansi_dialog_text_and_quoted_dialog_still_work(self):
+        self.agent['agent'] = self.pane['agent'] = 'claude'
+        hooks = (FRAMES / 'codex-hooks-need-review.txt').read_text().replace(
+            'Hooks', '\x1b[38;2;2;2;2mHooks\x1b[0m')
+        self.frame = hooks
+        self.assert_refusal(self.send(), 'known_dialog')
+        self.frame = 'Quoted:\n' + hooks + '\n' + (FRAMES / 'claude-composer-suggestion-m33-rev103b.ansi.txt').read_text()
+        self.assertEqual(self.send().returncode, 0)
+
+    def test_unknown_styling_outside_claude_composer_uses_plain_text(self):
+        for agent, fixture in [('codex', 'codex-empty-composer.txt'),
+                               ('pi', 'pi-empty-composer.txt'),
+                               ('claude', 'claude-composer-suggestion-m33-rev103b.ansi.txt')]:
+            self.agent['agent'] = self.pane['agent'] = agent
+            original = (FRAMES / fixture).read_text()
+            for prefix in ['\x1b[58;5;1mstyled transcript\x1b[0m\n',
+                           '\x1b[4:3mstyled transcript\x1b[0m\n',
+                           '\x1b]8;;http://x\x07linked transcript\x1b]8;;\x07\n']:
+                with self.subTest(agent=agent, prefix=repr(prefix)):
+                    self.frame = prefix + original + '\n\x1b[53mfooter\x1b[0m\n'
+                    if agent != 'claude':
+                        self.frame = prefix + '\x1b[58;5;1m' + original + '\x1b[0m'
+                    result = self.send()
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                    self.assertEqual([c for c in self.calls() if c[:2] == ['agent', 'prompt']],
+                                     [['agent', 'prompt', 'scratch:p1', 'DONE 3 /tmp/return.md']])
+                    (self.directory / 'calls.ndjson').unlink()
+
+    def test_osc_dialog_remains_known_dialog(self):
+        self.frame = (FRAMES / 'codex-hooks-need-review.txt').read_text().replace(
+            'Hooks', '\x1b]8;;x\x07Hooks\x1b]8;;\x07')
+        self.assert_refusal(self.send(), 'known_dialog')
+
+    def test_real_styled_placeholder_sends_but_plain_placeholder_refuses(self):
+        self.agent['agent'] = self.pane['agent'] = 'claude'
+        styled = (FRAMES / 'claude-composer-placeholder.ansi.txt').read_text()
+        self.frame = styled
+        result = self.send()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual([c for c in self.calls() if c[:2] == ['agent', 'prompt']],
+                         [['agent', 'prompt', 'scratch:p1', 'DONE 3 /tmp/return.md']])
+        (self.directory / 'calls.ndjson').unlink()
+        for frame in [re.sub(r'\x1b\[[0-9;]*m', '', styled),
+                      (FRAMES / 'claude-empty-composer-placeholder.txt').read_text()]:
+            self.frame = frame
+            result = self.send()
+            self.assert_refusal(result, 'draft')
+            self.assertIn('no dim suggestion styling', result.stdout)
+
     def test_known_dialog_with_footer_stays_a_dialog(self):
         self.frame += '\n  model · project\n  ? for shortcuts\n'
         self.assert_refusal(self.send(), 'known_dialog')
 
     def test_clear_claude_composer_allows_footer_variants(self):
         self.agent['agent'] = self.pane['agent'] = 'claude'
-        lines = (FRAMES / 'claude-empty-composer-placeholder.txt').read_text().splitlines()
-        end = [i for i, line in enumerate(lines) if line.startswith('─────')][-1]
+        lines = (FRAMES / 'claude-composer-placeholder.ansi.txt').read_text().splitlines()
+        end = [i for i, line in enumerate(lines) if re.sub(r'\x1b\[[0-9;]*m', '', line).startswith('─────')][-1]
         box = '\n'.join(lines[:end + 1]) + '\n'
         for footer in ['  ⏵⏵ accept edits on (shift+tab to cycle)',
                        '  ⏸ plan mode on (shift+tab to cycle)',
@@ -245,22 +387,22 @@ print(json.dumps({'id': 'fixture', 'result': result}))
 
     def test_captured_claude_composer_sends_and_draft_refuses(self):
         self.agent['agent'] = self.pane['agent'] = 'claude'
-        self.frame = (FRAMES / 'claude-empty-composer-placeholder.txt').read_text()
+        self.frame = (FRAMES / 'claude-composer-placeholder.ansi.txt').read_text()
         result = self.send()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         (self.directory / 'calls.ndjson').unlink()
-        self.frame = self.frame.replace('❯\u00a0Try "fix typecheck errors"', '❯ unfinished draft')
+        self.frame = re.sub(r'❯[^\n]+', '❯ unfinished draft', self.frame)
         self.assert_refusal(self.send(), 'draft')
 
     def test_captured_claude_status_footer_sends_and_draft_refuses(self):
         self.agent['agent'] = self.pane['agent'] = 'claude'
-        original = (FRAMES / 'claude-empty-composer-placeholder.txt').read_text()
-        bars = [i for i, line in enumerate(original.splitlines()) if line.startswith('─────')]
+        original = (FRAMES / 'claude-composer-placeholder.ansi.txt').read_text()
+        bars = [i for i, line in enumerate(original.splitlines()) if re.sub(r'\x1b\[[0-9;]*m', '', line).startswith('─────')]
         self.frame = '\n'.join(original.splitlines()[:bars[-1] + 1]) + '\n' + '   ◆ Opus 5.5 ◕ high ✦ │ project │ ⎇ branch ~1 ?5 · 11d ago\n   ctx █▉             13% 134k/1M │ 7d ██████  ┃  60% ⇣21 ↻1d 8h │ cache ♨ 95% 41m miss×1\n   $60.92 │ $2.1/h │ ⏱ 1d 4h │ +91 −0 │ “Disposable task” │ 11:34 │ v2.1.316\n  ⏵⏵ bypass permissions on · 1 shell\n'
         result = self.send()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         (self.directory / 'calls.ndjson').unlink()
-        self.frame = self.frame.replace('❯\u00a0Try "fix typecheck errors"', '❯ preserved draft')
+        self.frame = re.sub(r'❯[^\n]+', '❯ preserved draft', self.frame)
         self.assert_refusal(self.send(), 'draft')
 
     def test_opencode_frame_is_unverified_and_offers_manual_path(self):
@@ -321,10 +463,10 @@ print(json.dumps({'id': 'fixture', 'result': result}))
             'GPT-6.1-Sol high · ~', 'another-model low · /tmp/another-project')
         self.assertEqual(self.send().returncode, 0)
         self.agent['agent'] = self.pane['agent'] = 'claude'
-        frame = (FRAMES / 'claude-empty-composer-placeholder.txt').read_text()
-        start = frame.index('  ⬢')
-        end = frame.index('  ⏵⏵')
-        self.frame = frame[:start] + frame[end:]
+        lines = (FRAMES / 'claude-composer-placeholder.ansi.txt').read_text().splitlines()
+        end = [i for i, line in enumerate(lines)
+               if re.sub(r'\x1b\[[0-9;]*m', '', line).startswith('─────')][-1]
+        self.frame = '\n'.join(lines[:end + 1]) + '\n  custom status\n'
         self.assertEqual(self.send().returncode, 0)
 
     def test_missing_or_ambiguous_supported_composer_never_offers_manual_path(self):

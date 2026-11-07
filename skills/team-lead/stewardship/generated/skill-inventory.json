@@ -1,7 +1,7 @@
 {
   "spec": "0001",
   "ticket": "02-stewardship-registries",
-  "generatedAt": "2026-11-03T19:59:26Z",
+  "generatedAt": "2026-11-04T06:34:57Z",
   "sources": {
     "pool": "~/.agents/skills",
     "lock": "~/.agents/.skill-lock.json",
