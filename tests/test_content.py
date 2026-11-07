@@ -706,8 +706,8 @@ def flat(rel):
     return " ".join(shipped_text(rel).split())
 
 
-SENTENCE_START = re.compile(r"(?:\A|[.:;!?][*_`\"')\]]*\s+|\n[ \t]*\n[ \t]*|^#+ [^\n]*\n[ \t]*"
-                            r"|^[ \t]*(?:[-*+]|\d+\.)[ \t]+)\Z", re.M)
+SENTENCE_START = re.compile(r"(?:\A|[.!?][*_`\"')\]]*\s+|\n[ \t]*\n[ \t]*|^#+ [^\n]*\n[ \t]*|^[ \t]*[-*+][ \t]+)\Z",
+                            re.M)
 
 
 def assert_pinned(test, rule, rel, sentence):
@@ -722,6 +722,7 @@ def assert_pinned(test, rule, rel, sentence):
                     f"{rel}: words now come before the sentence that carries the rule '{rule}', so it no longer starts "
                     f"a sentence and may no longer bind. Keep its meaning, and update this pin in the same commit. "
                     f"Pinned: {sentence!r}")
+
 
 HERDR_MD = TEAM_LEAD + "references/herdr.md"
 SKILL_MD = TEAM_LEAD + "SKILL.md"
@@ -883,19 +884,23 @@ class RetroRules(unittest.TestCase):
             due = "; deadline 10:00Z plus 90 min" if deadline else ""
             return f"- Task {task}: owner w1. Sent 10:00Z{due}. Return: tasks/7.md.\n"
 
-        refused, sent = "refused", "sent"
         cases = (
-            ("a failed workflow gate", "7", "workflow", row("7"), refused),
-            ("a failed brief gate", "7", "brief", row("7"), refused),
-            ("a missing task line", "7", "-", "", refused),
-            ("a failed stamp", "7", "stamp", row("7"), refused),
-            ("a passing chain", "7", "-", row("7"), sent),
-            ("correction 7.2 with only task 712's line", "7.2", "-", row("712"), refused),
-            ("correction 7.2 with only task 7.3's line", "7.2", "-", row("7.3"), refused),
-            ("correction 7.2 whose own line has no deadline", "7.2", "-", row("7.2", False) + row("8"), refused),
-            ("correction 7.2 with its own line, brief in tasks/7.md", "7.2", "-", row("7") + row("7.2"), sent),
+            ("a failed workflow gate", "7", "tasks/7.md", "workflow", row("7"), False),
+            ("a failed brief gate", "7", "tasks/7.md", "brief", row("7"), False),
+            ("a missing task line", "7", "tasks/7.md", "-", "", False),
+            ("a failed stamp", "7", "tasks/7.md", "stamp", row("7"), False),
+            ("a passing chain, brief at a path its id doesn't give", "7", "briefs/w1.md", "-", row("7"), True),
+            ("correction 7.2 with only task 712's line", "7.2", "tasks/7.md", "-", row("712"), False),
+            ("correction 7.2 with only task 7.3's line", "7.2", "tasks/7.md", "-", row("7.3"), False),
+            ("correction 7.2 with only task 7.21's line", "7.2", "tasks/7.md", "-", row("7.21"), False),
+            ("correction 7.2 named only inside task 8's line", "7.2", "tasks/7.md", "-",
+             "- Task 8: owner w1, after - Task 7.2: deadline 10:00Z plus 90 min.\n", False),
+            ("correction 7.2 whose own line has no deadline", "7.2", "tasks/7.md", "-", row("7.2", False) + row("8"),
+             False),
+            ("correction 7.2 with its own line, brief in tasks/7.md", "7.2", "tasks/7.md", "-", row("7") + row("7.2"),
+             True),
         )
-        for label, task, fail, rows, outcome in cases:
+        for label, task, brief_at, fail, rows, sends_prompt in cases:
             with self.subTest(case=label), tempfile.TemporaryDirectory() as tmp:
                 tmp = Path(tmp)
                 home, record, bindir = tmp / "home", tmp / "record", tmp / "bin"
@@ -905,7 +910,8 @@ class RetroRules(unittest.TestCase):
                 (home / ".agents/skills/team-lead/scripts/validate_contracts.py").write_text(CHAIN_VALIDATOR_STUB)
                 (home / ".agents/mifal/tools/herdr_adapter/guard_send.py").write_text(CHAIN_SENDER_STUB)
                 (bindir / "python3").symlink_to(sys.executable)
-                brief = record / "tasks/7.md"
+                brief = record / brief_at
+                brief.parent.mkdir(exist_ok=True)
                 brief.write_text("# Task 7\n")
                 before = state.format(rows=rows)
                 (record / "state.md").write_text(before)
@@ -920,10 +926,11 @@ class RetroRules(unittest.TestCase):
                 sends = [c for c in calls if c[0] == "send"]
                 stamps = [i for i, c in enumerate(calls) if c[0] == "stamp"]
                 after = (record / "state.md").read_text()
-                if outcome == refused:
+                if not sends_prompt:
                     self.assertNotEqual(run.returncode, 0, f"the chain template ran on after {label}")
                     self.assertEqual((sends, after), ([], before), f"the chain template stamped or sent after {label}")
-                    self.assertEqual(len(stamps), int(fail == "stamp"), f"the chain template stamped after {label}")
+                    self.assertEqual(len(stamps), int(fail == "stamp"),
+                                     f"the chain template made {len(stamps)} stamp calls after {label}")
                     continue
                 self.assertEqual(run.returncode, 0, run.stderr)
                 self.assertEqual(len(sends), 1, f"the chain template sent {len(sends)} prompts, not one")
@@ -936,6 +943,7 @@ class RetroRules(unittest.TestCase):
                 self.assertEqual(sends[0][1], "w1", sends)
                 self.assertIn(f"Task {task}:", sends[0][2], "the prompt doesn't name the assignment id")
                 self.assertIn(str(brief), sends[0][2], "the prompt doesn't name the brief path")
+
 
 class Provenance(unittest.TestCase):
     def setUp(self):

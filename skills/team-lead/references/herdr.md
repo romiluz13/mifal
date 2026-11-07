@@ -131,7 +131,8 @@ it, though no captured footer does.
   ([communication](communication.md#parallel-agents-in-one-repository)), and
   send a short prompt that points to it: `python3
   ~/.agents/mifal/tools/herdr_adapter/guard_send.py <name> "Task <id>: read <record>/tasks/<id>.md and start. Ring me when done."` Tiny
-  tasks can go inline. A correction uses its attempt id (`Task 7.2`).
+  tasks can go inline. A correction uses its attempt id (`Task 7.2`) and
+  keeps its brief in its task's file (`<record>/tasks/7.md`).
 - In a Claude Code builder's brief, add one line: check `git diff --stat`
   after the first edit to each file and before each commit. A formatter
   hook can rewrite a whole file on a one-line edit, and the stat shows that
@@ -241,7 +242,8 @@ passes on an idle pane with no ring, walk this case:
 A lead's chain of commands checks its gates, then records, then prompts.
 Write the task line (`- Task <id>: ...`), with its dispatch time and
 deadline, before you run it. `task` is the assignment's id and `brief` its
-file, which differ for a correction: `7.2` keeps its brief in `tasks/7.md`.
+file's absolute path, which differ for a correction: `7.2` keeps its brief in
+`<record>/tasks/7.md`.
 Use one shape:
 
 ```bash
