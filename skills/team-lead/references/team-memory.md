@@ -62,7 +62,7 @@ Keep it scannable:
 - The authority boundary — reserved for the human vs pre-authorized — as
   recorded in `agreement.md`.
 - Roster: member, pane, agent kind, session id, role, current ownership.
-- Active work: outcome, owner, latitude, expected time, return path.
+- Active work: outcome, owner, latitude, dispatch time and deadline, return path.
 - Progress log: append-only one-liners with evidence, pruned at milestones.
   This is what the human reads; keep it current and honest.
 - The single first action on resume.

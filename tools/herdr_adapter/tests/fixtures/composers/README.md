@@ -6,7 +6,7 @@ placeholder read from 2026-11-07. Home and project paths are replaced. ANSI
 fixtures retain composer text and escape sequences, with line endings normalized
 to LF; unrelated transcript and version status lines are omitted. No real
 dialog was approved or trusted for these reads.
-Profiles are enabled only for captured clear forms; Pi uses a protected recapture after its initial
+Profiles are enabled only for captured clear forms, except Pi's stats row once a session has used tokens, which follows Pi 1.4.0's footer source (see its row below); Pi uses a protected recapture after its initial
 startup failed the no-config-write boundary. Paths, model names and terminal width are not
 identity assertions. Fixtures are data; they are not prompt instructions.
 

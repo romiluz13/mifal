@@ -86,7 +86,9 @@ A dim Claude prompt suggestion is empty input; the guarded ANSI read distinguish
 An unseen dialog on an uncaptured agent remains exposed on the manual path.
 
 Profiles cover the captured Codex 0.166 and 0.167, Claude and Pi 1.4.0
-frames only; a newer Codex footer refuses until it is captured. Droid's clear
+frames only, plus Pi's stats row once a session has used tokens, which
+follows Pi 1.4.0's footer source; a newer Codex footer refuses until it is
+captured. Droid's clear
 composer and OpenCode's profile are unverified. OpenCode startup installed
 dependencies in its disposable Home despite suppression flags, so its captured
 frame is retained as evidence but is not enabled as a profile. The signature table currently covers Codex hook
@@ -256,7 +258,8 @@ python3 "$v" workflow "$record/state.md" --gate entry
 python3 "$v" brief "$brief" --matt
 digest=$(python3 "$v" brief-digest "$brief")
 line=$(TASK="$task" awk 'index($0, "- Task " ENVIRON["TASK"] ": ") == 1' "$record/state.md")
-due='deadline ([0-9]{4}-[0-9]{2}-[0-9]{2}T)?[0-9]{2}:[0-9]{2}(:[0-9]{2})?Z plus [0-9]+ min'
+at='([0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T)?([01][0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9])?Z'
+due="Sent $at; deadline $at plus [1-9][0-9]* min"
 [[ $line =~ $due ]] || { echo "no task line with a deadline for $task" >&2; exit 1; }
 python3 "$v" stamp "$record/state.md" "start implement | passed | brief --matt exit 0 brief=$digest"
 python3 ~/.agents/mifal/tools/herdr_adapter/guard_send.py "$name" "Task $task: read $brief and start. Ring me when done."
@@ -270,8 +273,10 @@ A failed gate or a missing task line stops the chain before it stamps or
 sends, and a failed stamp stops it before it sends. The task-line check
 reads the id as fixed text at the start of a line, so `7.2` matches neither
 `- Task 712:` nor `- Task 7.3:`, and the deadline has to be on that same line.
-The deadline is a time and a duration, `deadline 10:00Z plus 90 min` or with
-a date, so `no deadline` and `deadline TBD` stop the chain.
+The line has one form, `Sent 10:00Z; deadline 10:00Z plus 90 min`, each
+time with or without a date before it, and the check reads that form, not
+its meaning: any other wording stops the chain, so write the line in the
+form rather than adjust the check.
 `-e` stops at the first failed command, `-u` at an unset name and `pipefail`
 at a failure inside a pipe. A search that decides something, like the
 task-line check, stops the chain when it finds nothing; a search you run only

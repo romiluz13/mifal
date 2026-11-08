@@ -252,7 +252,9 @@ its own return section say `7.2`, so a late `DONE 7` can't close it.
 Don't message a working teammate. Wait with a named limit. When quiet runs
 long, read a small window: progressing (extend once), thrashing or lost the
 thread (stop, re-brief from the record), or a service failure (the
-environment, not the teammate). On Herdr, a Claude Code worker with the team
+environment, not the teammate). Extending once is for a teammate still making
+progress; an idle teammate with no Return at its deadline follows the
+[deadline loop](references/herdr.md#deadlines). On Herdr, a Claude Code worker with the team
 Stop hook also leaves a QUIET event when a turn ends with no report; attend to
 it last ([quiet teammates](references/herdr.md#quiet-teammates)). Other
 workers stay on this manual check. If the next cycle would repeat the same
