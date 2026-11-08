@@ -13,6 +13,7 @@ Team leading (experimental, on Herdr)
 For contributors
 - `tests/run.sh --changed BASE` picks the tests for your changes since the commit BASE: committed, staged, unstaged and untracked, both sides of a rename and every deletion. A docs-only change runs test_readme and test_content; a change under `tests/` runs all of `tests/`; shipped code, `tests/run.sh` itself and any path it doesn't know run everything, under both Pythons, and so do a deleted file under `tests/`, a changed symlink, and a repository that records any symlink or submodule. A suite counts as passed only when it finishes and has run at least one test; one whose tests all skip still counts. A bad BASE, or any other argument beside it, stops the run before any Python starts. The run says why it chose its tests, and that it isn't release evidence.
 - The `mifal`, `shipped` and `release` CI jobs report their elapsed time against their `timeout-minutes` and warn from 75% of it. Timing can't fail a job. A job cancelled at its limit may print no report.
+- `tests/test_content.py` pins each new Team Lead rule sentence whole, starting a sentence, so rewording a rule means updating its pin in the same commit. Known limit: a qualifier added after a pinned sentence behind an invisible character, an em dash or a semicolon gets past the pin; review is what catches it.
 - MAINTAINING's Releasing section says to raise VERSION in the first commit of a release's integration branch and open the draft pull request then, so the release checks run on every push.
 
 Not in this release

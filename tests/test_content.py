@@ -867,7 +867,10 @@ with open(os.environ["CHAIN_TRACE"], "a") as f:
 
 
 class PinEnds(unittest.TestCase):
-    """A pinned sentence ends where its pin ends: nothing added after it can read as part of it."""
+    """A pinned sentence ends where its pin ends: nothing added after it can read as part of it. Known limit (review
+    216): the check reads characters, not meaning, so a qualifier after a full stop that hides behind an invisible
+    character such as U+200B, or follows an em dash or a semicolon, gets past it; review catches those. Pinning whole
+    paragraphs instead is left for a later release."""
 
     def test_nothing_that_reads_as_part_of_the_sentence_follows_it(self):
         period, colon = "Read the Return first.", "walk this case:"
