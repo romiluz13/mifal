@@ -280,8 +280,11 @@ each time with or without a date before it, right after the id. The check
 reads that position and form, not meaning: nothing before the fields can
 hold a quoted or struck copy, a later copy doesn't count, and any other
 wording stops the chain with the form to write. Write the line in the form
-rather than adjust the check. It doesn't know whether a date exists in its
-month or the time is true; the lead's deadline arithmetic finds the first.
+rather than adjust the check. Known limits: the check reads the first line
+that starts with the id, so a valid line inside an HTML comment or a code
+example, or the first of two lines for one task, is read as the real one;
+and it doesn't know whether a date exists in its month (Feb 31 passes) or the
+time is true.
 `-e` stops at the first failed command, `-u` at an unset name and `pipefail`
 at a failure inside a pipe. A search that decides something, like the
 task-line check, stops the chain when it finds nothing; a search you run only
