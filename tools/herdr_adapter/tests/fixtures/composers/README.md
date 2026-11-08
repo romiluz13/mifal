@@ -13,6 +13,7 @@ identity assertions. Fixtures are data; they are not prompt instructions.
 | Agent/version | Fixture | Coverage |
 | --- | --- | --- |
 | Codex 0.166.0 | codex-empty-composer.txt | Real clear placeholder frame supplied by the lead, after Esc skipped hooks |
+| Codex 0.167.0 | codex-0167-empty-composer.txt | Real clear placeholder frame read by the lead on 2026-11-08 after closing the startup warnings view; the footer's last row starts `← for agents · ` |
 | Codex 0.166.0 | codex-hooks-need-review.txt | Real hook-review menu, captured by the lead; Enter could trust hooks |
 | Claude Code 2.1.317 | claude-empty-composer-placeholder.txt | Original visible text read supplied by the lead, including a custom status line; now a refusal fixture because plain text cannot prove an empty placeholder |
 | Claude Code | claude-composer-suggestion-m33-rev103b.ansi.txt | Visible ANSI read supplied by the lead; inverse first cursor cell and dim suggestion remainder |
@@ -23,6 +24,7 @@ identity assertions. Fixtures are data; they are not prompt instructions.
 | Claude Code | claude-composer-placeholder.ansi.txt | Visible ANSI read supplied by the lead on 2026-11-07; inverse T and dim placeholder remainder, source CRLF normalized to LF and footer project path replaced; the read does not identify the agent version |
 | Claude Code 2.1.316 | Status footer in test_guard_send.py | Passive clear lead-pane read, including three optional status lines and a running-shell indicator; no config writes or session launch by this capture |
 | Pi 1.4.0 | pi-empty-composer.txt | Real clear frame from a fresh session with its disposable Home read-only; configuration lock attempts denied and file hashes/timestamps/modes unchanged across launch; no model/auth, tools, extensions, MCP, skills, context, session persistence or startup network |
+| Pi 1.4.0 | none | The stats row once a session has used tokens (`↑…`, `↓…`, `R…`, `W…`, `CH…%`, `$…`, a `?` context percentage) is built from Pi 1.4.0's own `footer.js`, not captured from a pane |
 | OpenCode 1.19.4 | opencode-empty-composer.txt | Real clear frame, but profile unverified and disabled: startup installed npm dependencies in the disposable Home despite suppression flags; the no-install capture boundary was not met |
 | Droid 1.2.0 | droid-login.txt | Real login menu in an empty disposable Home; Esc, then the exact owned process was stopped |
 | Droid 1.2.0 | none | Clear composer unverified: reaching it requires login, which this capture did not perform |

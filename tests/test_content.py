@@ -945,6 +945,11 @@ class RetroRules(unittest.TestCase):
              True),
             ("a failed brief digest", "7", "tasks/7.md", "brief-digest", row("7"), False),
             ("an id with a backslash escape against task 7.2's line", "7\\0562", "tasks/7.md", "-", row("7.2"), False),
+            ("a line that says it has no deadline", "7", "tasks/7.md", "-", "- Task 7: owner w1; no deadline.\n", False),
+            ("a deadline still to be decided", "7", "tasks/7.md", "-", "- Task 7: owner w1; deadline TBD.\n", False),
+            ("a deadline with a date", "7", "tasks/7.md", "-",
+             "- Task 7: owner w1. Sent 2026-11-08T08:57:44Z; deadline 2026-11-08T08:57:44Z plus 75 min plus sleep.\n",
+             True),
         )
         for label, task, brief_at, fail, rows, sends_prompt in cases:
             with self.subTest(case=label), tempfile.TemporaryDirectory() as tmp:

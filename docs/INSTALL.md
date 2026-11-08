@@ -11,7 +11,7 @@ Mifal's managed roots default to your home folder; `--allow-root-outside-home` e
 <!-- writes:begin -->
 | Where | What Mifal writes |
 |---|---|
-| `~/.agents/mifal/` | The engine: the `mifal` command and its library, the experimental Herdr adapter and tools, the Guide (`AGENTS.md`) and the Manifest; 87 files |
+| `~/.agents/mifal/` | The engine: the `mifal` command and its library, the experimental Herdr adapter and tools, the Guide (`AGENTS.md`) and the Manifest; 88 files |
 | `~/.agents/skills/` | 39 skills, 237 files |
 | `~/.local/bin/mifal` | A link to the engine's `mifal` command |
 | `~/.claude/CLAUDE.md` | A Marked block that imports the Guide |

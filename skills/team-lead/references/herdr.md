@@ -85,7 +85,8 @@ none permits a raw-send bypass. Preserve drafts and leave a visible summary.
 A dim Claude prompt suggestion is empty input; the guarded ANSI read distinguishes it from a typed draft.
 An unseen dialog on an uncaptured agent remains exposed on the manual path.
 
-Profiles cover the captured Codex, Claude and Pi frames only. Droid's clear
+Profiles cover the captured Codex 0.166 and 0.167, Claude and Pi 1.4.0
+frames only; a newer Codex footer refuses until it is captured. Droid's clear
 composer and OpenCode's profile are unverified. OpenCode startup installed
 dependencies in its disposable Home despite suppression flags, so its captured
 frame is retained as evidence but is not enabled as a profile. The signature table currently covers Codex hook
@@ -255,16 +256,22 @@ python3 "$v" workflow "$record/state.md" --gate entry
 python3 "$v" brief "$brief" --matt
 digest=$(python3 "$v" brief-digest "$brief")
 line=$(TASK="$task" awk 'index($0, "- Task " ENVIRON["TASK"] ": ") == 1' "$record/state.md")
-[[ $line == *deadline* ]] || { echo "no task line with a deadline for $task" >&2; exit 1; }
+due='deadline ([0-9]{4}-[0-9]{2}-[0-9]{2}T)?[0-9]{2}:[0-9]{2}(:[0-9]{2})?Z plus [0-9]+ min'
+[[ $line =~ $due ]] || { echo "no task line with a deadline for $task" >&2; exit 1; }
 python3 "$v" stamp "$record/state.md" "start implement | passed | brief --matt exit 0 brief=$digest"
 python3 ~/.agents/mifal/tools/herdr_adapter/guard_send.py "$name" "Task $task: read $brief and start. Ring me when done."
 EOF
 ```
 
+For a review dispatch, the gate is `--gate review` and the stamp is
+`start review`, once the review phase has begun.
+
 A failed gate or a missing task line stops the chain before it stamps or
 sends, and a failed stamp stops it before it sends. The task-line check
 reads the id as fixed text at the start of a line, so `7.2` matches neither
 `- Task 712:` nor `- Task 7.3:`, and the deadline has to be on that same line.
+The deadline is a time and a duration, `deadline 10:00Z plus 90 min` or with
+a date, so `no deadline` and `deadline TBD` stop the chain.
 `-e` stops at the first failed command, `-u` at an unset name and `pipefail`
 at a failure inside a pipe. A search that decides something, like the
 task-line check, stops the chain when it finds nothing; a search you run only

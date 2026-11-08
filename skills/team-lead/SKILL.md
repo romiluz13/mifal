@@ -239,8 +239,8 @@ backend changes with user-visible effects, read
 Select the relevant specialist and require actual procedure-load evidence;
 catalog visibility alone does not establish use.
 
-**Record:** the task line in `state.md` (owner, latitude, return path)
-before the prompt goes out; for several teammates, prepare every brief, then
+**Record:** the task line in `state.md` (owner, latitude, return path,
+dispatch time and deadline) before the prompt goes out; for several teammates, prepare every brief, then
 dispatch. A correction keeps its task id and gets its own attempt id: the
 brief's frontmatter says `task: 7` and `attempt: 7.2`, and the doorbell and
 its own return section say `7.2`, so a late `DONE 7` can't close it.

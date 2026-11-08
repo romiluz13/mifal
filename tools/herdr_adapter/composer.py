@@ -112,9 +112,10 @@ def codex_composer(text):
     while lines and not lines[-1].strip():
         lines.pop()
     if (len(lines) < 3 or not re.fullmatch(r'  .+ · .+', lines[-2])
-            or not re.fullmatch(r'  \? for shortcuts(?: +.*)?', lines[-1])):
-        raise Refusal('unreadable', 'Codex footer is not the captured two-row form, which a status line '
-                      'that is off or holds one item also causes; leave the pane held')
+            or not re.fullmatch(r'  (?:← for agents · )?\? for shortcuts(?: +.*)?', lines[-1])):
+        raise Refusal('unreadable', 'Codex footer is not a captured form (the default two-row footer of Codex '
+                      '0.166 or 0.167), which a newer Codex or a status line that is off or holds one item also '
+                      'causes; leave the pane held')
     index = len(lines) - 3
     while index >= 0 and not lines[index].strip():
         index -= 1
@@ -127,6 +128,12 @@ def codex_composer(text):
         raise Refusal('draft', 'composer holds a draft; preserve it and leave the pane held')
 
 
+PI_TOKENS = r'\d+(?:\.\d)?[kM]?'
+# Pi 1.4.0 footer.js: usage parts appear once a session has used tokens; "?" is an unknown context percentage.
+PI_STATS = (rf'(?:[↑↓RW]{PI_TOKENS} )*(?:CH\d+\.\d% )?(?:\$\d+\.\d{{3}}(?: \(sub\))? )?'
+            r'(?:\d+(?:\.\d+)?%|\?)/\S+ +\S+(?: +.*)?')
+
+
 def pi_composer(text):
     lines = [line.rstrip() for line in text.splitlines()]
     while lines and not lines[-1].strip():
@@ -137,7 +144,7 @@ def pi_composer(text):
     start, end = bars[-2:]
     footer = [line for line in lines[end + 1:] if line.strip()]
     if (len(footer) != 2 or not re.fullmatch(r'(?:/|~).+', footer[0])
-            or not re.fullmatch(r'\d+(?:\.\d+)?%/\S+ +\S+(?: +.*)?', footer[1])):
+            or not re.fullmatch(PI_STATS, footer[1])):
         raise Refusal('unreadable', 'Pi composer footer is ambiguous; leave the pane held')
     if any(line.strip() for line in lines[start + 1:end]):
         raise Refusal('draft', 'composer holds a draft; preserve it and leave the pane held')

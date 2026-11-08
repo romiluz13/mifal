@@ -26,7 +26,7 @@ started. No delivery wait, focus, draft clearing or automatic retry occurs.
 
 `composer.py` owns the dialog signature table and captured profiles. A known
 dialog footer refuses before profile selection, on any agent. The shipped
-[frame evidence](tests/fixtures/composers/README.md) covers Codex 0.166.0,
+[frame evidence](tests/fixtures/composers/README.md) covers Codex 0.166.0 and 0.167.0,
 Claude Code 2.1.317 and Pi 1.4.0 clear profiles, plus Codex hook review and
 Droid 1.2.0 login dialogs. Droid's clear composer and OpenCode 1.19.4's profile
 are unverified. The captured OpenCode frame is retained as evidence only:

@@ -38,7 +38,7 @@ if args[1] == state['cli_failure']: sys.exit(1)
 if args[:2] == ['agent', 'prompt'] and state['cli_failure'] == 'undecodable':
     sys.stdout.buffer.write(bytes([255])); sys.exit(0)
 if args[:2] == ['agent', 'prompt'] and state['cli_failure'] in ['agent_blocked', 'timeout']:
-    print(json.dumps({'id': 'fixture', 'error': {'code': state['cli_failure'], 'message': 'blocked'}})); sys.exit(1)
+    print(json.dumps({'id': 'fixture', 'error': {'code': state['cli_failure'], 'message': 'blocked'}}), file=sys.stderr); sys.exit(1)
 if args[:2] == ['agent', 'prompt']:
     with (root / 'inputs.ndjson').open('a') as f: f.write(json.dumps(args) + '\\n')
 if args[:2] == ['agent', 'get']: result = {'agent': state['agent']}
@@ -250,12 +250,15 @@ print(json.dumps({'id': 'fixture', 'result': result}))
                 self.assertEqual(len([c for c in self.calls() if c[:2] == ['agent', 'prompt']]), 1)
                 (self.directory / 'calls.ndjson').unlink()
 
-    def test_a_codex_footer_it_cannot_read_names_the_status_line(self):
-        for footer in ['  ? for shortcuts\n', '  model\n  ? for shortcuts\n']:
+    def test_a_codex_footer_it_cannot_read_names_newer_codex_and_the_status_line(self):
+        for footer in ['  ? for shortcuts\n', '  model\n  ? for shortcuts\n',
+                       '  GPT-6.1-Sol high · ~\n  → new hint · ? for shortcuts\n']:
             self.frame = '› Ask Codex to do anything\n\n' + footer
             result = self.send()
             self.assert_refusal(result, 'unreadable')
-            self.assertIn('status line', json.loads(result.stdout)['error']['message'])
+            message = json.loads(result.stdout)['error']['message']
+            self.assertIn('newer Codex', message)
+            self.assertIn('status line', message)
 
     def test_no_refusal_says_retrying_cannot_help(self):
         self.frame = 'Transcript without a composer'
@@ -302,6 +305,30 @@ print(json.dumps({'id': 'fixture', 'result': result}))
                          [['agent', 'prompt', 'scratch:p1', 'DONE 3 /tmp/return.md']])
         self.assertTrue(all(r['method'] == 'pane.read' and
                             r['params']['source'] == 'visible' for r in self.peer.requests))
+
+    def test_captured_clear_codex_0167_sends_once_and_keeps_a_draft(self):
+        self.frame = (FRAMES / 'codex-0167-empty-composer.txt').read_text()
+        result = self.send()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual([c for c in self.calls() if c[:2] == ['agent', 'prompt']],
+                         [['agent', 'prompt', 'scratch:p1', 'DONE 3 /tmp/return.md']])
+        (self.directory / 'calls.ndjson').unlink()
+        self.frame = self.frame.replace('› Ask Codex to do anything', '› unfinished human draft')
+        self.assert_refusal(self.send(), 'draft')
+
+    def test_a_pi_footer_with_usage_sends_and_an_unknown_stats_row_stays_held(self):
+        self.agent['agent'] = self.pane['agent'] = 'pi'
+        captured = (FRAMES / 'pi-empty-composer.txt').read_text()
+        for stats in ['↑12k ↓3.4k $0.123 6.1%/200k (auto)', '?/200k (auto)',
+                      '↑1.2M ↓48k R900k W20k CH95.0% $1.234 (sub) 42.0%/1.0M']:
+            with self.subTest(stats=stats):
+                self.frame = captured.replace('0.0%/0 (auto)', stats)
+                self.assertEqual(self.send().returncode, 0)
+        for stats in ['press enter 6.1%/200k (auto)', '6.1%']:
+            with self.subTest(stats=stats):
+                (self.directory / 'calls.ndjson').unlink(missing_ok=True)
+                self.frame = captured.replace('0.0%/0 (auto)', stats)
+                self.assert_refusal(self.send(), 'unreadable')
 
     def test_draft_is_preserved(self):
         self.frame = (FRAMES / 'codex-empty-composer.txt').read_text().replace(

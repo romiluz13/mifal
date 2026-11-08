@@ -18,7 +18,7 @@ def cli(*args):
     except (OSError, subprocess.TimeoutExpired, UnicodeError) as error:
         raise Refusal('cli_failure', 'Herdr ' + ' '.join(args[:2]) + ' failed; leave the pane held') from error
     try:
-        response = json_loads(result.stdout)
+        response = json_loads(result.stderr if result.returncode else result.stdout)
         error = response.get('error')
         blocked = (args[:2] == ('agent', 'prompt') and result.returncode
                    and isinstance(response.get('id'), str) and isinstance(error, dict)
