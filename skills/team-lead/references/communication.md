@@ -239,6 +239,12 @@ Give reviewers the requirement and the raw artifacts before your favored
 explanation. The hard lines in SKILL.md apply: no suppressed findings, no
 wrong finding accepted for a clean score, and a named cycle cap.
 
+A claim of the form "no X anywhere" (nothing calls this, no message spans
+lines) cites the search that shows it: the command, where it looked and what
+it printed. Every review brief asks for that, of the reviewer's claims and
+of the builder's. The reviewer reruns the builder's search; a universal claim
+without its search is untested.
+
 When reviewers disagree, compare their rationales and the decisive evidence.
 A factual dispute is settled by checking the artifact. Reframe the question
 for everyone only when the disagreement exposes competing readings of the
@@ -261,7 +267,7 @@ first read. Give it the brief, the review snapshot, the earlier findings, the
 builder's responses and the open objections. A new session resets neither the
 review history nor the retry count. A mechanical recheck, such as rerunning a
 test or the validator, needs no new judgment review. The lead may fix a small
-finding itself; every fix the lead writes gets an independent final review.
+finding itself; SKILL.md's M5 says how a fix the lead writes is reviewed.
 Record each review's cost with its findings.
 
 **Review depth.** Every change gets a bounded independent review; risk sets

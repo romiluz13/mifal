@@ -85,7 +85,7 @@ Mifal 0.1 was built by a Mifal team: a Claude lead, a Codex reviewer, a Claude r
 
 ## Status
 
-**Alpha**, version 0.3.2. The installer, update, uninstall, doctor and validator are covered by tests, run in CI on macOS under the system Python and the current python3. What a program checks, and what still relies on the agent following the Guide, is spelled out in [docs/TRUST.md](docs/TRUST.md).
+**Alpha**, version 0.3.3. The installer, update, uninstall, doctor and validator are covered by tests, run in CI on macOS under the system Python and the current python3. What a program checks, and what still relies on the agent following the Guide, is spelled out in [docs/TRUST.md](docs/TRUST.md).
 
 ## Support
 

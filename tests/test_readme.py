@@ -156,7 +156,7 @@ class RunScript(unittest.TestCase):
         result = subprocess.run(["/bin/bash", str(REPO / "tests" / "run.sh"), "-k", "no_test_is_named_this"],
                                 capture_output=True, text=True, timeout=600)
         self.assertIn("the shipped suites did not run", result.stderr)
-        self.assertRegex(text(REPO / "CONTRIBUTING.md"), r"Any argument[^.]*skips the shipped suites")
+        self.assertRegex(text(REPO / "CONTRIBUTING.md"), r"Any other argument[^.]*skips the shipped suites")
 
 
 if __name__ == "__main__":

@@ -88,7 +88,9 @@ specific. Small tasks get small messages.
 3. **Act** on that moment, below.
 4. **Record** in `state.md`; a task line goes in before its prompt is sent.
    Later comes after compaction.
-5. **Wait** with a limit: the doorbell, or a wait with a timeout. Never a bare poll.
+5. **Wait** with a limit, never on a teammate's signal alone: every
+   assignment has a deadline, and a bounded wait wakes you by then even if
+   the signal never comes. Never a bare poll.
 
 The record lives in the project's existing team folder (`.team/`,
 `.orchestrator/`, whatever exists): [team memory](references/team-memory.md).
@@ -237,8 +239,8 @@ backend changes with user-visible effects, read
 Select the relevant specialist and require actual procedure-load evidence;
 catalog visibility alone does not establish use.
 
-**Record:** the task line in `state.md` (owner, latitude, return path)
-before the prompt goes out; for several teammates, prepare every brief, then
+**Record:** the task line in `state.md` (owner, latitude, return path,
+dispatch time and deadline) before the prompt goes out; for several teammates, prepare every brief, then
 dispatch. A correction keeps its task id and gets its own attempt id: the
 brief's frontmatter says `task: 7` and `attempt: 7.2`, and the doorbell and
 its own return section say `7.2`, so a late `DONE 7` can't close it.
@@ -250,7 +252,9 @@ its own return section say `7.2`, so a late `DONE 7` can't close it.
 Don't message a working teammate. Wait with a named limit. When quiet runs
 long, read a small window: progressing (extend once), thrashing or lost the
 thread (stop, re-brief from the record), or a service failure (the
-environment, not the teammate). On Herdr, a Claude Code worker with the team
+environment, not the teammate). Extending once is for a teammate still making
+progress; an idle teammate with no Return at its deadline follows the
+[deadline loop](references/herdr.md#deadlines). On Herdr, a Claude Code worker with the team
 Stop hook also leaves a QUIET event when a turn ends with no report; attend to
 it last ([quiet teammates](references/herdr.md#quiet-teammates)). Other
 workers stay on this manual check. If the next cycle would repeat the same
@@ -302,6 +306,16 @@ the worker's loads to the harness's own record, not to its word. Compare the
 affected behavior with the selected procedures; investigate omissions and
 request a missing check or an evidenced equivalent. A read declaration is
 not proof of application, and a late read cannot repair earlier timing.
+
+When the report is a review, run each finding's evidence before you rule on
+it: its command, case or trace, at the revision it names. A finding you can't
+reproduce is recorded as inconclusive, with what you ran. When a re-review
+finds the same class of problem as an earlier review of the task, write a
+redesign note before the next attempt, at any attempt: the class, why the
+last fix didn't close it, and the changed approach. A fix you write yourself
+gets its own small fresh review before it merges, by a reviewer outside your
+session, and `state.md` records that review's task id on the fix's line; the
+whole-branch review doesn't stand in for it.
 
 Separate findings, hypotheses, and observed results. Reuse passed checks while
 their inputs hold. A claim citing a `run:` record is historical: in the
@@ -370,6 +384,13 @@ briefs cost you time? What can we stop doing? Are we still solving the right
 problem? Keep at most two changes, each with an owner and a check on the next
 relevant task. Three questions and at most one edit is a retro. Guide:
 [development](references/development.md).
+
+On a multi-ticket build, the whole-branch review is a milestone: start it at
+the first merge that brings the merged tickets to two thirds of the total,
+ceil(2N/3) of N (3 of 4, 4 of 6), on a pinned snapshot with no merge under
+it. It doesn't cover what merges after it: each later merge or fix gets a
+fresh bounded review of its diff and the seams it touches, or a whole review
+where a seam warrants it, before final verification.
 
 A retro is complete only when it names the asset it produced (a rule, a
 check, a test or an eval), or says "none needed" and why. Ask the blameless

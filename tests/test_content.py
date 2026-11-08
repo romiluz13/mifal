@@ -4,8 +4,12 @@ import hashlib
 import importlib.util
 import json
 import re
+import shlex
 import subprocess
+import sys
+import tempfile
 import unittest
+from pathlib import Path
 from unittest import mock
 
 from support import REPO
@@ -402,14 +406,16 @@ class TeamRules(unittest.TestCase):
         review = section(TEAM_LEAD + "references/communication.md", "Review and disagreement")
         self.assertTerms(review, "re-review", "new reviewer session", "earlier findings", "builder's responses",
                          "open objections", "review history", "retry count", "mechanical recheck",
-                         "independent final review", "cost")
+                         "cost")
         self.assertRegex(review, r"(?i)\bevery re-review\b[^.]{0,60}\bnew reviewer session\b|"
                                  r"\bnew reviewer session for every re-review\b")
         self.assertNotRegex(review, r"new reviewer session is optional|may reuse the first reviewer")
         self.assertRegex(review, r"\b(?:resets? neither|does not reset|doesn't reset|never resets?)\b[^.]{0,30}"
                                  r"review history\b[^.]{0,30}\bretry count")
         self.assertRegex(review, r"mechanical recheck\b[^.]*\bno new judgment review")
-        self.assertRegex(review, r"every fix[^.]{0,40}\bgets an independent final review")
+        assert_pinned(self, "a fix the lead writes is reviewed as M5 says", TEAM_LEAD + "references/communication.md",
+                      "The lead may fix a small finding itself; SKILL.md's M5 says how a fix the lead writes is "
+                      "reviewed.")
         pointer = "communication.md#review-and-disagreement"
         keep = section(TEAM_LEAD + "references/herdr.md", "Keeping or restarting")
         self.assertIn(pointer, keep)
@@ -694,6 +700,324 @@ class FreeCore(unittest.TestCase):
         for name in ("uvttfsvryq", "zvqwbhearl", "xvr", "qnyyr", "qnyy-r"):
             self.assertTrue(names_a_paid_service(f"use {plant(name)} for the hero"), plant(name))
         self.assertFalse(names_a_paid_service("a runway of light, a kiosk, and a cling film"))
+
+
+def flat(rel):
+    return " ".join(shipped_text(rel).split())
+
+
+SENTENCE_START = re.compile(r"(?:\A|[.!?][*_`\"')\]]*\s+|\n[ \t]*\n[ \t]*|^#+ [^\n]*\n[ \t]*|^[ \t]*[-*+][ \t]+)\Z",
+                            re.M)
+
+
+CLOSING_MARKUP = re.compile(r"[*_`\"')\]]*")
+
+
+def pin_ends(sentence, after):
+    """True when nothing after a pinned sentence reads as part of it. After a full stop comes the end, or a new
+    sentence that doesn't start in lowercase or with a parenthesis or footnote. After a colon, the line ends and
+    the next one is blank, a list item or a code fence."""
+    rest = after[CLOSING_MARKUP.match(after).end():]
+    if not rest.strip():
+        return True
+    if sentence.endswith(":"):
+        return re.match(r"[ \t]*\n[ \t]*(?:\n|(?:[-*+]|\d+\.)[ \t]|```)", rest) is not None
+    return re.match(r"\s+[^\sa-z(\[]", rest) is not None
+
+
+def assert_pinned(test, rule, rel, sentence):
+    """A rule sentence must stay whole, and start a sentence, in the file that owns it. Rewording is allowed: change
+    the pin with it."""
+    text = shipped_text(rel)
+    found = list(re.finditer(r"\s+".join(map(re.escape, sentence.split())), text))
+    test.assertTrue(found, f"{rel} no longer holds the sentence that carries the rule '{rule}'. This sentence "
+                           f"carries a rule: keep its meaning, and update this pin in tests/test_content.py in the "
+                           f"same commit, so a reviewer sees both. Pinned: {sentence!r}")
+    test.assertTrue(any(SENTENCE_START.search(text[:m.start()]) for m in found),
+                    f"{rel}: words now come before the sentence that carries the rule '{rule}', so it no longer starts "
+                    f"a sentence and may no longer bind. Keep its meaning, and update this pin in the same commit. "
+                    f"Pinned: {sentence!r}")
+    test.assertTrue(any(SENTENCE_START.search(text[:m.start()]) and pin_ends(sentence, text[m.end():])
+                        for m in found),
+                    f"{rel}: words now follow the sentence that carries the rule '{rule}' before it ends, so they may "
+                    f"change what it asks. Keep its meaning, and update this pin in the same commit. "
+                    f"Pinned: {sentence!r}")
+
+
+HERDR_MD = TEAM_LEAD + "references/herdr.md"
+SKILL_MD = TEAM_LEAD + "SKILL.md"
+COMMUNICATION_MD = TEAM_LEAD + "references/communication.md"
+PHASE_RECORD_MD = "skills/engineering-workflow/references/phase-record.md"
+
+RULE_SENTENCES = (
+    ("no doorbell-only wait, core loop", SKILL_MD,
+     "5. **Wait** with a limit, never on a teammate's signal alone: every assignment has a deadline, and a bounded "
+     "wait wakes you by then even if the signal never comes."),
+    ("no doorbell-only wait, Herdr loop", HERDR_MD, "5. **Wait** with a limit, and never on the doorbell alone."),
+    ("a bounded wait starts at dispatch", HERDR_MD,
+     "At dispatch, start `herdr agent wait <name> --timeout <ms>` running to the assignment's [deadline](#deadlines), "
+     "in the background where your harness allows, so its end wakes you; a ring only wakes you sooner."),
+    ("the wait and the deadline replace polling", HERDR_MD,
+     "That wait and the deadline replace polling: don't run a bare polling loop."),
+    ("age is measured from the recorded dispatch time", HERDR_MD,
+     "Herdr reports no activity time, so an assignment's age is now minus the dispatch time you recorded."),
+    ("every assignment records a deadline", HERDR_MD,
+     "Record a deadline for every assignment, whatever agent runs it: the task line in `state.md` carries the "
+     "dispatch time and the expected duration (`Sent 10:00Z; deadline 10:00Z plus 90 min`)."),
+    ("each correction and re-review gets its own deadline", HERDR_MD,
+     "A correction and a re-review each get their own."),
+    ("a deadline counts working time", HERDR_MD,
+     "A deadline counts working time, and time the machine slept is not a teammate's overrun."),
+    ("check for sleep before calling a hang", HERDR_MD,
+     "Before you treat a jump in the clock as a hang, check whether the machine slept, however your system shows "
+     "that."),
+    ("the deadline is worked out fresh from dispatch", HERDR_MD,
+     "Work the deadline out fresh each time: dispatch time plus expected duration plus all the sleep since dispatch, "
+     "never sleep added to a deadline you already moved."),
+    ("the Return is read first at the deadline", HERDR_MD,
+     "At the deadline, read the Return first, then the pane if no Return closes the attempt, even when the pane went "
+     "idle long before."),
+    ("an idle wake with no Return is not completion", HERDR_MD,
+     "Read an earlier wake the same way: an idle wake with no Return is not completion."),
+    ("the timed-out idle pane case", HERDR_MD,
+     "When a deadline passes on an idle pane with no ring, walk this case:"),
+    ("the chain's order", HERDR_MD, "A lead's chain of commands checks its gates, then records, then prompts."),
+    ("the task line comes first", HERDR_MD,
+     "Write the task line, opening with its dispatch time and deadline "
+     "(`- Task <id>: Sent <time>; deadline <time> plus <minutes> min. ...`), before you run it."),
+    ("a failed step stops the chain", HERDR_MD,
+     "A failed gate or a missing task line stops the chain before it stamps or sends, and a failed stamp stops it "
+     "before it sends."),
+    ("a deciding search stops the chain, a looking one ends in || true", HERDR_MD,
+     "A search that decides something, like the task-line check, stops the chain when it finds nothing; a search you "
+     "run only to look ends in `|| true`, because finding nothing is not a failure."),
+    ("capture the output before searching it", HERDR_MD,
+     "Capture the output first, then search it: `out=$(herdr agent read <name> --source visible)`, then "
+     "`grep -q \"<pattern>\" <<<\"$out\"`."),
+    ("closing the last pane removes the workspace", HERDR_MD,
+     "Closing a workspace's last pane removes the workspace too, so close a last pane only when you mean to end its "
+     "workspace."),
+    ("a Claude builder checks git diff --stat", HERDR_MD,
+     "In a Claude Code builder's brief, add one line: check `git diff --stat` after the first edit to each file and "
+     "before each commit."),
+    ("a universal claim cites its search", COMMUNICATION_MD,
+     "A claim of the form \"no X anywhere\" (nothing calls this, no message spans lines) cites the search that shows "
+     "it: the command, where it looked and what it printed."),
+    ("every review brief asks for the search", COMMUNICATION_MD,
+     "Every review brief asks for that, of the reviewer's claims and of the builder's."),
+    ("the reviewer reruns it, and no search means untested", COMMUNICATION_MD,
+     "The reviewer reruns the builder's search; a universal claim without its search is untested."),
+    ("a finding's evidence runs before a ruling", SKILL_MD,
+     "When the report is a review, run each finding's evidence before you rule on it: its command, case or trace, at "
+     "the revision it names."),
+    ("an unreproduced finding is inconclusive", SKILL_MD,
+     "A finding you can't reproduce is recorded as inconclusive, with what you ran."),
+    ("a repeated finding class means a redesign note", SKILL_MD,
+     "When a re-review finds the same class of problem as an earlier review of the task, write a redesign note "
+     "before the next attempt, at any attempt: the class, why the last fix didn't close it, and the changed "
+     "approach."),
+    ("a fix the lead writes gets its own fresh review", SKILL_MD,
+     "A fix you write yourself gets its own small fresh review before it merges, by a reviewer outside your session, "
+     "and `state.md` records that review's task id on the fix's line; the whole-branch review doesn't stand in for "
+     "it."),
+    ("the whole-branch review starts at two thirds", SKILL_MD,
+     "On a multi-ticket build, the whole-branch review is a milestone: start it at the first merge that brings the "
+     "merged tickets to two thirds of the total, ceil(2N/3) of N (3 of 4, 4 of 6), on a pinned snapshot with no "
+     "merge under it."),
+    ("later merges get their own review", SKILL_MD,
+     "It doesn't cover what merges after it: each later merge or fix gets a fresh bounded review of its diff and the "
+     "seams it touches, or a whole review where a seam warrants it, before final verification."),
+    ("ticket-level reviews sit inside Implement", PHASE_RECORD_MD, "Ticket-level reviews sit inside Implement."),
+    ("ticket reviews say start implement", PHASE_RECORD_MD,
+     "A review of one ticket's diff, its re-reviews and their acceptances are part of building that ticket, so the "
+     "Checks that open them say `Check: start implement`."),
+    ("start review opens Review", PHASE_RECORD_MD,
+     "`Check: start review` opens the Review step, which begins with the whole-branch review of the integrated "
+     "work."),
+)
+
+DEADLINE_CHECKLIST = (
+    "1. Read the Return file. If a Return closes the attempt, the work came back and the ring was lost: take it to "
+    "M5. A Claude worker whose ring couldn't land is this case: it wrote its Return, so its Stop hook left no QUIET "
+    "event, and only the deadline woke you.",
+    "2. No Return: work the deadline out again with the sleep since dispatch. If it is still ahead, wait until then; "
+    "if it has passed, go straight on to the pane.",
+    "3. Read a small window of the pane and name what it shows: a model or service timeout, a question or approval, "
+    "a lost thread, or nothing.",
+    "4. Take one bounded action. A question or approval goes to [blocked](#blocked), and a timeout or lost thread to "
+    "[quiet teammates](#quiet-teammates). A pane that shows nothing gets one short status question, sent after the "
+    "pane checks in Dispatch, asking for `DONE`, `HELP` or `HELD`.",
+    "5. Record the diagnosis, the action and a new deadline in `state.md`, and start a new bounded `herdr agent "
+    "wait` to that deadline, because a wait that ended on idle doesn't restart itself.",
+)
+
+CHAIN_VALIDATOR_STUB = """import json, os, subprocess, sys
+with open(os.environ["CHAIN_TRACE"], "a") as f:
+    f.write(json.dumps(sys.argv[1:]) + "\\n")
+if sys.argv[1] == os.environ["CHAIN_FAIL"]:
+    sys.exit(1)
+if sys.argv[1] == "brief-digest":
+    print("sha256:" + "0" * 64)
+if sys.argv[1] == "stamp":
+    sys.exit(subprocess.run([sys.executable, os.environ["CHAIN_VALIDATOR"]] + sys.argv[1:]).returncode)
+"""
+CHAIN_SENDER_STUB = """import json, os, sys
+with open(os.environ["CHAIN_TRACE"], "a") as f:
+    f.write(json.dumps(["send"] + sys.argv[1:]) + "\\n")
+"""
+
+
+class PinEnds(unittest.TestCase):
+    """A pinned sentence ends where its pin ends: nothing added after it can read as part of it. Known limit (review
+    216): the check reads characters, not meaning, so a qualifier after a full stop that hides behind an invisible
+    character such as U+200B, or follows an em dash or a semicolon, gets past it; review catches those. Pinning whole
+    paragraphs instead is left for a later release."""
+
+    def test_nothing_that_reads_as_part_of_the_sentence_follows_it(self):
+        period, colon = "Read the Return first.", "walk this case:"
+        for after in (" only if you choose to.", "  only if you choose to.", "\t only if", "\n   only if",
+                      " (only if you choose to)", "[^note]"):
+            self.assertFalse(pin_ends(period, after), repr(after))
+        for after in (" only if you choose to.", "  only if you choose to.", " Only if you choose to.",
+                      "\nOnly if you choose to.", "\n  only if", " (only if)", " `if convenient`", " **Optional.**"):
+            self.assertFalse(pin_ends(colon, after), repr(after))
+
+    def test_a_new_sentence_paragraph_or_list_can_follow_it(self):
+        for after in ("", "\n", " Then read the pane.", "\nThen read the pane.", "\n\nNext paragraph.",
+                      "** Then", " `grep` comes next."):
+            self.assertTrue(pin_ends("Read the Return first.", after), repr(after))
+        for after in ("", "\n\n1. Read the Return file.", "\n1. Read the Return file.", "\n- a step",
+                      "\n```bash", "\n\n"):
+            self.assertTrue(pin_ends("walk this case:", after), repr(after))
+
+
+class RetroRules(unittest.TestCase):
+    """Ticket 04 of the release that applied 0.3.2's retro: plan decisions 6 and 7, with the lead's change from
+    review 206 (a deadline for every assignment). Each rule sentence is pinned whole, starting a sentence, in the
+    file that owns it, after whitespace and line wraps are normalised, so it can't change or vanish by accident:
+    rewording a rule means updating its pin in the same commit, where a reviewer sees both. Examples and
+    explanations aren't pinned. A pin can't judge meaning. It doesn't catch a new sentence elsewhere that
+    contradicts the rule, or a rule that stops being true; review catches those. The command chain is pinned by
+    running it."""
+
+    def test_each_rule_sentence_stays_whole_in_the_file_that_owns_it(self):
+        for rule, rel, sentence in RULE_SENTENCES:
+            with self.subTest(rule=rule):
+                assert_pinned(self, rule, rel, sentence)
+
+    def test_the_timed_out_idle_pane_case_keeps_its_steps_in_order(self):
+        text = flat(HERDR_MD)
+        for n, step in enumerate(DEADLINE_CHECKLIST, 1):
+            with self.subTest(step=n):
+                assert_pinned(self, f"timed-out idle pane, step {n}", HERDR_MD, step)
+        at = [text.find(step) for step in DEADLINE_CHECKLIST]
+        self.assertEqual(at, sorted(at), "references/herdr.md: the timed-out idle pane case reads the Return first, "
+                                         "then the sleep, then the pane, then acts and records, in that order")
+
+    def test_the_command_chain_template_gates_needs_its_own_task_line_stamps_then_sends_once(self):
+        doc = shipped_text(HERDR_MD)
+        self.assertIn("\n## Command chains\n", doc, f"{HERDR_MD} has no Command chains section to run")
+        chain = doc.split("\n## Command chains\n", 1)[1].split("\n## ", 1)[0]
+        block = re.search(r"(?ms)^```bash\n(.*?)^```", chain)
+        self.assertIsNotNone(block, "the Command chains section has no ```bash template to run")
+        template = block.group(1)
+        placeholders = "record='<record root>'; task='<id>'; brief='<brief path>'; name='<teammate>'"
+        self.assertIn(placeholders, template, "the test fills in this placeholder line; update both together")
+        state = "# State\n\n## Assignments\n{rows}\n## Workflow\nMethodology: matt\n"
+
+        def row(task, deadline=True):
+            due = "Sent 10:00Z; deadline 10:00Z plus 90 min. " if deadline else "Sent 10:00Z. "
+            return f"- Task {task}: {due}Owner w1. Return: tasks/7.md.\n"
+
+        cases = (
+            ("a failed workflow gate", "7", "tasks/7.md", "workflow", row("7"), False),
+            ("a failed brief gate", "7", "tasks/7.md", "brief", row("7"), False),
+            ("a missing task line", "7", "tasks/7.md", "-", "", False),
+            ("a failed stamp", "7", "tasks/7.md", "stamp", row("7"), False),
+            ("a passing chain, brief at a path its id doesn't give", "7", "briefs/w1.md", "-", row("7"), True),
+            ("correction 7.2 with only task 712's line", "7.2", "tasks/7.md", "-", row("712"), False),
+            ("correction 7.2 with only task 7.3's line", "7.2", "tasks/7.md", "-", row("7.3"), False),
+            ("correction 7.2 with only task 7.21's line", "7.2", "tasks/7.md", "-", row("7.21"), False),
+            ("correction 7.2 named only inside task 8's line", "7.2", "tasks/7.md", "-",
+             "- Task 8: owner w1, after - Task 7.2: deadline 10:00Z plus 90 min.\n", False),
+            ("correction 7.2 whose own line has no deadline", "7.2", "tasks/7.md", "-", row("7.2", False) + row("8"),
+             False),
+            ("correction 7.2 with its own line, brief in tasks/7.md", "7.2", "tasks/7.md", "-", row("7") + row("7.2"),
+             True),
+            ("a failed brief digest", "7", "tasks/7.md", "brief-digest", row("7"), False),
+            ("an id with a backslash escape against task 7.2's line", "7\\0562", "tasks/7.md", "-", row("7.2"), False),
+            ("a line that says it has no deadline", "7", "tasks/7.md", "-",
+             "- Task 7: owner w1; no deadline.\n", False),
+            ("a deadline still to be decided", "7", "tasks/7.md", "-",
+             "- Task 7: owner w1; deadline TBD.\n", False),
+            ("an impossible time", "7", "tasks/7.md", "-",
+             "- Task 7: Sent 10:00Z; deadline 99:99Z plus 90 min.\n", False),
+            ("an impossible date", "7", "tasks/7.md", "-",
+             "- Task 7: Sent 10:00Z; deadline 2026-99-99T09:00:00Z plus 90 min.\n", False),
+            ("a negated deadline", "7", "tasks/7.md", "-",
+             "- Task 7: Sent 10:00Z; no deadline 10:00Z plus 90 min.\n", False),
+            ("a deadline with no dispatch time", "7", "tasks/7.md", "-",
+             "- Task 7: owner w1; deadline 10:00Z plus 90 min.\n", False),
+            ("a deadline of zero minutes", "7", "tasks/7.md", "-",
+             "- Task 7: Sent 10:00Z; deadline 10:00Z plus 0 min.\n", False),
+            ("a struck-through deadline", "7", "tasks/7.md", "-",
+             "- Task 7: ~~Sent 10:00Z; deadline 10:00Z plus 90 min~~; no current deadline.\n", False),
+            ("a quoted example before an undecided deadline", "7", "tasks/7.md", "-",
+             '- Task 7: example "Sent 10:00Z; deadline 10:00Z plus 90 min"; Sent 24:00Z; deadline TBD.\n', False),
+            ("the fields after other text", "7", "tasks/7.md", "-",
+             "- Task 7: owner w1. Sent 10:00Z; deadline 10:00Z plus 90 min.\n", False),
+            ("a minute count that runs on", "7", "tasks/7.md", "-",
+             "- Task 7: Sent 10:00Z; deadline 10:00Z plus 90 minimum.\n", False),
+            ("a deadline with a date", "7", "tasks/7.md", "-",
+             "- Task 7: Sent 2026-11-08T08:57:44Z; deadline 2026-11-08T08:57:44Z plus 75 min plus sleep. Owner w1.\n",
+             True),
+        )
+        for label, task, brief_at, fail, rows, sends_prompt in cases:
+            with self.subTest(case=label), tempfile.TemporaryDirectory() as tmp:
+                tmp = Path(tmp)
+                home, record, bindir = tmp / "home", tmp / "record", tmp / "bin"
+                for d in (home / ".agents/skills/team-lead/scripts", home / ".agents/mifal/tools/herdr_adapter",
+                          record / "tasks", bindir):
+                    d.mkdir(parents=True)
+                (home / ".agents/skills/team-lead/scripts/validate_contracts.py").write_text(CHAIN_VALIDATOR_STUB)
+                (home / ".agents/mifal/tools/herdr_adapter/guard_send.py").write_text(CHAIN_SENDER_STUB)
+                (bindir / "python3").symlink_to(sys.executable)
+                brief = record / brief_at
+                brief.parent.mkdir(exist_ok=True)
+                brief.write_text("# Task 7\n")
+                before = state.format(rows=rows)
+                (record / "state.md").write_text(before)
+                trace = tmp / "trace.jsonl"
+                script = template.replace(placeholders, f"record={shlex.quote(str(record))}; task='{task}'; "
+                                                        f"brief={shlex.quote(str(brief))}; name='w1'")
+                env = {"HOME": str(home), "PATH": f"{bindir}:/usr/bin:/bin", "LANG": "en_US.UTF-8",
+                       "CHAIN_TRACE": str(trace), "CHAIN_FAIL": fail,
+                       "CHAIN_VALIDATOR": str(REPO / "skills/team-lead/scripts/validate_contracts.py")}
+                run = subprocess.run(["bash"], input=script, env=env, capture_output=True, text=True, timeout=60)
+                calls = [json.loads(l) for l in trace.read_text().splitlines()] if trace.exists() else []
+                sends = [c for c in calls if c[0] == "send"]
+                stamps = [i for i, c in enumerate(calls) if c[0] == "stamp"]
+                after = (record / "state.md").read_text()
+                if not sends_prompt:
+                    self.assertNotEqual(run.returncode, 0, f"the chain template ran on after {label}")
+                    if fail == "-" and rows:
+                        self.assertIn("Sent <time>; deadline <time> plus <minutes> min", run.stderr,
+                                      f"the refusal after {label} doesn't show the form to write")
+                    self.assertEqual((sends, after), ([], before), f"the chain template stamped or sent after {label}")
+                    self.assertEqual(len(stamps), int(fail == "stamp"),
+                                     f"the chain template made {len(stamps)} stamp calls after {label}")
+                    continue
+                self.assertEqual(run.returncode, 0, run.stderr)
+                self.assertEqual(len(sends), 1, f"the chain template sent {len(sends)} prompts, not one")
+                self.assertEqual(len(stamps), 1, calls)
+                self.assertLess(stamps[0], calls.index(sends[0]), "the chain template sent before it stamped")
+                self.assertTrue(calls[stamps[0]][2].startswith("start implement | passed | "), calls[stamps[0]])
+                self.assertRegex(after, r"(?m)^Check: start implement \| passed \| .* at:\S+Z$")
+                self.assertIn(["brief", str(brief), "--matt"], calls, "the brief gate didn't check the brief path")
+                self.assertIn(["brief-digest", str(brief)], calls, "the stamp's digest isn't the brief path's")
+                self.assertEqual(sends[0][1], "w1", sends)
+                self.assertIn(f"Task {task}:", sends[0][2], "the prompt doesn't name the assignment id")
+                self.assertIn(str(brief), sends[0][2], "the prompt doesn't name the brief path")
 
 
 class Provenance(unittest.TestCase):

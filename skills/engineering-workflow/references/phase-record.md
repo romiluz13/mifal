@@ -373,6 +373,14 @@ route's own), or the route's phase word where the route has no such step; an
 unknown name such as `start entry` is refused, because it would leave every read
 unheld.
 
+Ticket-level reviews sit inside Implement. A review of one ticket's diff, its
+re-reviews and their acceptances are part of building that ticket, so the
+Checks that open them say `Check: start implement`. `Check: start review`
+opens the Review step, which begins with the whole-branch review of the
+integrated work. A read is held to the earliest start Check of its step, so a
+ticket review logged as `start review` opens Review early and makes the lead's
+later code-review read late.
+
 To write a Check with the clock's time instead of a typed one, run
 `validate_contracts.py stamp <record> "<step> | passed | <evidence>"`: it
 appends `Check: <value> at:<UTC now>` as the last line of the record's

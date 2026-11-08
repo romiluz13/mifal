@@ -24,7 +24,7 @@ chat summaries. For a sustained fleet loop, read the agency tooling guide
 controller and resume reconciliation. This is tooling, not another skill or an
 automatically running scheduler. Its verified input-box framing and trusted
 expected-artifact digests are prerequisites; the zero-model live fixtures do
-not establish native Claude, Codex, Droid or Pi framing. Keep the raw CLI path
+not establish native Claude, Codex, Droid or Pi framing. Use the guarded CLI send below
 when that controller is unsuitable, after checking the receiving harness.
 Do not invent frame delimiters or weaken the production draft guards.
 
@@ -59,13 +59,57 @@ worker from the record, and don't assume it remembers anything.
    quiet past its expected time, then a reflection that's due.
 3. **Act** on that moment.
 4. **Record** in `state.md`; a task line goes in before its prompt is sent.
-5. **Wait** with a limit. Either the doorbell wakes you, or you use
-   `herdr agent wait <name> --timeout <ms>`. Pick the timeout from how long
-   the task should take. Don't run a bare polling loop. If your harness can
-   run commands in the background, run the wait there so finishing it wakes
-   you.
+5. **Wait** with a limit, and never on the doorbell alone. At dispatch,
+   start `herdr agent wait <name> --timeout <ms>` running to the
+   assignment's [deadline](#deadlines), in the background where your harness
+   allows, so its end wakes you; a ring only wakes you sooner. That wait and
+   the deadline replace polling: don't run a bare polling loop.
 
 ## Dispatch
+
+For CLI dispatches and worker rings, use
+`python3 ~/.agents/mifal/tools/herdr_adapter/guard_send.py <target> "<text>"`.
+It resolves the target, checks identity and idle/done state, passively reads the
+complete visible frame with truncation metadata, refuses known dialog menus
+before selecting a captured composer profile, and rechecks identity before
+sending once to the pinned pane. It never clears input or focuses a pane.
+The socket controller keeps its existing two-read draft guard; its generic
+frame delimiters do not establish native composer support.
+
+A refusal names its reason. Only `unsupported_profile` prints the manual path:
+the lead, agent or human may check the scoped identity and idle/done state,
+read the visible composer, and use `herdr agent prompt <target> "<text>"` only
+if that composer is readable and empty. Known dialog, draft, blocked, not-idle,
+unreadable, truncated, identity-change and CLI-failure refusals stay held;
+none permits a raw-send bypass. Preserve drafts and leave a visible summary.
+A dim Claude prompt suggestion is empty input; the guarded ANSI read distinguishes it from a typed draft.
+An unseen dialog on an uncaptured agent remains exposed on the manual path.
+
+Profiles cover the captured Codex 0.166 and 0.167, Claude and Pi 1.4.0
+frames only, plus Pi's stats row once a session has used tokens, which
+follows Pi 1.4.0's footer source; a newer Codex footer refuses until it is
+captured. Droid's clear
+composer and OpenCode's profile are unverified. OpenCode startup installed
+dependencies in its disposable Home despite suppression flags, so its captured
+frame is retained as evidence but is not enabled as a profile. The signature table currently covers Codex hook
+review and Droid login menus, including a menu with footer lines below it.
+Claude matches the empty composer itself; footer modes, status lines and
+notices below it do not decide whether it is clear. Codex keeps its captured
+two-row footer boundary; missing or changed footer rows remain unsupported.
+Arbitrary footer text is ambiguous with multiline draft text. Missing or
+ambiguous composer boundaries refuse. This is known-pattern detection, not
+general dialog recognition. Quoted dialog text above a real clear composer
+does not refuse; plain text cannot distinguish a perfectly copied menu from UI,
+or a draft that exactly reproduces an accepted placeholder.
+The check-to-send race with human typing or a changing UI remains: no atomic
+lock or compare-and-swap is claimed. Herdr's structured `agent_blocked` submit
+error rejects before input and leaves a retryable hold; retry the full checks
+after it is clear. Any other submission failure is `send_uncertain`: do not
+retry until the pane and durable Return have been reconciled. A Codex pane
+whose status line is off or holds one item refuses, and says so: its footer
+can't be told from a draft without a captured form. Claude's box is the last
+two column-0 rules in the frame: a footer drawing rules of its own could move
+it, though no captured footer does.
 
 - Launch a fresh worker plainly: Mifal's Guide makes Matt the owner in every
   harness. Preserve the requested account, provider, model and effort. Use
@@ -89,9 +133,14 @@ worker from the record, and don't assume it remembers anything.
 - Put the brief in `<record>/tasks/<id>.md`, where `<record>` is the
   record root's absolute path
   ([communication](communication.md#parallel-agents-in-one-repository)), and
-  send a short prompt that points to it: `herdr agent prompt <name> "Task
-  <id>: read <record>/tasks/<id>.md and start. Ring me when done."` Tiny
-  tasks can go inline. A correction uses its attempt id (`Task 7.2`).
+  send a short prompt that points to it: `python3
+  ~/.agents/mifal/tools/herdr_adapter/guard_send.py <name> "Task <id>: read <record>/tasks/<id>.md and start. Ring me when done."` Tiny
+  tasks can go inline. A correction uses its attempt id (`Task 7.2`) and
+  keeps its brief in its task's file (`<record>/tasks/7.md`).
+- In a Claude Code builder's brief, add one line: check `git diff --stat`
+  after the first edit to each file and before each commit. A formatter
+  hook can rewrite a whole file on a one-line edit, and the stat shows that
+  before a commit carries it.
 - Pin the brief before you send it: `validate_contracts.py brief-digest
   <record>/tasks/<id>.md` prints `sha256:<digest>`, and you stamp
   `brief=sha256:<digest>` in the dispatch Check line. Re-stamp after any
@@ -100,11 +149,11 @@ worker from the record, and don't assume it remembers anything.
   refuses a brief that changed in any way but its ticks ([phase
   record](../../engineering-workflow/references/phase-record.md)).
 - Before direct prompts, check the scoped pane identity and readiness, then
-  read the composer; if it holds a draft or is unreadable, do not send. An
-  idle state alone does not prove the input is empty. Preserve the draft, skip
-  the send and leave the durable return plus a visible summary. Never clear a
-  user's draft. This manual check/send sequence has a race with human typing;
-  it is not atomic.
+  use the guarded send above to read the composer; if it holds a draft or is
+  unreadable, do not send. An idle state alone does not prove the input is empty.
+  Preserve the draft, skip the send and leave the durable return plus a visible
+  summary. Never clear a user's draft. The manual check/send sequence available
+  only after `unsupported_profile` has the same race with human typing.
 - Prompt only a teammate that is `idle` or `done`. Text sent to a `working`
   agent may interleave, queue, or behave differently depending on the
   receiving harness; verify per harness. If you need to stop work, use the
@@ -114,7 +163,8 @@ worker from the record, and don't assume it remembers anything.
   unassigned.
 - A successful prompt only proves the text was submitted, not that work
   started. If a prompt times out or stalls, run `agent get` and `agent read`
-  before sending anything again. The first one may already have landed.
+  before sending anything again. The first one may already have landed. A
+  `send_uncertain` result requires reconciliation before another attempt.
 
 ## The doorbell
 
@@ -127,18 +177,19 @@ The return happens in three parts:
 3. The worker waits up to about a minute for your pane to be free
    (`herdr agent wait <lead> --until idle --until done --timeout 60000`),
    then verifies the lead's identity and empty readable composer before
-   sending one line: `herdr agent prompt <lead> "DONE <id> <path>"`. Use
+   sending one line: `python3
+   ~/.agents/mifal/tools/herdr_adapter/guard_send.py <lead> "DONE <id> <path>"`. Use
    `HELP <id> <specific question>` for guidance, `HELD <id> <approval needed>`
    for a human approval, or `STOPPED <id> <reason>` after a stop. These follow
-   the [doorbell contract](contracts/doorbell.md). If the wait times out, the
-   prompt is refused with `agent_blocked` (you are at a question or approval
-   dialog), or your composer holds a draft or can't be read, the worker leaves
-   your input alone and tries the whole step again every 2 minutes for up to
-   30 minutes. The worker runs the wait and every retry in the foreground,
+   the [doorbell contract](contracts/doorbell.md). If the wait times out, or
+   the guard refuses for any reason but `unsupported_profile` or
+   `send_uncertain` (you are at a dialog, you scrolled up, your composer holds
+   a draft or can't be read), the worker leaves your input alone and tries the
+   whole step again every 2 minutes for up to 30 minutes. The worker runs the wait and every retry in the foreground,
    never as a background task: a background task that finishes may start no
    new turn, and the ring then comes late or not at all. It never sends to a
-   busy lead, for any kind of lead. After 30 minutes it stops trying; the file
-   is enough.
+   busy lead, for any kind of lead. After 30 minutes it stops trying, and notes
+   the last refusal in its Return; the file is enough.
 
 Put these steps and your pane's name in every brief that expects a return.
 Tell workers to deliver one ring: a refused or skipped attempt is retried,
@@ -151,6 +202,99 @@ command/output exchange still applies there.
 A foreground `agent wait` on a worker shows you as `working`, so its ring
 has to wait: run your wait in the background where the harness allows,
 otherwise keep it short.
+
+## Deadlines
+
+Herdr reports no activity time, so an assignment's age is now minus the
+dispatch time you recorded. Record a deadline for every assignment, whatever
+agent runs it: the task line in `state.md` carries the dispatch time and the
+expected duration (`Sent 10:00Z; deadline 10:00Z plus 90 min`). A correction
+and a re-review each get their own.
+
+A deadline counts working time, and time the machine slept is not a
+teammate's overrun. Before you treat a jump in the clock as a hang, check
+whether the machine slept, however your system shows that. Work the deadline
+out fresh each time: dispatch time plus expected duration plus all the sleep
+since dispatch, never sleep added to a deadline you already moved. Sent
+10:00Z for 90 minutes with 10 minutes asleep gives 11:40Z on every pass.
+
+At the deadline, read the Return first, then the pane if no Return closes the
+attempt, even when the pane went idle long before. Read an earlier wake the
+same way: an idle wake with no Return is not completion. When a deadline
+passes on an idle pane with no ring, walk this case:
+
+1. Read the Return file. If a Return closes the attempt, the work came back
+   and the ring was lost: take it to M5. A Claude worker whose ring couldn't
+   land is this case: it wrote its Return, so its Stop hook left no QUIET
+   event, and only the deadline woke you.
+2. No Return: work the deadline out again with the sleep since dispatch. If
+   it is still ahead, wait until then; if it has passed, go straight on to
+   the pane.
+3. Read a small window of the pane and name what it shows: a model or
+   service timeout, a question or approval, a lost thread, or nothing.
+4. Take one bounded action. A question or approval goes to
+   [blocked](#blocked), and a timeout or lost thread to [quiet
+   teammates](#quiet-teammates). A pane that shows nothing gets one short
+   status question, sent after the pane checks in Dispatch, asking for
+   `DONE`, `HELP` or `HELD`.
+5. Record the diagnosis, the action and a new deadline in `state.md`, and
+   start a new bounded `herdr agent wait` to that deadline, because a wait
+   that ended on idle doesn't restart itself.
+
+## Command chains
+
+A lead's chain of commands checks its gates, then records, then prompts.
+Write the task line, opening with its dispatch time and deadline
+(`- Task <id>: Sent <time>; deadline <time> plus <minutes> min. ...`), before
+you run it. `task` is the assignment's id and `brief` its
+file's absolute path, which differ for a correction: `7.2` keeps its brief in
+`<record>/tasks/7.md`.
+Use one shape:
+
+```bash
+bash -euo pipefail <<'EOF'
+v=~/.agents/skills/team-lead/scripts/validate_contracts.py
+record='<record root>'; task='<id>'; brief='<brief path>'; name='<teammate>'
+python3 "$v" workflow "$record/state.md" --gate entry
+python3 "$v" brief "$brief" --matt
+digest=$(python3 "$v" brief-digest "$brief")
+line=$(TASK="$task" awk 'index($0, "- Task " ENVIRON["TASK"] ": ") == 1' "$record/state.md")
+at='([0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T)?([01][0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9])?Z'
+due="^Sent $at; deadline $at plus [1-9][0-9]* min([.;,] |[.;,]?$| )"
+[[ ${line#"- Task $task: "} =~ $due ]] || {
+  echo "task $task needs a line that starts: - Task $task: Sent <time>; deadline <time> plus <minutes> min" >&2; exit 1; }
+python3 "$v" stamp "$record/state.md" "start implement | passed | brief --matt exit 0 brief=$digest"
+python3 ~/.agents/mifal/tools/herdr_adapter/guard_send.py "$name" "Task $task: read $brief and start. Ring me when done."
+EOF
+```
+
+For a review dispatch, the gate is `--gate review` and the stamp is
+`start review`, once the review phase has begun.
+
+A failed gate or a missing task line stops the chain before it stamps or
+sends, and a failed stamp stops it before it sends. The task-line check
+reads the id as fixed text at the start of a line, so `7.2` matches neither
+`- Task 712:` nor `- Task 7.3:`, and the deadline has to be on that same line.
+The line opens with one form, `Sent 10:00Z; deadline 10:00Z plus 90 min`,
+each time with or without a date before it, right after the id. The check
+reads that position and form, not meaning: nothing before the fields can
+hold a quoted or struck copy, a later copy doesn't count, and any other
+wording stops the chain with the form to write. Write the line in the form
+rather than adjust the check. Known limits: the check reads the first line
+that starts with the id, so a valid line inside an HTML comment or a code
+example, or the first of two lines for one task, is read as the real one;
+and it doesn't know whether a date exists in its month (Feb 31 passes) or the
+time is true.
+`-e` stops at the first failed command, `-u` at an unset name and `pipefail`
+at a failure inside a pipe. A search that decides something, like the
+task-line check, stops the chain when it finds nothing; a search you run only
+to look ends in `|| true`, because finding nothing is not a failure.
+
+`grep -q` in a `pipefail` chain can kill the command feeding it: it exits at
+the first match, the writer dies on the closed pipe, and `pipefail` reports
+the pipe as failed, which reads as no match. Capture the output first, then
+search it: `out=$(herdr agent read <name> --source visible)`, then
+`grep -q "<pattern>" <<<"$out"`.
 
 ## Reading a pane
 
@@ -228,7 +372,7 @@ Take one bounded action and record it.
 
 To interrupt, use the kind's interrupt, usually
 `herdr agent send-keys <name> esc` (see the herdr skill for other kinds).
-Wait for `idle`, then send a plain message saying what stopped, what to keep,
+Wait for `idle`, then use the guarded send for a plain message saying what stopped, what to keep,
 and what happens next. A stop that hasn't been acknowledged is unconfirmed.
 Record it that way. A thank-you or a reflection message is not an instruction
 to resume old work. Say so if the teammate could read it that way.
@@ -254,5 +398,7 @@ as [review and disagreement](communication.md#review-and-disagreement) says.
 ## House rules inherited from the herdr skill
 
 Use `--no-focus`, and leave the user's focus where it is. Don't close panes,
-tabs, or workspaces you didn't create. Parse IDs from JSON rather than
-predicting them. Never stop the Herdr server.
+tabs, or workspaces you didn't create. Closing a workspace's last pane
+removes the workspace too, so close a last pane only when you mean to end its
+workspace. Parse IDs from JSON rather than predicting them. Never stop the
+Herdr server.
