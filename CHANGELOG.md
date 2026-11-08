@@ -19,6 +19,9 @@ For contributors
 
 Not in this release
 - The Guide evaluation harness and the fix for a deeply nested Codex `hooks.json`, which 0.3.2's notes planned for 0.3.3, aren't in this release.
+- `receipt --matt --all-attempts`, for accepting a task corrected over several attempts, isn't in this release. Its last review found that a worker could add an earlier Return that turns a failed claim into a passed one, so it waits for a redesign.
+
+**After updating, reload changed skills.** The team-lead skill changed, so a live record whose `Loaded:` line pins an old body fails its next gate until the agent reloads that body and adds a new `Loaded:` line. Update between tasks, not while a team is mid-gate.
 
 ## 0.3.2
 
