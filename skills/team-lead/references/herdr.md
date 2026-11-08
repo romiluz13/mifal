@@ -244,8 +244,9 @@ passes on an idle pane with no ring, walk this case:
 ## Command chains
 
 A lead's chain of commands checks its gates, then records, then prompts.
-Write the task line (`- Task <id>: ...`), with its dispatch time and
-deadline, before you run it. `task` is the assignment's id and `brief` its
+Write the task line, opening with its dispatch time and deadline
+(`- Task <id>: Sent <time>; deadline <time> plus <minutes> min. ...`), before
+you run it. `task` is the assignment's id and `brief` its
 file's absolute path, which differ for a correction: `7.2` keeps its brief in
 `<record>/tasks/7.md`.
 Use one shape:
@@ -259,8 +260,9 @@ python3 "$v" brief "$brief" --matt
 digest=$(python3 "$v" brief-digest "$brief")
 line=$(TASK="$task" awk 'index($0, "- Task " ENVIRON["TASK"] ": ") == 1' "$record/state.md")
 at='([0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T)?([01][0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9])?Z'
-due="Sent $at; deadline $at plus [1-9][0-9]* min"
-[[ $line =~ $due ]] || { echo "no task line with a deadline for $task" >&2; exit 1; }
+due="^Sent $at; deadline $at plus [1-9][0-9]* min([.;,] |[.;,]?$| )"
+[[ ${line#"- Task $task: "} =~ $due ]] || {
+  echo "task $task needs a line that starts: - Task $task: Sent <time>; deadline <time> plus <minutes> min" >&2; exit 1; }
 python3 "$v" stamp "$record/state.md" "start implement | passed | brief --matt exit 0 brief=$digest"
 python3 ~/.agents/mifal/tools/herdr_adapter/guard_send.py "$name" "Task $task: read $brief and start. Ring me when done."
 EOF
@@ -273,10 +275,13 @@ A failed gate or a missing task line stops the chain before it stamps or
 sends, and a failed stamp stops it before it sends. The task-line check
 reads the id as fixed text at the start of a line, so `7.2` matches neither
 `- Task 712:` nor `- Task 7.3:`, and the deadline has to be on that same line.
-The line has one form, `Sent 10:00Z; deadline 10:00Z plus 90 min`, each
-time with or without a date before it, and the check reads that form, not
-its meaning: any other wording stops the chain, so write the line in the
-form rather than adjust the check.
+The line opens with one form, `Sent 10:00Z; deadline 10:00Z plus 90 min`,
+each time with or without a date before it, right after the id. The check
+reads that position and form, not meaning: nothing before the fields can
+hold a quoted or struck copy, a later copy doesn't count, and any other
+wording stops the chain with the form to write. Write the line in the form
+rather than adjust the check. It doesn't know whether a date exists in its
+month or the time is true; the lead's deadline arithmetic finds the first.
 `-e` stops at the first failed command, `-u` at an unset name and `pipefail`
 at a failure inside a pipe. A search that decides something, like the
 task-line check, stops the chain when it finds nothing; a search you run only

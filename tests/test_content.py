@@ -783,7 +783,8 @@ RULE_SENTENCES = (
      "When a deadline passes on an idle pane with no ring, walk this case:"),
     ("the chain's order", HERDR_MD, "A lead's chain of commands checks its gates, then records, then prompts."),
     ("the task line comes first", HERDR_MD,
-     "Write the task line (`- Task <id>: ...`), with its dispatch time and deadline, before you run it."),
+     "Write the task line, opening with its dispatch time and deadline "
+     "(`- Task <id>: Sent <time>; deadline <time> plus <minutes> min. ...`), before you run it."),
     ("a failed step stops the chain", HERDR_MD,
      "A failed gate or a missing task line stops the chain before it stamps or sends, and a failed stamp stops it "
      "before it sends."),
@@ -925,8 +926,8 @@ class RetroRules(unittest.TestCase):
         state = "# State\n\n## Assignments\n{rows}\n## Workflow\nMethodology: matt\n"
 
         def row(task, deadline=True):
-            due = "; deadline 10:00Z plus 90 min" if deadline else ""
-            return f"- Task {task}: owner w1. Sent 10:00Z{due}. Return: tasks/7.md.\n"
+            due = "Sent 10:00Z; deadline 10:00Z plus 90 min. " if deadline else "Sent 10:00Z. "
+            return f"- Task {task}: {due}Owner w1. Return: tasks/7.md.\n"
 
         cases = (
             ("a failed workflow gate", "7", "tasks/7.md", "workflow", row("7"), False),
@@ -950,17 +951,25 @@ class RetroRules(unittest.TestCase):
             ("a deadline still to be decided", "7", "tasks/7.md", "-",
              "- Task 7: owner w1; deadline TBD.\n", False),
             ("an impossible time", "7", "tasks/7.md", "-",
-             "- Task 7: owner w1. Sent 10:00Z; deadline 99:99Z plus 90 min.\n", False),
+             "- Task 7: Sent 10:00Z; deadline 99:99Z plus 90 min.\n", False),
             ("an impossible date", "7", "tasks/7.md", "-",
-             "- Task 7: owner w1. Sent 10:00Z; deadline 2026-99-99T09:00:00Z plus 90 min.\n", False),
+             "- Task 7: Sent 10:00Z; deadline 2026-99-99T09:00:00Z plus 90 min.\n", False),
             ("a negated deadline", "7", "tasks/7.md", "-",
-             "- Task 7: owner w1. Sent 10:00Z; no deadline 10:00Z plus 90 min.\n", False),
+             "- Task 7: Sent 10:00Z; no deadline 10:00Z plus 90 min.\n", False),
             ("a deadline with no dispatch time", "7", "tasks/7.md", "-",
              "- Task 7: owner w1; deadline 10:00Z plus 90 min.\n", False),
             ("a deadline of zero minutes", "7", "tasks/7.md", "-",
-             "- Task 7: owner w1. Sent 10:00Z; deadline 10:00Z plus 0 min.\n", False),
+             "- Task 7: Sent 10:00Z; deadline 10:00Z plus 0 min.\n", False),
+            ("a struck-through deadline", "7", "tasks/7.md", "-",
+             "- Task 7: ~~Sent 10:00Z; deadline 10:00Z plus 90 min~~; no current deadline.\n", False),
+            ("a quoted example before an undecided deadline", "7", "tasks/7.md", "-",
+             '- Task 7: example "Sent 10:00Z; deadline 10:00Z plus 90 min"; Sent 24:00Z; deadline TBD.\n', False),
+            ("the fields after other text", "7", "tasks/7.md", "-",
+             "- Task 7: owner w1. Sent 10:00Z; deadline 10:00Z plus 90 min.\n", False),
+            ("a minute count that runs on", "7", "tasks/7.md", "-",
+             "- Task 7: Sent 10:00Z; deadline 10:00Z plus 90 minimum.\n", False),
             ("a deadline with a date", "7", "tasks/7.md", "-",
-             "- Task 7: owner w1. Sent 2026-11-08T08:57:44Z; deadline 2026-11-08T08:57:44Z plus 75 min plus sleep.\n",
+             "- Task 7: Sent 2026-11-08T08:57:44Z; deadline 2026-11-08T08:57:44Z plus 75 min plus sleep. Owner w1.\n",
              True),
         )
         for label, task, brief_at, fail, rows, sends_prompt in cases:
@@ -991,6 +1000,9 @@ class RetroRules(unittest.TestCase):
                 after = (record / "state.md").read_text()
                 if not sends_prompt:
                     self.assertNotEqual(run.returncode, 0, f"the chain template ran on after {label}")
+                    if fail == "-" and rows:
+                        self.assertIn("Sent <time>; deadline <time> plus <minutes> min", run.stderr,
+                                      f"the refusal after {label} doesn't show the form to write")
                     self.assertEqual((sends, after), ([], before), f"the chain template stamped or sent after {label}")
                     self.assertEqual(len(stamps), int(fail == "stamp"),
                                      f"the chain template made {len(stamps)} stamp calls after {label}")
