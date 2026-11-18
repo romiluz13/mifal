@@ -1011,5 +1011,149 @@ class Warnings(Doctor):
         self.assertRegex(result.stdout, r"(?m)^WARN CODEX_HOME .* outside your home folder")
 
 
+class HerdrOwner(Doctor):
+    """One updater per Herdr binary: a copy that updated itself inside a package manager's folder, or a second
+    copy on PATH, is reported before the two owners disagree about the version."""
+
+    def put(self, folder, version="0.9.5"):
+        """A copy of the fake Herdr in folder, reporting version; the caller removes the fakebin copy when one copy is wanted."""
+        folder.mkdir(parents=True, exist_ok=True)
+        path = folder / "herdr"
+        path.write_text((self.fakebin / "herdr").read_text().replace('echo "herdr 0.9.5"', f'echo "herdr {version}"'))
+        path.chmod(0o755)
+        return path
+
+    def path(self, *folders):
+        return os.pathsep.join([str(f) for f in folders] + [str(self.fakebin), "/usr/bin", "/bin"])
+
+    def test_a_herdr_that_updated_itself_inside_mise_fails_with_one_owner_as_the_fix(self):
+        folder = self.home / ".local/share/mise/installs/github-ogulcancelik-herdr/0.9.3"
+        self.put(folder)
+        self.unfake("herdr")
+        result = self.doctor(PATH=self.path(folder))
+        self.assert_fails_with_fix(result, "herdr owner")
+        self.assertRegex(result.stdout, r"(?m)^FAIL herdr owner: .*0\.9\.5.*mise.*0\.9\.3")
+
+    def test_one_herdr_on_path_passes_and_names_its_updater(self):
+        result = self.doctor()
+        self.assertRegex(result.stdout, r"(?m)^PASS herdr owner: one copy, .*fakebin/herdr, updated by its own updater")
+
+    def test_two_herdr_copies_of_different_versions_fail_naming_the_one_that_runs(self):
+        older = self.put(self.root / "older", "0.9.3")
+        result = self.doctor(PATH=self.path(older.parent))
+        self.assert_fails_with_fix(result, "herdr owner")
+        self.assertRegex(result.stdout, r"(?m)^FAIL herdr owner: 2 copies on PATH, the first one runs: .*older/herdr "
+                                        r"\(0\.9\.3, own updater\), .*fakebin/herdr \(0\.9\.5")
+
+    def test_two_herdr_copies_of_one_version_warn(self):
+        same = self.put(self.root / "same")
+        result = self.doctor(PATH=self.path(same.parent))
+        self.assertEqual(self.failed(result), [], result.stdout)
+        self.assertRegex(result.stdout, r"(?m)^WARN herdr owner: 2 copies on PATH")
+
+    def test_a_herdr_in_a_mise_folder_herdr_does_not_recognise_fails_before_it_updates_itself(self):
+        folder = self.home / ".local/share/mise/installs/github-ogulcancelik-herdr/0.9.5"
+        self.put(folder)
+        self.unfake("herdr")
+        result = self.doctor(PATH=self.path(folder))
+        self.assert_fails_with_fix(result, "herdr owner")
+        self.assertRegex(result.stdout, r"(?m)^FAIL herdr owner: .*`herdr update` would replace it")
+        self.assertRegex(result.stdout, r"(?m)^\s+fix: give herdr one owner: install it with Homebrew \(`brew install herdr`\)")
+
+    def test_a_herdr_where_herdr_recognises_mise_passes(self):
+        folder = self.home / ".local/share/mise/installs/herdr/0.9.5/bin"
+        self.put(folder)
+        self.unfake("herdr")
+        result = self.doctor(PATH=self.path(folder))
+        self.assertRegex(result.stdout, r"(?m)^PASS herdr owner: one copy, .*, updated by mise")
+
+    def test_an_old_herdr_from_a_mise_layout_herdr_does_not_recognise_is_moved_to_an_owner_it_does(self):
+        folder = self.home / ".local/share/mise/installs/github-ogulcancelik-herdr/0.9.3"
+        self.put(folder, "0.9.3")
+        self.unfake("herdr")
+        result = self.doctor(PATH=self.path(folder))
+        self.assertRegex(result.stdout, r"(?m)^FAIL herdr: 0\.9\.3 is older than 0\.9\.5\n\s+fix: install it with Homebrew")
+
+    def test_mise_registry_layout_without_bin_fails_because_herdr_update_would_replace_it(self):
+        folder = self.home / ".local/share/mise/installs/herdr/0.9.5"
+        self.put(folder)
+        self.unfake("herdr")
+        result = self.doctor(PATH=self.path(folder))
+        self.assert_fails_with_fix(result, "herdr owner")
+        self.assertRegex(result.stdout, r"(?m)^FAIL herdr owner: .*`herdr update` would replace it")
+
+    def test_a_herdr_that_updated_itself_under_a_custom_mise_installs_dir_fails(self):
+        installs = self.home / "tools/mise-installs"
+        folder = installs / "herdr/0.9.3/bin"
+        self.put(folder)
+        self.unfake("herdr")
+        result = self.doctor(PATH=self.path(folder), MISE_INSTALLS_DIR=str(installs))
+        self.assertRegex(result.stdout, r"(?m)^FAIL herdr owner: .*reports 0\.9\.5 but sits in mise's folder for 0\.9\.3")
+
+    def test_a_shim_that_resolves_to_mise_itself_is_not_a_copy(self):
+        cellar = self.root / "Cellar/mise/2026.10.1/bin"
+        cellar.mkdir(parents=True)
+        (cellar / "mise").write_text("#!/bin/bash\necho mise 2026.10.1\n")
+        (cellar / "mise").chmod(0o755)
+        shims = self.home / ".mise/shims"
+        shims.mkdir(parents=True)
+        os.symlink(cellar / "mise", shims / "herdr")
+        result = self.doctor(PATH=self.path(shims))
+        self.assertRegex(result.stdout, r"(?m)^PASS herdr owner: one copy, .*fakebin/herdr")
+
+    def shimmed(self, target, active=True):
+        """mise's shims folder on PATH, its herdr shim linked to a fake mise that runs target. When herdr is not active
+        in mise, `mise which` fails and the shim falls through to target, the next herdr on PATH, as real mise does."""
+        cellar = self.root / "Cellar/mise/2026.10.1/bin"
+        cellar.mkdir(parents=True)
+        which = f'echo "{target}"; exit 0' if active else 'echo "mise ERROR herdr is not currently active" >&2; exit 1'
+        (cellar / "mise").write_text(f'#!/bin/bash\nif [ "$1 $2" = "which herdr" ]; then {which}; fi\n'
+                                     f'exec "{target}" "$@"\n')
+        (cellar / "mise").chmod(0o755)
+        shims = self.home / ".local/share/mise/shims"
+        shims.mkdir(parents=True)
+        os.symlink(cellar / "mise", shims / "herdr")
+        self.unfake("herdr")
+        return shims
+
+    def test_a_mise_install_reached_only_through_its_shim_is_checked(self):
+        target = self.put(self.home / ".local/share/mise/installs/herdr/0.9.5")
+        result = self.doctor(PATH=self.path(self.shimmed(target)))
+        self.assertRegex(result.stdout, r"(?m)^FAIL herdr owner: .*shims/herdr .*`herdr update` would replace it")
+
+    def test_an_old_herdr_behind_a_mise_shim_is_not_sent_to_homebrew(self):
+        target = self.put(self.home / ".local/share/mise/installs/herdr/0.9.3", "0.9.3")
+        result = self.doctor(PATH=self.path(self.shimmed(target)))
+        self.assertRegex(result.stdout, r"(?m)^FAIL herdr: 0\.9\.3 is older than 0\.9\.5\n\s+fix: install it with Homebrew")
+
+    def test_an_inactive_mise_shim_is_skipped_and_the_herdr_it_falls_through_to_is_checked(self):
+        localbin = self.home / ".local/bin"
+        target = self.put(localbin, "0.9.3")
+        result = self.doctor(PATH=self.path(self.shimmed(target, active=False), localbin))
+        self.assertRegex(result.stdout, r"(?m)^FAIL herdr: 0\.9\.3 is older than 0\.9\.5\n\s+fix: herdr update$")
+        self.assertRegex(result.stdout, r"(?m)^PASS herdr owner: one copy, ~/\.local/bin/herdr, updated by its own updater")
+
+    def test_a_homebrew_herdr_that_drifted_is_reinstalled_with_homebrew(self):
+        folder = self.root / "Cellar/herdr/0.9.4/bin"
+        self.put(folder)
+        self.unfake("herdr")
+        result = self.doctor(PATH=self.path(folder))
+        self.assertRegex(result.stdout, r"(?m)^FAIL herdr owner: .*reports 0\.9\.5 but sits in Homebrew's folder for "
+                                        r"0\.9\.4.*\n\s+fix: give herdr one owner: `brew reinstall herdr`, then `brew upgrade herdr`")
+
+    def test_an_old_herdr_from_mise_registry_entry_upgrades_through_mise(self):
+        folder = self.home / ".local/share/mise/installs/herdr/0.9.3/bin"
+        self.put(folder, "0.9.3")
+        self.unfake("herdr")
+        result = self.doctor(PATH=self.path(folder))
+        self.assertRegex(result.stdout, r"(?m)^FAIL herdr: 0\.9\.3 is older than 0\.9\.5\n\s+fix: mise upgrade herdr$")
+
+    def test_mise_shims_are_not_counted_as_copies(self):
+        shims = self.home / ".local/share/mise/shims"
+        self.put(shims)
+        result = self.doctor(PATH=self.path(shims))
+        self.assertRegex(result.stdout, r"(?m)^PASS herdr owner: one copy")
+
+
 if __name__ == "__main__":
     unittest.main()

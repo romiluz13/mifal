@@ -401,6 +401,9 @@ def _herdr(r, h):
     if req.status == "missing":
         r.line("FAIL", "herdr", "not found on PATH", "install it with `brew install herdr`, or run ./install.sh again")
         return
+    found = herdr.owner("herdr", herdr.copies("herdr"), show)
+    if found:
+        r.line(found[0], "herdr owner", *found[1:])
     if req.status == "old":
         r.line("FAIL", "herdr", f"{'.'.join(map(str, req.version))} is older than "
                f"{'.'.join(map(str, herdr.MINIMUM))}", herdr.upgrade_command(req.path))

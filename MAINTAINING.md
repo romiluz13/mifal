@@ -44,6 +44,8 @@ When Herdr ships a new protocol:
 
 The vendored `herdr` skill updates through `maint/upstream.py` like any other.
 
+`lib/mifal/herdr.py`'s `herdr_sees_manager` copies Herdr's own test for a package-managed install (`src/update.rs`), on the path Herdr runs from and on its resolved path: mise's `installs/herdr/<version>/bin/herdr` (or under `MISE_INSTALLS_DIR`), Homebrew's `Cellar/herdr/<version>/bin/herdr`, or the Nix store. `herdr update` replaces any other copy in place. mise's registry entry (`mise use -g herdr`, backend `aqua:herdrdev/herdr`) installs `installs/herdr/<version>/herdr`, without `bin/`, so Herdr 0.9.5 does not recognise it and updates it itself (checked live on 2026-11-18); that is why the doctor sends a Herdr owner to Homebrew or Herdr's own installer, not to a new mise install; only a copy already in the `bin/` layout keeps `mise upgrade herdr`. When Herdr changes its test, change this one and that advice with it.
+
 ## The five agents
 
 `lib/mifal/harness.py` holds what Mifal knows about each agent: where its home folder is and which variable moves it, which rules file it reads first, and whether it reads `~/.agents/skills` itself. `tests/test_wiring.py` holds each fact as a test. When an agent changes its conventions:
