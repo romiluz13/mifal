@@ -545,6 +545,29 @@
       "copyright": "not stated upstream"
     },
     {
+      "name": "herdr-core",
+      "repo": "herdrdev/herdr-core",
+      "licence": "Apache-2.0",
+      "revision": "per skill: the upstream commit whose folder tree matched the skill lock",
+      "skills": {
+        "herdr-core": {
+          "upstream": "skills/herdr-core",
+          "commit": "c7517808d64f06609e4ecf0db1757005373cc3a3",
+          "tree": "9691960a86a372aaa06eae674f93192b8e54cfad",
+          "modified": {
+            "changed": [
+              "SKILL.md"
+            ]
+          }
+        }
+      },
+      "paths": [
+        "skills/herdr-core/*"
+      ],
+      "licence_file": "third_party/licenses/herdr-core.txt",
+      "copyright": "not stated upstream"
+    },
+    {
       "name": "tomli",
       "repo": "hukkin/tomli",
       "licence": "MIT",

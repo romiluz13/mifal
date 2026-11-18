@@ -1,6 +1,6 @@
 ---
 name: team-lead
-description: Lead an agent team the way a great engineering manager leads people — own the outcome, brief well, check real evidence, coach, recognize, and run retros that change things. Use to lead, onboard, or resume a team of agents, including agents in Herdr panes, and for delegation, coaching, reflection, and continuity across sessions. Adapts to the team's models, tools, and methodology. When Herdr is the team's channel, this skill authorizes loading the herdr skill.
+description: Lead an agent team the way a great engineering manager leads people — own the outcome, brief well, check real evidence, coach, recognize, and run retros that change things. Use to lead, onboard, or resume a team of agents, including agents in Herdr panes or Herdr Desktop terminals, and for delegation, coaching, reflection, and continuity across sessions. Adapts to the team's models, tools, and methodology. When Herdr is the team's channel, this skill authorizes loading the herdr skill, or the herdr-core skill in Herdr Desktop.
 metadata:
   author: romiluz13
   version: "0.5.1"

@@ -14,7 +14,7 @@ Rules for sessions that load this Mifal Guide, installed by Mifal. Repository in
 - A skill that says to call the Skill tool means the same loading: your native skill tool, otherwise reading `~/.agents/skills/<name>/SKILL.md` completely.
 - Invoke a skill on your own when its description matches the task; a slash command is not needed. Load only the specialist you selected. A skill's external actions, such as publishing, messaging or deploying, still need their own authorization.
 - Skip a skill whose required tool, CLI or harness you lack, and say that you skipped it and why.
-- For sustained coordination of engineering work across Herdr panes, read `~/.agents/skills/team-lead/references/herdr.md` before the first dispatch, and run its pane checks before every prompt.
+- For sustained coordination of engineering work across Herdr panes or Herdr Desktop terminals, read `~/.agents/skills/team-lead/references/herdr.md` before the first dispatch, and run its pane checks before every prompt.
 
 ## Skills pool
 

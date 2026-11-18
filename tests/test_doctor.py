@@ -969,7 +969,7 @@ class Completeness(test_update.Update):
         self.assertEqual(len(self.engine_lines(result)), 1, result.stdout)
         lines = result.stdout.splitlines()
         at = next(i for i, line in enumerate(lines) if line.startswith("WARN engine"))
-        self.assertIn("16 file(s)", lines[at])
+        self.assertIn("17 file(s)", lines[at])
         self.assertEqual(lines[at + 1].strip(), "fix: run mifal update")
         self.assertEqual(snapshot(self.home), before)
 
@@ -1141,12 +1141,42 @@ class HerdrOwner(Doctor):
         self.assertRegex(result.stdout, r"(?m)^FAIL herdr owner: .*reports 0\.9\.5 but sits in Homebrew's folder for "
                                         r"0\.9\.4.*\n\s+fix: give herdr one owner: `brew reinstall herdr`, then `brew upgrade herdr`")
 
+    def test_herdr_app_without_herdr_core_warns(self):
+        self.fake("herdr-app", '[ "$1" = "--version" ] && echo "herdr-app 0.1.16"')
+        result = self.doctor()
+        self.assertEqual(self.failed(result), [], result.stdout)
+        self.assertRegex(result.stdout, r"(?m)^WARN herdr desktop: app 0\.1\.16, but herdr-core")
+
     def test_an_old_herdr_from_mise_registry_entry_upgrades_through_mise(self):
         folder = self.home / ".local/share/mise/installs/herdr/0.9.3/bin"
         self.put(folder, "0.9.3")
         self.unfake("herdr")
         result = self.doctor(PATH=self.path(folder))
         self.assertRegex(result.stdout, r"(?m)^FAIL herdr: 0\.9\.3 is older than 0\.9\.5\n\s+fix: mise upgrade herdr$")
+
+    def test_herdr_desktop_is_reported_by_version_without_starting_its_core(self):
+        self.fake("hc", '[ "$1" = "--version" ] && echo "hc 0.1.21"')
+        self.fake("herdr-app", '[ "$1" = "--version" ] && echo "herdr-app 0.1.16"')
+        result = self.doctor()
+        self.assertEqual(self.failed(result), [], result.stdout)
+        self.assertRegex(result.stdout, r"(?m)^PASS herdr desktop: herdr-core 0\.1\.21 \(hc\), app 0\.1\.16")
+        self.assertRegex(result.stdout, r"(?m)^PASS hc owner: one copy, .*fakebin/hc")
+        self.assertEqual([c for c in self.called() if c.startswith(("hc ", "herdr-app "))
+                          and not c.endswith("--version")], [])
+
+    def test_without_herdr_desktop_the_doctor_only_notes_it(self):
+        result = self.doctor()
+        self.assertEqual(self.failed(result), [], result.stdout)
+        self.assertRegex(result.stdout, r"(?m)^note herdr desktop: not installed")
+        self.assertNotRegex(result.stdout, r"(?m)^\w+ hc owner")
+
+    def test_an_hc_that_updated_itself_inside_mise_fails(self):
+        folder = self.home / ".local/share/mise/installs/herdr-core/0.1.20"
+        folder.mkdir(parents=True)
+        (folder / "hc").write_text('#!/bin/bash\n[ "$1" = "--version" ] && echo "hc 0.1.21"\n')
+        (folder / "hc").chmod(0o755)
+        result = self.doctor(PATH=self.path(folder))
+        self.assert_fails_with_fix(result, "hc owner")
 
     def test_mise_shims_are_not_counted_as_copies(self):
         shims = self.home / ".local/share/mise/shims"

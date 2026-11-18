@@ -14,7 +14,7 @@ from unittest import mock
 
 from support import REPO
 
-# The shipped set, plan D9: the 27 Ask Matt skills, the local attachments, the factory core and herdr.
+# The shipped set, plan D9: the 27 Ask Matt skills, the local attachments, the factory core, herdr and herdr-core.
 ASK_MATT = (
     "ask-matt", "grill-with-docs", "grill-me", "grilling", "domain-modeling", "prototype", "handoff", "to-spec",
     "to-tickets", "implement", "implement-spec", "tdd", "code-review", "pr", "retro", "triage", "diagnosing-bugs",
@@ -22,7 +22,7 @@ ASK_MATT = (
     "wait-what", "teach", "writing-for-agents", "setup-matt-pocock-skills")
 SHIPPED = set(ASK_MATT) | {
     "receiving-code-review", "ddd", "ddd-scope", "ddd-ground", "ddd-verify", "frontend-design", "agent-browser",
-    "engineering-workflow", "team-lead", "setup-pre-commit", "verification-before-completion", "herdr"}
+    "engineering-workflow", "team-lead", "setup-pre-commit", "verification-before-completion", "herdr", "herdr-core"}
 # Skills that exist elsewhere and do not ship; a shipped body must not depend on them.
 UNSHIPPED = (
     "cloudflare", "codebase-hygiene", "commit", "compact-safe", "deploy-to-vercel", "diff-driven-docs",
@@ -70,7 +70,7 @@ CREDIT_FILES = {"LICENSE", "NOTICE", "third_party/provenance.json", "skills/team
 CREDIT_LINE = re.compile(r'Copyright|"copyright"|^\s*author:|github\.com/|"repo":')
 TOKEN = re.compile(r"[a-z0-9_-]+")
 # Shipped by plan D9 but not rows of the workflow map: the implementer role names one, the lead uses the other.
-OUTSIDE_THE_MAP = {"verification-before-completion", "herdr"}
+OUTSIDE_THE_MAP = {"verification-before-completion", "herdr", "herdr-core"}
 
 
 def tracked():
@@ -96,7 +96,7 @@ class ShippedSet(unittest.TestCase):
     def test_exactly_the_planned_skills_ship(self):
         folders = {p.name for p in (REPO / "skills").iterdir() if p.is_dir() and p.name != "__pycache__"}
         self.assertEqual(folders, SHIPPED)
-        self.assertEqual(len(folders), 39)
+        self.assertEqual(len(folders), 40)
 
     def test_left_out_parts_of_team_lead_are_absent(self):
         self.assertEqual([p for p in LEFT_OUT if (REPO / p).exists()], [])

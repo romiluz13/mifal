@@ -187,6 +187,7 @@ def doctor(h: mf.Home, env, out) -> int:
             r.line("PASS", "ask-matt pin", "the workflow map matches the installed Ask Matt body")
 
     _herdr(r, h)
+    _desktop(r, h)
     if shutil.which("agent-browser"):
         r.line("PASS", "agent-browser", "the agent-browser skill's CLI is on PATH")
     else:
@@ -425,6 +426,29 @@ def _herdr(r, h):
         r.line("PASS", "herdr", f"{version}, server not running")
         r.line("WARN", "herdr server", "not running; start Herdr with `herdr` when you want a team")
     _protocol(r, req.path, h.engine / "tools" / "herdr_adapter" / "api-schema.json")
+
+
+def _desktop(r, h):
+    """Herdr Desktop runs its terminals in herdr-core (`hc`), a separate server from the herdr TUI. Only versions
+    are read: on Unix `hc server status` may start the core, and the doctor starts nothing."""
+    cores = herdr.copies("hc")
+    app = shutil.which("herdr-app")
+    if not cores and not app:
+        r.out("note herdr desktop: not installed; the team lead uses the herdr TUI. Herdr Desktop (herdr.dev) runs "
+              "agents in herdr-core, which the team lead's Herdr reference covers through `hc`")
+        return
+    def dotted(version):
+        return ".".join(map(str, version)) if version else "no version"
+
+    app_text = dotted(herdr.version(app)) if app else "not found"
+    if cores:
+        r.line("PASS", "herdr desktop", f"herdr-core {dotted(cores[0].version)} (hc), app {app_text}")
+    else:
+        r.line("WARN", "herdr desktop", f"app {app_text}, but herdr-core (`hc`) is not on PATH, and Desktop runs "
+               "its terminals in it", "reopen Herdr Desktop, which installs herdr-core, or install it from herdr.dev")
+    found = herdr.owner("hc", cores, h.show)
+    if found:
+        r.line(found[0], "hc owner", *found[1:])
 
 
 def _protocol(r, path, adapter_schema: Path):
