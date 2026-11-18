@@ -109,7 +109,7 @@ class Doctor(Recorded):
         self.assertEqual([l for l in result.stdout.splitlines() if l.startswith("FAIL")], [])
         self.assertFalse((self.home / ".claude").exists())
         notes = [l for l in result.stdout.splitlines() if l.startswith("note ")]
-        self.assertEqual([l for l in notes if not l.startswith("note skill filters ")], [], result.stdout)
+        self.assertEqual([l for l in notes if not l.startswith(("note skill filters ", "note herdr desktop: "))], [], result.stdout)
 
     def test_doctor_notes_a_variable_that_names_another_home(self):
         other = self.home / ".claude-other"

@@ -6,9 +6,70 @@ syntax, load the `herdr` skill and trust the installed CLI's help over this
 page. The user choosing Herdr for this team counts as the explicit mention
 that skill requires.
 
-First, check you're inside Herdr: `test "${HERDR_ENV:-}" = 1`. If you're not,
-say so and lead through whatever other channel is authorized. Don't drive a
-Herdr session from outside it.
+First, check which Herdr you're inside, in this order:
+
+1. `test -n "${HC_TERMINAL_ID:-}"`: you're in a herdr-core terminal, which is
+   what Herdr Desktop runs. Lead through `hc`, as "Leading from Herdr Desktop"
+   below says. The rest of this page is the herdr TUI's.
+2. `test "${HERDR_ENV:-}" = 1`: you're in a herdr TUI pane. Use this page.
+
+Check `HC_TERMINAL_ID` first: a herdr-core started from a TUI pane can pass
+`HERDR_ENV` on to its terminals, and the TUI's server cannot see them. If
+neither is set, say so and lead through whatever other channel is authorized.
+Don't drive a Herdr session from outside it.
+
+## Leading from Herdr Desktop
+
+Herdr Desktop's terminals run in herdr-core, a server separate from the TUI's:
+`herdr agent list` there shows none of them. Load the `herdr-core` skill and
+follow `hc --skill`, the manual of the installed `hc`, for syntax. The duties
+in the sections below still hold; their commands change:
+
+- **Roster.** Start each teammate named for its role, through your login
+  shell: `hc run --bg --outlive-parent --name <role> --cwd <worktree> --
+  "$SHELL" -lc 'exec <agent>'`. On macOS herdr-core starts from launchd,
+  and a command it runs directly gets only `/usr/bin:/bin:/usr/sbin:/sbin`,
+  so a bare `claude` or `pi` fails with `spawn_failed`. Start Codex with
+  `codex --no-daemon`, or its commands run outside hc. Without
+  `--outlive-parent` a teammate ends when your session ends, and the team's
+  work with it. `hc ls` shows every live terminal; others' terminals aren't
+  yours to onboard or message. Record each name and its `t` address in
+  `state.md`: a later lead session reaches the team by those names, and
+  kills and removes each teammate (`hc kill <role>; hc rm <role>`) when its
+  work is accepted.
+- **Read before every send.** Only Claude Code reports its status to
+  herdr-core (checked with Claude Code 2.1.327, Codex 0.167.1, Droid
+  1.12.1, OpenCode 1.19.4 and omp 18.5.0). `hc send` refuses a `blocked`
+  teammate, but one that reports no status has none, so a trust, update or
+  approval prompt on its screen takes whatever you send. Before each `hc
+  send`, `hc read --lines 0 <role>`, and send only into an empty composer.
+- **Dispatch.** After the teammate boots, read its screen, then send the
+  brief. For a teammate that reports no status, `hc wait <role>` returns
+  only at its timeout, so bound each wait (`--timeout 10`) and read
+  between them.
+- **Doorbell.** Each brief ends with `Report with hc send <your address>
+  when done or stuck`, with your own `$HC_TERMINAL_ID` value written in: a
+  brief in a file isn't expanded by your shell, and the teammate's own
+  `$HC_TERMINAL_ID` would ring itself. Reports reach you as your next input;
+  treat each as a teammate's claim and read the actual result before
+  accepting it.
+- **Attention loop and deadlines.** `hc wait --children any --timeout
+  <seconds>` returns the next news or a check-in at the timeout, which is
+  not a failure; the timeout is in seconds. Use it as the bounded wait in
+  "Deadlines" below. Never sleep or poll. A later lead session isn't the
+  teammates' parent: it waits on each by name with `hc wait <role>
+  --timeout <seconds>`.
+- **Blocked.** `blocked` means the teammate needs a person: read its
+  screen and ask your user. Never `hc send --force` past a permission
+  decision. Never stop or restart the user's core: every terminal runs in
+  it.
+- **Reading and steering.** `hc read --lines 100 <role>`, `hc send <role>
+  "<message>"` after a read, `hc interrupt <role>` to stop a turn without
+  ending the agent.
+- **TUI-only tooling.** The socket adapter and its fleet controller
+  (`~/.agents/mifal/tools/herdr_adapter/`) and the `team-stop.sh` Stop hook
+  speak the TUI's socket and key on `HERDR_PANE_ID`; in Desktop they do
+  nothing. Accept through your own checks of each teammate's result.
 
 ## Choose the coordination path
 

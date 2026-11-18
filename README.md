@@ -8,7 +8,7 @@ A brief that names every claim, a receipt that answers each one, and a validator
 
 **[The Mifal website](https://romiluz13.github.io/mifal/)**: the build replay you can scrub through, the gate, and the install run.
 
-An agent's "done" message is not independent proof that the work passed its checks. Mifal detects five agent families (Claude Code, Codex, Droid, Pi and OpenCode) and installs one Guide into the selected Homes it can wire, one or several per agent; a precedence conflict or a symbolic rules file can make it skip an agent or refuse the install. It also installs the same 39 skills (Matt Pocock's engineering skills run as ordered phases, plus DDD, review and team leading) and a contract validator that refuses a brief, receipt or phase record that lacks its required fields and checks selected identities and hashes; it does not verify that tests ran. For a Claude Code worker, `validate_contracts.py loads-proof` checks the worker's session log for a complete load of each skill its brief selects; that shows the skill was read, not that it was followed, and other agents' logs are not checked. `--dry-run` previews the planned changes; a plain install prints a short summary and writes. Uninstall removes what Mifal wrote that is unchanged and keeps any file you edited.
+An agent's "done" message is not independent proof that the work passed its checks. Mifal detects five agent families (Claude Code, Codex, Droid, Pi and OpenCode) and installs one Guide into the selected Homes it can wire, one or several per agent; a precedence conflict or a symbolic rules file can make it skip an agent or refuse the install. It also installs the same 40 skills (Matt Pocock's engineering skills run as ordered phases, plus DDD, review and team leading) and a contract validator that refuses a brief, receipt or phase record that lacks its required fields and checks selected identities and hashes; it does not verify that tests ran. For a Claude Code worker, `validate_contracts.py loads-proof` checks the worker's session log for a complete load of each skill its brief selects; that shows the skill was read, not that it was followed, and other agents' logs are not checked. `--dry-run` previews the planned changes; a plain install prints a short summary and writes. Uninstall removes what Mifal wrote that is unchanged and keeps any file you edited.
 
 ## What you get
 
@@ -57,7 +57,7 @@ The install puts the `mifal` command in `~/.local/bin`; if that folder is not on
 mifal doctor
 ```
 
-Start a session in any agent Mifal wired, in a project folder, and ask for engineering work as you normally would. The Guide tells the agent to scope the request, ask whether you want the full workflow or a cut, and work phase by phase. For a team, start the session inside Herdr (`herdr`) and ask for one.
+Start a session in any agent Mifal wired, in a project folder, and ask for engineering work as you normally would. The Guide tells the agent to scope the request, ask whether you want the full workflow or a cut, and work phase by phase. For a team, start the session inside Herdr (`herdr`) or in a Herdr Desktop terminal, and ask for one.
 
 ## How it works
 
@@ -85,11 +85,11 @@ Mifal 0.1 was built by a Mifal team: a Claude lead, a Codex reviewer, a Claude r
 
 ## Status
 
-**Alpha**, version 0.3.3. The installer, update, uninstall, doctor and validator are covered by tests, run in CI on macOS under the system Python and the current python3. What a program checks, and what still relies on the agent following the Guide, is spelled out in [docs/TRUST.md](docs/TRUST.md).
+**Alpha**, version 0.4.0. The installer, update, uninstall, doctor and validator are covered by tests, run in CI on macOS under the system Python and the current python3. What a program checks, and what still relies on the agent following the Guide, is spelled out in [docs/TRUST.md](docs/TRUST.md).
 
 ## Support
 
-Mifal is agent-agnostic: it detects the five agent families on your Mac — Claude Code, Codex, Droid, Pi and OpenCode — and gives each one it can wire the same Guide and the same 39 skills, one Home or several per agent. `mifal doctor` reports what it wired.
+Mifal is agent-agnostic: it detects the five agent families on your Mac — Claude Code, Codex, Droid, Pi and OpenCode — and gives each one it can wire the same Guide and the same 40 skills, one Home or several per agent. `mifal doctor` reports what it wired.
 
 macOS is the supported platform; Linux and Windows are not supported in this release.
 
@@ -115,4 +115,4 @@ Keep the clone you installed from: `mifal update` and `mifal doctor`'s completen
 
 ## Credits
 
-Mifal ships the work of others under their licences, recorded per component and skill in [`third_party/provenance.json`](third_party/provenance.json), each licence text beside its component (most in [`third_party/licenses/`](third_party/licenses), Impeccable's and LottieFiles' in `skills/frontend-design/references/interface/licenses/`) and summarised in [`NOTICE`](NOTICE): Matt Pocock's skills, DDD, Superpowers, agent-browser, Anthropic's frontend-design, Herdr's skill, Impeccable and LottieFiles motion-design. Mifal itself is MIT ([`LICENSE`](LICENSE)).
+Mifal ships the work of others under their licences, recorded per component and skill in [`third_party/provenance.json`](third_party/provenance.json), each licence text beside its component (most in [`third_party/licenses/`](third_party/licenses), Impeccable's and LottieFiles' in `skills/frontend-design/references/interface/licenses/`) and summarised in [`NOTICE`](NOTICE): Matt Pocock's skills, DDD, Superpowers, agent-browser, Anthropic's frontend-design, Herdr's and herdr-core's skills, Impeccable and LottieFiles motion-design. Mifal itself is MIT ([`LICENSE`](LICENSE)).

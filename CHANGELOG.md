@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.4.0
+
+**Mifal works in Herdr Desktop, and `mifal doctor` catches a Herdr that two updaters both own before their versions split.**
+
+Herdr Desktop
+- Herdr Desktop runs its terminals in herdr-core (`hc`), a server separate from the herdr TUI's, and sets `HC_TERMINAL_ID` instead of `HERDR_ENV`. The team lead's `references/herdr.md` now checks `HC_TERMINAL_ID` first and has a "Leading from Herdr Desktop" section: the roster, dispatch, doorbell, attention loop and steering through `hc run --bg --outlive-parent`, `hc send` after a screen read, `hc wait --children any --timeout`, `hc read` and `hc interrupt`; a brief carries the lead's resolved address, so a report can't ring its own sender. The socket adapter, its fleet controller and the `team-stop.sh` Stop hook stay TUI-only; in Desktop they do nothing, and the lead accepts through its own checks.
+- New vendored skill `herdr-core` from herdrdev/herdr-core (Apache-2.0). It sends agents to `hc --skill`, the installed core's own manual. Mifal scoped its description to herdr-core terminals and explicit mentions, so it doesn't take over sub-agent work in other sessions. 40 skills now ship.
+- The Guide's Herdr line and the team-lead description name Herdr Desktop terminals too.
+- `mifal doctor` reports `herdr desktop` with the `hc` and `herdr-app` versions, warns when the app is there without herdr-core, or notes that Desktop isn't installed. It reads versions only: on Unix, `hc server status` can start herdr-core, and the doctor starts nothing.
+- Checked live in Herdr Desktop: herdr-core on macOS starts from launchd and runs a command with only `/usr/bin:/bin:/usr/sbin:/sbin`, so the lead starts teammates through the login shell (`"$SHELL" -lc 'exec <agent>'`); Codex needs `--no-daemon`; and of the agents tried only Claude Code reports its status to herdr-core, so for the others the lead relies on the doorbell and deadlines.
+
+One updater per Herdr binary
+- New `herdr owner` and `hc owner` checks list every copy on PATH; a mise shim counts as the install it runs (`mise which`). A copy that reports a version other than the package-manager folder it sits in fails: it updated itself, and the package manager no longer knows what you run. Two copies of different versions fail and name the one that runs; two of one version warn.
+- A herdr in a mise or Homebrew folder that Herdr itself doesn't recognise as package-managed fails before it drifts. Herdr 0.9.5 refuses `herdr update` only for `installs/herdr/<version>/bin/herdr`, `Cellar/herdr/<version>/bin/herdr` and the Nix store (its `src/update.rs`). Any other copy is replaced in place: a mise entry under another id, such as mise's GitHub backend for ogulcancelik/herdr, which is how a mise-recorded 0.9.3 came to run 0.9.5, and, checked live, mise's own registry entry (`mise use -g herdr`), which installs without `bin/`.
+- So the doctor's fix for a Herdr with two owners, and its upgrade hint for an old Herdr under mise, is Homebrew (`brew install herdr`), which Herdr recognises, or Herdr's own installer, not a new mise install, until Herdr recognises mise's registry layout. A copy already at `installs/herdr/<version>/bin/herdr`, which Herdr leaves to mise, keeps `mise upgrade herdr`. A Homebrew copy that updated itself is fixed with `brew reinstall herdr`, then `brew upgrade herdr`.
+
+Skills
+- agent-browser follows upstream b06e253: the core skill is slimmer and routes detail to its references.
+
+**After updating, reload changed skills.** team-lead, its Herdr reference and agent-browser changed.
+
 ## 0.3.3
 
 **A lead's sends go through a guard that won't type into a dialog or a draft, every assignment gets a deadline, `tests/run.sh --changed` picks the tests for a change, and CI reports how close each job came to its time limit.**

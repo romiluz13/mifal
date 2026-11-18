@@ -44,6 +44,10 @@ When Herdr ships a new protocol:
 
 The vendored `herdr` skill updates through `maint/upstream.py` like any other.
 
+Herdr Desktop runs its terminals in herdr-core (`hc`), a server separate from the TUI's. The adapter speaks only the TUI's socket. The vendored `herdr-core` skill points agents to `hc --skill`, the installed core's own manual, so its commands follow the user's version; the team lead's `references/herdr.md` maps the lead's duties to `hc`, including the login-shell launch that macOS needs (herdr-core runs commands with launchd's bare PATH) and which agents report their status to herdr-core. Recheck that list when an agent or herdr-core changes. `mifal doctor` reads `hc` and `herdr-app` versions only. When herdr-core changes how a terminal identifies itself (`HC_TERMINAL_ID`), update that reference and the skill.
+
+`lib/mifal/herdr.py`'s `herdr_sees_manager` copies Herdr's own test for a package-managed install (`src/update.rs`), on the path Herdr runs from and on its resolved path: mise's `installs/herdr/<version>/bin/herdr` (or under `MISE_INSTALLS_DIR`), Homebrew's `Cellar/herdr/<version>/bin/herdr`, or the Nix store. `herdr update` replaces any other copy in place. mise's registry entry (`mise use -g herdr`, backend `aqua:herdrdev/herdr`) installs `installs/herdr/<version>/herdr`, without `bin/`, so Herdr 0.9.5 does not recognise it and updates it itself (checked live on 2026-11-18); that is why the doctor sends a Herdr owner to Homebrew or Herdr's own installer, not to a new mise install; only a copy already in the `bin/` layout keeps `mise upgrade herdr`. When Herdr changes its test, change this one and that advice with it.
+
 ## The five agents
 
 `lib/mifal/harness.py` holds what Mifal knows about each agent: where its home folder is and which variable moves it, which rules file it reads first, and whether it reads `~/.agents/skills` itself. `tests/test_wiring.py` holds each fact as a test. When an agent changes its conventions:

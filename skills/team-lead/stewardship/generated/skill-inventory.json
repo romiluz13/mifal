@@ -1,7 +1,7 @@
 {
   "spec": "0001",
   "ticket": "02-stewardship-registries",
-  "generatedAt": "2026-11-04T06:34:57Z",
+  "generatedAt": "2026-11-18T01:18:41Z",
   "sources": {
     "pool": "~/.agents/skills",
     "lock": "~/.agents/.skill-lock.json",
@@ -12,7 +12,7 @@
     "briefs": "~/.agents/skills/team-lead/stewardship/briefs"
   },
   "reconciliation": {
-    "poolSkills": 39,
+    "poolSkills": 40,
     "lockEntries": 0,
     "lockedNotOnDisk": [],
     "onDiskNotLocked": [
@@ -33,6 +33,7 @@
       "grilling",
       "handoff",
       "herdr",
+      "herdr-core",
       "implement",
       "implement-spec",
       "improve-codebase-architecture",
@@ -437,6 +438,27 @@
         "notes": "Spec 0001 transport: the lead lives in a herdr pane and drives the socket adapter."
       }
     },
+    "herdr-core": {
+      "description": "\"Use herdr-core (its CLI is hc) when $HC_TERMINAL_ID is set, which means you run in a Herdr Desktop or herdr-core terminal, or when the user mentions Herdr Desktop, herdr-core or hc: to start or coordinate other agents, run background tasks or servers, run long-running commands, read or control terminals, or work on another machine; also to show or arrange things in the Herdr window or build Herdr mods and layouts. There, prefer it over your own sub-agent tool, shell '&', nohup or tmux.\"",
+      "origin": {
+        "type": "local",
+        "source": null
+      },
+      "owner": "local",
+      "maturity": "local",
+      "mirrors": "all",
+      "automaticPolicy": true,
+      "resolvedBody": "~/.agents/skills/herdr-core/SKILL.md",
+      "declaredInvocation": {
+        "claudeDisableModelInvocation": null,
+        "codexAllowImplicitInvocation": null,
+        "claudeAutomaticEligible": true,
+        "codexAutomaticEligible": true
+      },
+      "runtimeDiscovery": "unverified",
+      "dependencies": [],
+      "catalog": null
+    },
     "implement": {
       "description": "\"Implement a piece of work based on a spec or set of tickets.\"",
       "origin": {
@@ -693,7 +715,7 @@
       "catalog": null
     },
     "team-lead": {
-      "description": "Lead an agent team the way a great engineering manager leads people \u2014 own the outcome, brief well, check real evidence, coach, recognize, and run retros that change things. Use to lead, onboard, or resume a team of agents, including agents in Herdr panes, and for delegation, coaching, reflection, and continuity across sessions. Adapts to the team's models, tools, and methodology. When Herdr is the team's channel, this skill authorizes loading the herdr skill.",
+      "description": "Lead an agent team the way a great engineering manager leads people \u2014 own the outcome, brief well, check real evidence, coach, recognize, and run retros that change things. Use to lead, onboard, or resume a team of agents, including agents in Herdr panes or Herdr Desktop terminals, and for delegation, coaching, reflection, and continuity across sessions. Adapts to the team's models, tools, and methodology. When Herdr is the team's channel, this skill authorizes loading the herdr skill, or the herdr-core skill in Herdr Desktop.",
       "origin": {
         "type": "local",
         "source": null

@@ -2,7 +2,7 @@
 
 The [README](../README.md) has the quickstart. This page says exactly what the install writes, and how update and uninstall treat your files.
 
-`./install.sh --dry-run` lists every file, link and Marked block the install would write, and changes nothing. `mifal doctor` does not intentionally edit your files or use the network, and runs none of your agents. It passively parses the declared skill-setting files below, using only skill keys and printing no unrelated values; its filename/type guard refuses known credential targets (see [TRUST.md](TRUST.md) for the limits). The existing Codex `config.toml` and `hooks.json` reads also check Mifal's marked key and that Home's hooks (see "A linked Codex Home"). It invokes the installed validator's selfcheck, one local `git ls-tree` of the recorded revision in your clone (with lazy fetching switched off, so a partial clone is never filled in), and Herdr's `status --json`, `--version` and `api schema --json` (Herdr reads its own configuration to answer). Each failure it reports comes with its fix. For each agent Mifal serves it says which rules file holds Mifal's block, and it lists agents it detected but did not serve.
+`./install.sh --dry-run` lists every file, link and Marked block the install would write, and changes nothing. `mifal doctor` does not intentionally edit your files or use the network, and runs none of your agents. It passively parses the declared skill-setting files below, using only skill keys and printing no unrelated values; its filename/type guard refuses known credential targets (see [TRUST.md](TRUST.md) for the limits). The existing Codex `config.toml` and `hooks.json` reads also check Mifal's marked key and that Home's hooks (see "A linked Codex Home"). It invokes the installed validator's selfcheck, one local `git ls-tree` of the recorded revision in your clone (with lazy fetching switched off, so a partial clone is never filled in), and Herdr's `status --json`, `--version` and `api schema --json` (Herdr reads its own configuration to answer). It runs `--version` of every `herdr` and `hc` on your PATH, to check that each has one updater (a copy that updated itself inside mise's or Homebrew's folder fails), and of `herdr-app`; it does not run `hc server status`, which can start herdr-core. Each failure it reports comes with its fix. For each agent Mifal serves it says which rules file holds Mifal's block, and it lists agents it detected but did not serve.
 
 ## What gets written
 
@@ -11,11 +11,11 @@ Mifal's managed roots default to your home folder; `--allow-root-outside-home` e
 <!-- writes:begin -->
 | Where | What Mifal writes |
 |---|---|
-| `~/.agents/mifal/` | The engine: the `mifal` command and its library, the experimental Herdr adapter and tools, the Guide (`AGENTS.md`) and the Manifest; 88 files |
-| `~/.agents/skills/` | 39 skills, 237 files |
+| `~/.agents/mifal/` | The engine: the `mifal` command and its library, the experimental Herdr adapter and tools, the Guide (`AGENTS.md`) and the Manifest; 89 files |
+| `~/.agents/skills/` | 40 skills, 238 files |
 | `~/.local/bin/mifal` | A link to the engine's `mifal` command |
 | `~/.claude/CLAUDE.md` | A Marked block that imports the Guide |
-| `~/.claude/skills/` | 39 links, one per skill, into `~/.agents/skills/` |
+| `~/.claude/skills/` | 40 links, one per skill, into `~/.agents/skills/` |
 | `~/.codex/AGENTS.md` | A Marked block holding the Guide |
 | `~/.factory/AGENTS.md` | A Marked block holding the Guide |
 | `~/.pi/agent/AGENTS.md` | A Marked block holding the Guide |

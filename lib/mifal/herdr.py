@@ -53,23 +53,145 @@ def check() -> Requirement:
         if not os.path.lexists(script_target()):
             return Requirement("missing")
         path = str(script_target())
+    found = version(path)
+    if found is None:
+        return Requirement("broken", path=path)
+    return Requirement("ok" if found >= MINIMUM else "old", found, path)
+
+
+def version(path: str):
     try:
-        result = subprocess.run([path, "--version"], capture_output=True, text=True, timeout=30)
-    except OSError:
-        return Requirement("broken", path=path)
+        result = subprocess.run([path, "--version"], capture_output=True, text=True, stdin=subprocess.DEVNULL,
+                                timeout=30)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
     m = re.search(r"(\d+)\.(\d+)\.(\d+)", result.stdout)
-    if not m:
-        return Requirement("broken", path=path)
-    version = tuple(int(n) for n in m.groups())
-    return Requirement("ok" if version >= MINIMUM else "old", version, path)
+    return tuple(int(n) for n in m.groups()) if m else None
+
+
+VERSION_FOLDER = r"/[^/]+/(\d+\.\d+\.\d+)[^/]*/"
+# Herdr 0.9.5 does not recognise mise's registry layout, installs/herdr/<version>/herdr, and replaces it on
+# `herdr update` (checked live on 2026-11-18); Homebrew's Cellar layout it does recognise.
+SAFE_OWNERS = ("install it with Homebrew (`brew install herdr`), whose copies Herdr leaves to Homebrew, or with "
+               "Herdr's own installer, which `herdr update` owns")
+LEAVE_MISE = "`mise unuse -g` its entry, then `mise prune`"
+
+
+def _mise_installs():
+    roots = [os.environ.get("MISE_INSTALLS_DIR")]
+    if os.environ.get("MISE_DATA_DIR"):
+        roots.append(os.path.join(os.environ["MISE_DATA_DIR"], "installs"))
+    return [os.path.realpath(r) for r in roots if r]
+
+
+def _managed(real: str):
+    """(manager, the version its folder records) for a copy inside a package manager's folder, else (None, None)."""
+    patterns = [("mise", re.escape(root) + VERSION_FOLDER) for root in _mise_installs()]
+    patterns += [("mise", "/mise/installs" + VERSION_FOLDER), ("Homebrew", "/Cellar" + VERSION_FOLDER),
+                 ("Nix", r"/nix/store/[^/]+-(\d+\.\d+\.\d+)")]
+    for label, pattern in patterns:
+        m = re.search(pattern, real)
+        if m:
+            return label, tuple(int(n) for n in m.group(1).split("."))
+    return None, None
+
+
+@dataclass
+class Copy:
+    path: str
+    runs: str
+    version: tuple | None
+    manager: str | None
+    recorded: tuple | None
+
+
+def runs(path: str, name: str):
+    """The file that runs for `path`: itself, or for a mise shim the install `mise which` names (None if none)."""
+    real = os.path.realpath(path)
+    if os.path.basename(real) != "mise" and "/mise/shims/" not in path:
+        return path
+    mise = real if os.path.basename(real) == "mise" else shutil.which("mise")
+    try:
+        result = subprocess.run([mise, "which", name], capture_output=True, text=True, stdin=subprocess.DEVNULL,
+                                timeout=30) if mise else None
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    target = result.stdout.strip() if result and result.returncode == 0 else ""
+    return target if os.path.isfile(target) and os.path.basename(os.path.realpath(target)) != "mise" else None
+
+
+def copies(name: str) -> list:
+    """Every distinct `name` on PATH, in PATH order; a mise shim counts as the install it runs."""
+    found, seen = [], set()
+    for folder in os.environ.get("PATH", "").split(os.pathsep):
+        path = os.path.join(folder, name)
+        if not folder or not (os.path.isfile(path) and os.access(path, os.X_OK)):
+            continue
+        target = runs(path, name)
+        real = os.path.realpath(target) if target else None
+        if not real or real in seen:
+            continue
+        seen.add(real)
+        found.append(Copy(path, target, version(target), *_managed(real)))
+    return found
+
+
+def owner(name: str, found: list, show=str):
+    """(status, detail, fix) for who updates `name`, given its copies on PATH; None when there are none."""
+    if not found:
+        return None
+    for c in found:
+        if c.manager and c.version and c.version != c.recorded:
+            return ("FAIL", f"{show(c.path)} reports {_dotted(c.version)} but sits in {c.manager}'s folder for "
+                    f"{_dotted(c.recorded)}: it updated itself, so {c.manager} no longer knows which version you run",
+                    _one_owner(name, c))
+    for c in found:
+        if name == "herdr" and c.manager and not herdr_sees_manager(c.runs):
+            return ("FAIL", f"{show(c.path)} sits in {c.manager}'s folder, but not where Herdr looks for "
+                    f"{c.manager}'s copies, so `herdr update` would replace it behind {c.manager}'s back",
+                    _one_owner(name, c))
+    if len(found) > 1:
+        listed = ", ".join(f"{show(c.path)} ({_dotted(c.version) if c.version else 'no version'}, "
+                           f"{c.manager or 'own updater'})" for c in found)
+        status = "WARN" if len({c.version for c in found}) == 1 else "FAIL"
+        return (status, f"{len(found)} copies on PATH, the first one runs: {listed}",
+                f"keep one {name} and remove the others, so a single updater owns it")
+    c = found[0]
+    return ("PASS", f"one copy, {show(c.path)}, updated by {c.manager or 'its own updater'}", None)
+
+
+def _one_owner(name: str, c: Copy) -> str:
+    leave = LEAVE_MISE if c.manager == "mise" else f"uninstall it with {c.manager}"
+    if name == "herdr" and c.manager == "Homebrew":
+        return "give herdr one owner: `brew reinstall herdr`, then `brew upgrade herdr`, so Homebrew records the copy you run"
+    if name == "herdr":
+        return f"give herdr one owner: {SAFE_OWNERS}; then remove this copy ({leave})"
+    return f"give {name} one owner: remove this copy ({leave}) and install {name} with its own installer"
+
+
+def herdr_sees_manager(path: str) -> bool:
+    """Herdr's own test for a package-managed install (src/update.rs in Herdr 0.9.5), on the path it runs from and
+    on its resolved path; `herdr update` replaces any other copy in place."""
+    def sees(candidate):
+        if candidate.startswith("/nix/store/"):
+            return True
+        parts = Path(candidate).parts
+        if len(parts) < 5 or parts[-1] != "herdr" or parts[-2] != "bin" or parts[-4] != "herdr":
+            return False
+        installs = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(candidate))))
+        return parts[-5] in ("installs", "Cellar") or os.path.realpath(installs) in _mise_installs()
+    return sees(os.path.abspath(path)) or sees(os.path.realpath(path))
 
 
 def upgrade_command(path: str) -> str:
+    found = copies("herdr")
+    path = runs(path, "herdr") or (found[0].runs if found else path)
     real = os.path.realpath(path)
-    if "/Cellar/" in real or real.startswith(("/opt/homebrew/", "/usr/local/Homebrew/")):
+    manager, _ = _managed(real)
+    if manager == "mise":
+        return "mise upgrade herdr" if herdr_sees_manager(path) else f"{SAFE_OWNERS}, then remove herdr from mise ({LEAVE_MISE})"
+    if manager == "Homebrew" or real.startswith(("/opt/homebrew/", "/usr/local/Homebrew/")):
         return "brew upgrade herdr"
-    if "/mise/" in real:
-        return "mise upgrade herdr"
     return "herdr update"
 
 

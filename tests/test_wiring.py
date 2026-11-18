@@ -457,8 +457,8 @@ class FirstInstallOutput(Wiring):
         self.assertGreater(len(preview.stdout.splitlines()), 300)
         for rel in RULES.values():
             self.assertIn(f"block ~/{rel}", lines)
-        self.assertIn("~/.agents/skills: 39 skills", result.stdout)
-        self.assertIn("~/.claude/skills: 39 links", result.stdout)
+        self.assertIn("~/.agents/skills: 40 skills", result.stdout)
+        self.assertIn("~/.claude/skills: 40 links", result.stdout)
         self.assertIn("Wired: Claude Code, Codex, Droid, Pi, OpenCode", result.stdout)
         self.assertIn("Next: run `mifal doctor`", result.stdout)
 
