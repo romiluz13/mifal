@@ -1,7 +1,8 @@
 # Design and UX
 
 Read for the affected surface; scale the work to the task. This is the primary
-Matt interface guidance, adapted from reviewed Impeccable 4.8.0 material.
+Matt interface guidance, adapted from reviewed Impeccable 4.8.0 and 4.9.2
+material.
 
 ## Ground the direction
 
@@ -10,6 +11,15 @@ authority. Read existing requirements/context directly; reuse the current task
 record. A missing DESIGN.md does not erase an established interface. A
 refinement preserves identity and behavior; a redesign changes the agreed
 visual scope while preserving factual content and user tasks.
+
+For a new or replacement direction, settle the product first: subject,
+audience, primary job and success, confirmed with the person as the
+frontend-design skill's grounding step asks. Keep proposed looks out of
+those questions, so the answers judge the product rather than a look you
+suggested. A product or site the brief cites as a reference sets the craft
+bar, its finish and commitment, not the style or composition. Capture
+references as screenshots with agent-browser and work from the pixels; a
+prose paraphrase of a design system drifts, a pixel reference does not.
 
 Identify the surface's purpose:
 
@@ -35,8 +45,11 @@ loading, empty, success, error, disabled and permission states.
 
 Plan recovery: preserve useful input, explain the specific problem, give a
 next action, and handle back/cancel or repeated submission where relevant.
-Avoid inventing capabilities, claims or testimonials. An assumption about
-what users understand remains an assumption until user validation.
+Avoid inventing capabilities, claims, testimonials, prices, customers,
+metrics, addresses or phone numbers. Illustrative content a visitor could
+mistake for real is labeled as a placeholder and listed for the user to
+replace. An assumption about what users understand remains an assumption
+until user validation.
 
 ## Compose deliberately
 
@@ -64,6 +77,10 @@ and check it for overlap and clipping, not only the resting screen. Follow the
 UX acceptance reference for actual completion, keyboard and recovery evidence.
 Screenshots alone cannot establish gesture quality, screen-reader use or task
 completion.
+
+When feedback is vague ("make it better", "it feels off"), first describe
+what was built and what you see on screen, then name the change you
+propose; act once the person confirms or corrects that reading.
 
 The full upstream package's launcher, hooks, mandatory context files, separate
 confirmation lifecycle and categorical visual bans are intentionally excluded.

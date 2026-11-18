@@ -495,8 +495,8 @@
       "name": "impeccable",
       "repo": "pbakaus/impeccable",
       "licence": "Apache-2.0",
-      "revision": "4f956490f0056ae1ff5ea80372cf56e83c001d3c",
-      "version": "4.8.0",
+      "revision": "d41d9860b0094dcb68030657da63461212835aaa",
+      "version": "4.9.2",
       "paths": [
         "skills/frontend-design/references/interface/design.md",
         "skills/frontend-design/references/interface/motion.md",
@@ -511,7 +511,7 @@
       "name": "lottiefiles-motion-design",
       "repo": "LottieFiles/motion-design-skill",
       "licence": "MIT",
-      "revision": "f9a8a041b85185ee4881b3471d3415e939aac772",
+      "revision": "2e1f3c052dd70c60b598413e2fc5d7704d9e9896",
       "version": "1.0.0",
       "paths": [
         "skills/frontend-design/references/interface/motion.md",
