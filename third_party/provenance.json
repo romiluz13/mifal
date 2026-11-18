@@ -447,8 +447,8 @@
       "skills": {
         "agent-browser": {
           "upstream": "skills/agent-browser",
-          "commit": "5868f7c05020e047c00e68e4abf9253cce864f41",
-          "tree": "aee3afd3dd9c879a14816dd6dca77c938f8c9c10",
+          "commit": "b06e2533ba9b3823b8a96c859d455cb55f4d7893",
+          "tree": "d75a393c9a371295c6d6be46c34938e76ef21184",
           "modified": {
             "changed": [
               "SKILL.md"
