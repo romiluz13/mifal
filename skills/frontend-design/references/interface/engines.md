@@ -12,6 +12,7 @@ docs before implementing. A source pointer is not an executed capability.
 | React Three Fiber scene | R3F only when the project uses it | [Fundamentals](https://github.com/EnzeD/r3f-skills/blob/4a11805f097396fb0b893172efd1e359e8051f92/skills/r3f-fundamentals/SKILL.md), [animation](https://github.com/EnzeD/r3f-skills/blob/4a11805f097396fb0b893172efd1e359e8051f92/skills/r3f-animation/SKILL.md), then current project-version docs |
 | Procedural illustration, explainer or interactive drawn art | Anidoodle, scoped to the project | [Reviewed entry](https://github.com/alexgreensh/anidoodle/blob/f649db6eb823562ae41608119beb53f04d9d7c05/skills/anidoodle/SKILL.md); load its applicable reference and inspect the project integration before running tools |
 | Rendered video/composition | Remotion, scoped to the project | [Official consumer skills](https://github.com/remotion-dev/skills/tree/473352613039e718e46655a26df224851e84c4aa/skills), selecting markup/timing or the required creation/render branch |
+| Rendered animation file (MP4, GIF, WebM, dotLottie, Lottie JSON) | LottieFiles Creator MCP, a hosted service | Only when the user asks for such a file and chooses the service; [reviewed handoff](https://github.com/LottieFiles/motion-design-skill/blob/2e1f3c052dd70c60b598413e2fc5d7704d9e9896/skills/motion-design/reference/export-and-render.md). Connecting it is the user's decision, not this skill's |
 
 Match the branch to the real task. Tools may complement one another, but adding
 a second engine needs an actual requirement. Runtime dependencies, generated

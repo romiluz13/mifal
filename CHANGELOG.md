@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.4.1
+
+**The design guidance catches up with Impeccable 4.9.2: motion is judged on captured evidence by a fresh reviewer, new UI gets a visual judge, and references set the craft bar rather than the style.**
+
+Design (`frontend-design`'s interface references and the team lead's UX acceptance)
+- Motion: changed web animation is captured normally, then with reduced motion (agent-browser `set media reduced-motion`, region screenshots and `record --contact-sheet`), and a fresh reviewer with no history and no browser checks continuity, craft and reduced motion and returns recapture, fix or ship. Hover motion keeps the hovered element and its neighbors in place, and a child carries it.
+- Visual judge: for new UI and substantial visual redesigns, a fresh session sees only the brief, references, screenshots and a rubric of named dimensions, and returns accept or fix with its three largest gaps.
+- One fresh-review rule for both: at most two rounds (the review, then a verdict on the fixes), stop when a round resolves nothing, the human overrides the reviewer, and without a second session the result is labeled self-review.
+- Direction: for a new or replacement look, the product is settled first and proposed looks stay out of those questions; a cited product sets the craft bar, not the style; references are captured as screenshots. Vague feedback gets a description of what was built before any change. No invented prices, customers, metrics, addresses or phone numbers; illustrative content is labeled and listed for replacement.
+- Order: static design first at desktop and mobile, motion after it passes; a dev-only token control may help compare prototype alternatives.
+- engines.md lists LottieFiles' hosted Creator MCP for rendered animation files as the user's explicit choice.
+
+Upstream
+- Impeccable reviewed at 4.9.2 (`d41d986`) and LottieFiles at `2e1f3c0`; what was adopted and declined is in `SOURCES.md`. `maint/upstream.py status` reports everything current.
+
+**After updating, reload changed skills.** frontend-design and team-lead changed.
+
 ## 0.4.0
 
 **Mifal works in Herdr Desktop, and `mifal doctor` catches a Herdr that two updaters both own before their versions split.**

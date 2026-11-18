@@ -1,7 +1,7 @@
 # Motion craft
 
 Read for changed animation or meaningful interaction timing. Adapted from
-LottieFiles motion-design 1.0.0 and Impeccable animate; technical runtime
+LottieFiles motion-design 1.0.0 and Impeccable 4.9.2 animate; technical runtime
 requirements and accessibility take precedence over stylistic heuristics.
 
 ## Direct the motion
@@ -26,6 +26,10 @@ section. Set a task-specific stagger budget; keep essential controls usable
 without waiting for secondary motion. An interaction should remain comfortable
 after repeated use, not merely impressive on the first viewing.
 
+On hover, keep the hovered element and its neighbors in place and let a
+child carry the motion, so the pointer's target stays under the pointer.
+An optional hover preview may wait on entry; it responds at once on exit.
+
 ## Select and implement
 
 Use CSS for simple effects. Choose the project's existing Motion/GSAP/native
@@ -48,6 +52,28 @@ resize and remount where affected. Compare reduced-motion and normal modes.
 Use relevant measurements for performance claims; label simulations and device
 limits. A prototype scrubber or slow-motion control can aid review of a
 complex sequence; it need not become permanent product UI.
+
+Judge changed web animation by captured evidence, never one screenshot.
+Capture the same interaction twice, normally first, then after `agent-browser
+set media reduced-motion`. Each capture keeps the region before and after
+settling (`agent-browser screenshot <region-selector> <file>`) and the
+movement between (`agent-browser record start <file> --fps 60
+--contact-sheet --contact-sheet-threshold 0.005`, which needs ffmpeg; the
+low threshold keeps a small region's changes). A fresh reviewer with no
+conversation history and no browser reads only that evidence, the request
+and the motion's purpose. It checks continuity (no jump, flash, clipping or
+replayed entrance between frames), craft (duration fits distance, exits
+faster than entrances) and reduced motion (spatial movement removed or
+much reduced, state feedback kept), and returns one disposition:
+
+- **recapture:** evidence is blank, stale, partial or of the wrong region;
+  repair it before any verdict.
+- **fix:** apply its ordered fixes in one batch and recapture both modes.
+- **ship:** report ship for the scope it actually checked.
+
+Rounds follow the fresh-review rule in
+[UX acceptance](../../../team-lead/references/ux-acceptance.md); a partial
+verdict never becomes a claim of smoothness.
 
 Local adjustments replace upstream mandatory three-layer rules, universal
 linear/opacity bans, fixed one-third constraints and contradictory stagger

@@ -28,14 +28,18 @@ new interview, tracker, context document or authorization stage.
 
 Choose one interface direction. For an unresolved high-value visual or
 interaction decision, use Matt's prototype detour and compare small working
-alternatives within a named budget. A clear brief proceeds directly.
+alternatives within a named budget; a dev-only control for a few tokens
+(accent, type scale, density) can help compare them and is removed before
+acceptance. A clear brief proceeds directly.
 
 For interactive/web output, check the selected worker's browser tools before
 promising visual or interaction checks. Inspect the existing route when it is
 available; inspect a new route once built. Before acceptance, capture and
 inspect its rendered state, actuate relevant controls and read errors through
 available permitted tools. A skill file, screenshot intention or successful
-build is insufficient. Use a capable existing reviewer when available; an
+build is insufficient. Use a capable existing reviewer when available; for
+new UI and substantial visual redesigns, that is the visual judge in
+[UX acceptance](../../../team-lead/references/ux-acceptance.md). An
 unavailable required check stays untested.
 
 For rendered video or static art without an interactive surface, select
@@ -48,7 +52,9 @@ when the task also delivers an interactive/web surface.
 
 Use the project's existing components and libraries. Keep content and controls
 usable while assets load, when motion is reduced and when decorative code
-fails. Implement inside Matt's selected build/debug procedure.
+fails. Implement inside Matt's selected build/debug procedure. Build the
+static design first, at desktop and mobile; add motion once the static
+inspection passes, so motion never hides a layout defect.
 
 Compare the rendered result with the brief and exercise the affected journey
 for interactive output. Use one batched relevant inspection (desktop/mobile

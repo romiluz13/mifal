@@ -64,7 +64,8 @@ change; a small repair needs a short walkthrough, not a second QA program.
   does not establish keyboard or screen-reader behavior.
 - **Motion:** state the purpose. For changed animation, check reduced-motion
   behavior, interruption/repeated input, cleanup and the actual target device
-  or recorded simulation. Preserve necessary state feedback when motion is
+  or recorded simulation, and require the motion reviewer's disposition from
+  [motion craft](../../frontend-design/references/interface/motion.md). Preserve necessary state feedback when motion is
   reduced. Record performance observations as observations unless measured.
 - **Visual craft:** when visual direction changed, compare rendered states
   with the brief/design system, not only source code or an initial mockup.
@@ -83,6 +84,24 @@ the missing procedure/check when it matters; late reading alone is not
 evidence of earlier compliance. The single executing agent applies the same
 gate. A required failed or blocked check keeps the affected gate incomplete.
 Use a bounded correction within the existing workflow and authorization.
+
+**Visual judge.** For new UI and substantial visual redesigns, a fresh
+session or sub-agent judges the rendered result before acceptance. It
+receives the brief, the design system or reference screenshots, the
+inspected viewport screenshots and this rubric, and nothing of the code,
+the conversation or the builder's own assessment. It rates each dimension
+met or gap, citing a screenshot: fit to the brief and the surface's
+purpose; first read and hierarchy; typography; color and contrast; spacing
+and alignment; state and content coverage; and distinctiveness from generic
+templates. It returns accept or fix with its three largest gaps. A
+similarity percentage is an estimate unless a command measured it.
+
+**Fresh-review rounds**, for the visual judge and the motion reviewer: at
+most two, the review and then a verdict on the fixes, in which the same
+reviewer (or a fresh one given the prior findings and new evidence) scores
+each fix resolved, partial or unresolved. Stop early when a round resolves
+nothing, and report what remains open. The human's judgment overrides the
+reviewer. With no second session, label the result self-review.
 
 An agent walkthrough can expose broken behavior. It does not prove that
 real users understand the product. Record consequential usability assumptions
