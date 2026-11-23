@@ -169,7 +169,8 @@ WORKFLOW_EXAMPLE = (
     "  Procedure: ~/.agents/skills/engineering-workflow/SKILL.md\n"
     "  Procedure: ~/.agents/skills/ask-matt/SKILL.md\n"
     "  Loaded: ~/.agents/skills/ask-matt/SKILL.md | kai: sha256:<digest> <where you loaded it>\n"
-    "Executor is the brief's owner; `validate_contracts.py read <path>` prints a body's digest. "
+    "Executor is the brief's owner; `validate_contracts.py read <path>` prints a body's digest. A worker brief "
+    "whose 'State:' names a lead's record that lists and loaded both bodies leaves out their two lines. "
     "The rerun names anything still missing; the full template is in "
     "engineering-workflow/references/phase-record.md."
 )
@@ -328,10 +329,17 @@ def validate_workflow(text: str, path: Path, gate="entry", require_loads=True, r
         + [(v, parent_record) for v in inherited_workflow_lines(fields, path, read_text, "cut")],
         record_steps(map_steps, route, strip_stamp(decided)), read_text)
     errors.extend(cut_problems)
-    if (pool / "ask-matt" / "SKILL.md").resolve() not in procedures:
-        errors.append("Procedure must include the canonical Ask Matt SKILL.md routing body")
-    if (pool / "engineering-workflow" / "SKILL.md").resolve() not in procedures:
-        errors.append("Procedure must include the current Engineering Workflow SKILL.md")
+    router_missing = [message for name, message in (
+        ("ask-matt", "Procedure must include the canonical Ask Matt SKILL.md routing body"),
+        ("engineering-workflow", "Procedure must include the current Engineering Workflow SKILL.md"))
+        if (pool / name / "SKILL.md").resolve() not in procedures]
+    # brief --matt and receipt --matt check a worker; workflow --gate checks a lead's own record, which routes itself.
+    worker = receipt or not require_loads
+    lacks = parent_router_gaps(fields, path, read_text, pool) if router_missing and worker else None
+    if not worker or lacks:
+        for message in router_missing:
+            errors.append(message + (f"; a worker may leave it out only under a parent State: whose Workflow lists "
+                                     f"and loaded both router bodies, and {lacks}" if worker else ""))
     exemption = re.fullmatch(r"n/a:\s*(docs-only|coordination):\s*(.+)", fields.get("implement", ""), re.I)
     if fields.get("implement") and not (exemption and workflow_value(exemption.group(2))):
         errors.append("Implement needs 'n/a: docs-only: <reason>' or 'n/a: coordination: <reason>'"
@@ -834,6 +842,28 @@ def workflow_procedure_paths(text, record):
                 parts = [value] if key.lower() == "procedure" else value.split(",")
                 found.update(workflow_path(part.strip(), record).resolve() for part in parts if part.strip())
     return found
+
+
+def parent_router_gaps(fields, record, read_text, pool):
+    """What the parent State lacks for a worker to leave out the router bodies: '' when its Workflow lists both
+    ask-matt and engineering-workflow as Procedure and carries a Loaded line for each."""
+    if not fields.get("state"):
+        return "this record names no parent State:"
+    target = workflow_path(fields["state"].split("#", 1)[0], record)
+    try:
+        text = read_text(target)
+    except (OSError, UnicodeError) as e:
+        return f"State {target} cannot be read ({e})"
+    listed = workflow_procedure_paths(text, target)
+    loaded = {workflow_path(value.partition("|")[0].strip(), target).resolve()
+              for heading, block in sections(workflow_text(text).split("\n## Return", 1)[0], 2)
+              if heading.lower() == "workflow"
+              for value in re.findall(r"(?mi)^[ \t]*(?:- )?Loaded:[ \t]*(\S.*)$", block)
+              if value.partition("|")[0].strip()}
+    gaps = [f"no '{key}:' line for {body}" for key, have in (("Procedure", listed), ("Loaded", loaded))
+            for body in ((pool / n / "SKILL.md").resolve() for n in ("ask-matt", "engineering-workflow"))
+            if body not in have]
+    return f"State {target} has " + "; ".join(gaps) if gaps else ""
 
 
 def parent_executors(fields, record, read_text):
