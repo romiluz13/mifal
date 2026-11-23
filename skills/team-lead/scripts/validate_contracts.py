@@ -335,7 +335,7 @@ def validate_workflow(text: str, path: Path, gate="entry", require_loads=True, r
         if (pool / name / "SKILL.md").resolve() not in procedures]
     # brief --matt and receipt --matt check a worker; workflow --gate checks a lead's own record, which routes itself.
     worker = receipt or not require_loads
-    lacks = parent_router_gaps(fields, path, read_text, pool) if router_missing and worker else None
+    lacks = parent_router_gaps(fields, path, read_text, pool, body_digest) if router_missing and worker else None
     if not worker or lacks:
         for message in router_missing:
             errors.append(message + (f"; a worker may leave it out only under a parent State: whose Workflow lists "
@@ -475,36 +475,9 @@ def validate_workflow(text: str, path: Path, gate="entry", require_loads=True, r
                     errors.append(f"latest return has no status for Done means claim '{claim}'")
                 elif reported.count(claim) > 1:
                     errors.append(f"latest return has duplicate statuses for claim '{claim}'")
-        loads, stale = set(), []
-        executor = fields.get("executor", "") + ":"
-        for value in load_values:
-            target, separator, evidence = value.partition("|")
-            evidence = evidence.strip()
-            proof = re.fullmatch(r"sha256:([0-9a-f]{64})\s+(?:bytes:([0-9]+)\s+)?(.+)",
-                                 evidence[len(executor):].strip(), re.I)
-            if (not separator or not workflow_value(target.strip())
-                    or not evidence.startswith(executor)
-                    or not proof or not workflow_value(proof.group(3))):
-                errors.append("Loaded needs '<body path> | <executor>: sha256:<body digest> [bytes:<n>] <read pointer>'"
-                              + placeholder_note(target.strip(), proof.group(3) if proof else ""))
-            elif proof.group(3).lower().startswith("bytes:"):
-                errors.append("Loaded byte count must be a nonnegative integer followed by a read pointer")
-            elif re.search(r"(?i)^(?:partial|truncated|excerpt|snippet|metadata[- ]only|description[- ]only|frontmatter[- ]only)\b|\bcoverage:\s*(?:partial|truncated)\b", proof.group(3)):
-                errors.append(f"Loaded declares a partial read of {target.strip()}; load the complete body before work")
-            else:
-                loaded_path = workflow_path(target.strip(), path).resolve()
-                if loaded_path in procedures:
-                    try:
-                        data = read_text(loaded_path).encode("utf-8") if proof.group(2) else None
-                        digest = hashlib.sha256(data).hexdigest() if data is not None else body_digest(loaded_path)
-                        if digest != proof.group(1).lower():
-                            stale.append(loaded_path)
-                        elif data is not None and len(data) != int(proof.group(2)):
-                            errors.append(f"Loaded byte count differs from {loaded_path}; record the complete read")
-                        else:
-                            loads.add(loaded_path)
-                    except OSError as e:
-                        errors.append(f"Loaded body cannot be checked: {e}")
+        loads, stale, load_errors = checked_loads(load_values, fields.get("executor", ""), path, procedures,
+                                                  read_text, body_digest)
+        errors.extend(load_errors)
         # A reload adds a matching line beside the original, which stays: a stale line is an error only when no
         # line of this record (same resolved path, same executor, complete read) matches the current body.
         for loaded_path in dict.fromkeys(stale):
@@ -587,7 +560,7 @@ def validate_workflow(text: str, path: Path, gate="entry", require_loads=True, r
         claim_sources.append(state)
         if fields.get("state") and any(h.lower().startswith("done means") for h, _ in sections(body, 2)):
             claim_sources.append(body)
-    elif receipt or not require_loads:
+    elif worker:
         claim_sources.append(body)
     for source in claim_sources:
         done_sections = [b for h, b in sections(source, 2) if h.lower().startswith("done means")]
@@ -844,25 +817,77 @@ def workflow_procedure_paths(text, record):
     return found
 
 
-def parent_router_gaps(fields, record, read_text, pool):
-    """What the parent State lacks for a worker to leave out the router bodies: '' when its Workflow lists both
-    ask-matt and engineering-workflow as Procedure and carries a Loaded line for each."""
+def checked_loads(load_values, executor, record, bodies, read_text, body_digest):
+    """Check `Loaded:` values as a record's own gate does: (loads, stale, errors). `loads` holds each body of `bodies`
+    that a well-formed, complete read by `executor` matches at its current digest; `stale` the bodies read at another."""
+    loads, stale, errors = set(), [], []
+    executor += ":"
+    for value in load_values:
+        target, separator, evidence = value.partition("|")
+        evidence = evidence.strip()
+        proof = re.fullmatch(r"sha256:([0-9a-f]{64})\s+(?:bytes:([0-9]+)\s+)?(.+)",
+                             evidence[len(executor):].strip(), re.I)
+        if (not separator or not workflow_value(target.strip())
+                or not evidence.startswith(executor)
+                or not proof or not workflow_value(proof.group(3))):
+            errors.append("Loaded needs '<body path> | <executor>: sha256:<body digest> [bytes:<n>] <read pointer>'"
+                          + placeholder_note(target.strip(), proof.group(3) if proof else ""))
+        elif proof.group(3).lower().startswith("bytes:"):
+            errors.append("Loaded byte count must be a nonnegative integer followed by a read pointer")
+        elif re.search(r"(?i)^(?:partial|truncated|excerpt|snippet|metadata[- ]only|description[- ]only|frontmatter[- ]only)\b|\bcoverage:\s*(?:partial|truncated)\b", proof.group(3)):
+            errors.append(f"Loaded declares a partial read of {target.strip()}; load the complete body before work")
+        else:
+            loaded_path = workflow_path(target.strip(), record).resolve()
+            if loaded_path in bodies:
+                try:
+                    data = read_text(loaded_path).encode("utf-8") if proof.group(2) else None
+                    digest = hashlib.sha256(data).hexdigest() if data is not None else body_digest(loaded_path)
+                    if digest != proof.group(1).lower():
+                        stale.append(loaded_path)
+                    elif data is not None and len(data) != int(proof.group(2)):
+                        errors.append(f"Loaded byte count differs from {loaded_path}; record the complete read")
+                    else:
+                        loads.add(loaded_path)
+                except OSError as e:
+                    errors.append(f"Loaded body cannot be checked: {e}")
+    return loads, stale, errors
+
+
+def parent_router_gaps(fields, record, read_text, pool, body_digest):
+    """What the parent State lacks for a worker to leave out the router bodies: '' when its Workflow, outside comments
+    and fences, lists both ask-matt and engineering-workflow as Procedure and has a Loaded line for each that its own
+    gate accepts: well formed, by the parent's Executor, at the body's current digest."""
     if not fields.get("state"):
         return "this record names no parent State:"
     target = workflow_path(fields["state"].split("#", 1)[0], record)
     try:
-        text = read_text(target)
+        text = visible(read_text(target))
     except (OSError, UnicodeError) as e:
         return f"State {target} cannot be read ({e})"
+    blocks = [b for h, b in sections(text.split("\n## Return", 1)[0], 2) if h.lower() == "workflow"]
+    executors = [v.strip() for b in blocks for v in re.findall(r"(?mi)^[ \t]*(?:- )?Executor:[ \t]*(\S.*)$", b)]
+    executor = executors[0] if len(executors) == 1 else ""
+    routers = [(pool / n / "SKILL.md").resolve() for n in ("ask-matt", "engineering-workflow")]
     listed = workflow_procedure_paths(text, target)
-    loaded = {workflow_path(value.partition("|")[0].strip(), target).resolve()
-              for heading, block in sections(workflow_text(text).split("\n## Return", 1)[0], 2)
-              if heading.lower() == "workflow"
-              for value in re.findall(r"(?mi)^[ \t]*(?:- )?Loaded:[ \t]*(\S.*)$", block)
-              if value.partition("|")[0].strip()}
-    gaps = [f"no '{key}:' line for {body}" for key, have in (("Procedure", listed), ("Loaded", loaded))
-            for body in ((pool / n / "SKILL.md").resolve() for n in ("ask-matt", "engineering-workflow"))
-            if body not in have]
+    gaps = [f"no 'Procedure:' line for {body}" for body in routers if body not in listed]
+    if len(executors) != 1:
+        gaps.append(f"{len(executors)} 'Executor:' lines, so no Loaded line can be matched to its Executor")
+    for body in routers:
+        lines = [v.strip() for b in blocks for v in re.findall(r"(?mi)^[ \t]*(?:- )?Loaded:[ \t]*(\S.*)$", b)
+                 if workflow_path(v.partition("|")[0].strip(), target).resolve() == body]
+        if not lines:
+            gaps.append(f"no 'Loaded:' line for {body}")
+            continue
+        refused = []
+        for value in lines:
+            loads, stale, errors = checked_loads([value], executor, target, {body}, read_text, body_digest)
+            if body in loads:
+                break
+            refused.append(f"'Loaded: {value}', which " + (
+                "is stale: the body changed since that read" if stale else
+                f"its own gate refuses ({errors[0]}; its Executor is '{executor}')" if errors else "does not load it"))
+        else:
+            gaps.extend(refused)
     return f"State {target} has " + "; ".join(gaps) if gaps else ""
 
 
