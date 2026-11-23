@@ -460,7 +460,7 @@ resume action.
 An unattended run does only reversible, authorized work, and starts from five
 answers in `state.md`: what done looks like as pass/fail (a duration isn't
 one), how the work checks itself, what it may touch, what stops it, and where
-the result goes for sign-off. 
+the result goes for sign-off.
 
 To close: compare the original request and accepted plan with the authoritative
 state's named required outcomes, open findings, evidence and active teammates.

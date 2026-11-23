@@ -236,7 +236,7 @@ class SoloEntry(unittest.TestCase):
         self.assertIn("**Solo form.**", text)
         form = text.split("**Solo form.**", 1)[1].split("- Complete a phase only when", 1)[0]
         for needle in ("`Path:` line", "no further stops", "written list of your design decisions", "hard to reverse",
-                       "a public interface, data or a schema, a deletion, security, a new dependency",
+                       "a public interface, data or a schema, removed behaviour, security, a new dependency",
                        "states the behaviour concretely", "review-snapshot.py", "self-review", "independent review",
                        "the session's record", "`retro`", "`writing-for-agents`", "before the final answer",
                        "`Retro: skipped, smooth build`"):
