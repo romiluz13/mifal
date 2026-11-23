@@ -70,7 +70,9 @@ Read each command's exit status itself; a pipe hides it.
 3. Then do the step, or send its brief.
 
 A worker does the same inside its brief: it reads the bodies the brief lists,
-then checks the brief, and that check's time is its start Check. A read
+then checks the brief, and that check's time is its start Check. A brief whose
+`State:` names this record leaves out the two router bodies above, because
+this record lists and loaded them; it lists only its phase's procedures. A read
 stamped after its step's start Check is late and is refused.
 
 ## What each phase adds
