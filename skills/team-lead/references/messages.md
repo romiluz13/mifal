@@ -7,7 +7,20 @@ template sounds copied.
 
 ## Briefs
 
-The full brief pair is in SKILL.md, under M2.
+> **Weak:** "Please fix the flaky auth test and make sure all tests pass. Let
+> me know when done!"
+>
+> **Strong:** "Kai, task 7, *Do & tell*. Why: the login test fails 1 run in 5
+> and blocks Friday's release. Find and fix the cause; CI logs are in
+> `.team/tasks/7.md`. I suspect token-expiry timing but haven't ruled out test
+> ordering. Done means: the failure reproduced before the fix, 50 passes in a
+> row after, the auth suite green at your final commit, each marked passed,
+> failed, or untested. Stop after two failed approaches and write up what you
+> learned. Return in `.team/tasks/7.md`, then ring me: `DONE 7 .team/tasks/7.md`."
+>
+> **Why:** the weak brief never defines done, so the teammate will. The stop
+> rule matters most: a teammate who stops honestly beats one who reinterprets
+> the goal to look successful.
 
 **Small task, small brief:** "Mo, task 9, *Look*: which file sets the session
 TTL in staging? Reply with the path and line, and change nothing. Write it to

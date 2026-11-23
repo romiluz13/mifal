@@ -69,17 +69,6 @@ Use active voice as default. A CTA says exactly what happens when it is used: "S
 Treat failure and emptiness as moments for direction, not mood. Explain what went wrong and how to fix it, in the interface's voice rather than a person's. Errors don't apologize, and they are never vague about what happened. An empty screen is an invitation to act.
 
 Keep the tone conversational: plain verbs, sentence case, no filler, with tone matched to the brand and the audience. Let each written element do exactly one job.
-<!-- self-improvement-loop -->
-
-
-## Self-improvement
-
-At the end of every run of this skill, before ending:
-1. Did any step fail or need a workaround?
-2. Did the user correct or reject anything meaningful?
-3. Did you discover something a future run might need?
-
-Only propose the change if it's a meaningful improvement. Ask the user before applying.
 
 ## Local Matt interface branch
 
@@ -96,4 +85,4 @@ Impeccable/LottieFiles plugin installation. Their automation and blanket
 motion rules are excluded; [provenance and update policy](references/interface/SOURCES.md)
 records the reviewed sources and compatibility choices.
 
-<!-- Modified by Mifal: Mifal added the local interface appendix and the self-improvement section. Upstream, revision and licence: third_party/provenance.json. -->
+<!-- Modified by Mifal: Mifal added the local interface appendix. Upstream, revision and licence: third_party/provenance.json. -->

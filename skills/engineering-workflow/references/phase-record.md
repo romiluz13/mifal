@@ -1,8 +1,10 @@
 # Active phase record and checks
 
-Read at Matt entry, resume, assignment and acceptance. Keep this information
-in the existing task note or native task state. This is a checkable surface
-for the engineering contract, not another workflow or tracker.
+Reference for work that keeps its state in a record file. Start from the
+[record card](record-card.md); open the section here that a check's refusal
+names, not the whole file. Keep this information in the existing task note or
+native task state. This is a checkable surface for the engineering contract,
+not another workflow or tracker.
 
 ## Prepare the active record
 
@@ -249,7 +251,12 @@ Herdr adapter Matt task JSON forwards the optional `implement` value into
 the brief; tasks under another methodology keep their own contract.
 
 List only the selected phase's procedures/references, one `Procedure` per
-path, including the current Engineering Workflow and Ask Matt. `Procedures` and the adapter's `Required skill
+path, including the current Engineering Workflow and Ask Matt. A worker brief
+whose `State:` names a parent record that lists both as `Procedure` and has a
+`Loaded:` line for each leaves those two out, since the parent took the routing
+decision; `brief --matt` and `receipt --matt` refuse the omission, naming what
+the parent lacks, when it lacks either line for either body or cannot be read.
+`workflow --gate` still requires both in the lead's own record. `Procedures` and the adapter's `Required skill
 paths` are accepted aliases for comma-separated paths. Each selected path
 must exist and have a matching `Loaded: <path> | <executor>: sha256:<body digest> <read pointer>` record.
 Core and applicable DDD/UX paths must resolve to the canonical bodies in
@@ -360,8 +367,7 @@ way at every check; cite the part the human wrote in a smaller file. The check
 proves the line has a quote and
 a source, not that the human said it: the lead's reviewer reads the source. A
 branch is not a cut: Ask Matt's branches shorten the path by its own rules, and
-the opening "full workflow or cut?" question, asked with the recommended
-answer (full workflow), shows the human what a branch drops.
+the entry's `Path:` line shows the human what a branch drops.
 
 Reads carry their time. Write a `Loaded:` line's read pointer with
 `at:<UTC time>` (`at:2026-10-17T10:00:00Z`; seconds optional), and log the gate
@@ -451,9 +457,10 @@ check uses that latest return, not the parent's reads or an old attempt.
 return without the governing brief cannot supply this preparation check.
 The worker can use its existing task/journal to preserve a read at entry;
 no second tracker is needed. Reconcile
-the same active record after compaction; reload the engineering entry,
-Ask Matt and current specialist, record the reads, and resume the first
-incomplete phase. Preserve passed evidence only while its inputs hold.
+the same active record after compaction: a worker reloads what its brief lists;
+a solo agent or a lead reloads the engineering entry and the current specialist
+(a lead also `team-lead`); anyone reloads Ask Matt when a routing decision is
+still ahead. Record the reads, and resume the first incomplete phase. Preserve passed evidence only while its inputs hold.
 
 Pin the brief when you dispatch it. `brief-digest <brief>` prints
 `sha256:<digest>` of the brief text above its first `## Return` line (one inside

@@ -169,25 +169,26 @@ class RouteDecisionIsStampedTests(StepFixture):
         self.refused(self.record(done, unstamped, phase="implement", extra=self.START), "Route decision", "at:")
 
 
-class OpeningQuestionTests(unittest.TestCase):
-    def test_the_question_comes_before_the_first_edit_or_dispatch_so_a_solo_agent_is_covered(self):
+class TheDriverChoosesThePathTests(unittest.TestCase):
+    def test_neither_body_asks_the_human_which_steps_to_run(self):
         for body in (ENTRY, TEAM_LEAD):
             with self.subTest(body=body.parent.name):
                 text = prose(body)
-                self.assertRegex(text, r"(?i)before the first edit or dispatch,? [^.]{0,40}full workflow or cut\?")
-                self.assertNotRegex(text, r"(?i)before the first dispatch,? ask")
+                self.assertRegex(text, r"(?i)you choose the path with Ask Matt's branches")
+                self.assertNotRegex(text, r"(?i)full workflow or (a )?cut")
 
 
 class FullWorkflowTests(StepFixture):
-    def test_both_bodies_teach_the_full_workflow_default_and_the_opening_question(self):
+    def test_both_bodies_keep_the_cut_for_the_human_and_teach_the_cut_and_branch_lines(self):
         for body in (ENTRY, TEAM_LEAD):
             with self.subTest(body=body.parent.name):
                 text = prose(body)
-                self.assertIn("full workflow or cut?", text)
+                self.assertRegex(text, r"(?i)only the human cuts a step")
                 self.assertRegex(text, r"(?i)silence is not a cut")
                 self.assertIn(CUT_FORM, text)
                 self.assertIn(ROUTE_FORM, text)
-        self.assertRegex(prose(TEAM_LEAD), r"(?i)branch that drops a main-flow step")
+        self.assertRegex(prose(TEAM_LEAD), r"(?i)branch that drops a main-flow step[^.]*`Path:` line")
+        self.assertIn("the Ask Matt branch that dropped any", prose(ENTRY))
 
     def test_the_taught_cut_line_is_one_the_gate_accepts_for_a_missing_step(self):
         skipped = steps("Scope", "Implement")
@@ -262,8 +263,12 @@ class GrillerBriefTests(unittest.TestCase):
             root = Path(temp)
             plan = root / "plan.md"
             plan.write_text("## Accepted scope\nA fixture.\n## Design decisions\nUse the existing interface.\n")
+            pool = Path.home() / ".agents" / "skills"
+            routed = "".join(f"Procedure: {pool}/{name}/SKILL.md\nLoaded: {pool}/{name}/SKILL.md | lead: sha256:"
+                             f"{hashlib.sha256((pool / name / 'SKILL.md').read_bytes()).hexdigest()} read\n"
+                             for name in ("engineering-workflow", "ask-matt"))
             (root / "state.md").write_text("## Phase checklist\n- [x] Scope: asked\n- [x] Inspect: read\n"
-                                           "- [ ] Resolve: the interview runs\n")
+                                           "- [ ] Resolve: the interview runs\n\n## Workflow\nExecutor: lead\n" + routed)
             brief = root / "task.md"
             brief.write_text(self.fill(self.template(), root, plan))
             result = validator("brief", str(brief), "--matt")

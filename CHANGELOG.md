@@ -1,5 +1,45 @@
 # Changelog
 
+## 0.5.0
+
+**The agent sits in the human's seat of Matt Pocock's flow: it chooses the path and starts instead of asking, a solo request reads less than half of what it read before, and Team Lead decides first whether a team is worth its cost.**
+
+The stance, written once
+- Matt's skills are followed as he wrote them, and the session that takes the request does what his flow leaves to a human: it starts each skill, answers the planning interview from written sources, decides at each phase boundary and reviews the result. With a team, that session is the lead. Matt's own unattended design says the same in his unreleased `software-factory` and `loop-me` skills, which Mifal does not ship ("A run never waits for a human"; "Push right: defer the checkpoint as far as it will go").
+- What stays human is one list in the entry's "You are the driver": push, publish, deploy, release and merge; messages or posts outside the team; installs; destructive operations, spending and access; commits unless the request grants them; a cut of a workflow step; and durable changes to rules, memory or skills outside the task's repository. A human still reads the pull request before it merges.
+- With no one to answer, the agent takes the reversible option, records the assumption and its cost if wrong, and continues; an irreversible choice waits. A loop of attempts at one gate stops after three tries without progress. The entry also lists what the agent does without asking: reading, creating branches and worktrees, tests and builds, a sub-agent for a read, a fresh check or a scoped task, and edits inside the task's scope. Parallel writers need the request's or the agreement's word.
+
+No opening question
+- The Guide and the entry no longer ask "full workflow or cut?" before every request. The agent chooses the path with Ask Matt's branches and shows it in one `Path:` line beside the entry line. A cut of a step Ask Matt keeps is still only the human's, in their words (`Cut: <steps> | <quote> | <source>`, unchanged in the checker).
+- Solo form: a written list of design decisions stands in for the interview, and a decision that is hard to reverse (a public interface, data or a schema, removed behaviour, security, a new dependency) gets a second agent or the human; deleting data is a destructive operation and stays the human's. The interview is skipped only when the request states the behaviour concretely, which is Matt's `tdd`-on-its-own path. The solo retro is sampled, a local override recorded in the entry (Matt's upstream `docs/engineering/retro.md` says a smooth session has little to teach; the shipped `retro` body has no sampling rule): it runs when the session's record shows a failed check after a claim of done, a correction, a workaround, a repeated attempt, a long search, a mistake a tool could have caught, missing information, or a repository with no deterministic check; otherwise the report says `Retro: skipped, smooth build`. Recorded work (a team, or more than one session) keeps every checker step.
+
+Less to read
+- A solo agent reads the entry and Ask Matt and no record reference: about 28.5 KB where 0.4.1 asked for about 65 KB. A lead reads those, the new record card, the stewardship README and Team Lead: about 64 KB where 0.4.1 asked for about 96 KB. `tests/test_content.py` holds both totals and a cap on each body. Bytes are a proxy for tokens, and no session was measured.
+- New `engineering-workflow/references/record-card.md`: one example record, the gate commands, the order (load, gate, stamp, then act or send) and what each phase adds. `phase-record.md` keeps its content and becomes the reference a refusal points into.
+- A briefed worker no longer loads the two router bodies when its parent record lists and loaded both: `brief --matt` and `receipt --matt` accept its brief without `ask-matt` and `engineering-workflow` among its procedures. A brief with no `State:`, or whose parent lacks them, is held to the old rule. The three worker rules that lived only in the entry moved into the brief templates.
+
+Matt's parts that had no place
+- `triage`, `wayfinder` and `handoff` each have a line in the entry saying when the agent starts them (`wayfinder`'s human-in-the-loop tickets stay the human's, as Matt's skill says), and the phase-boundary decision (continue, clear, handoff, subagent, compact) is said in one line at each transition.
+- Brakes first: the repository's deterministic checks (types, lint, tests) pass before any review, a done-means names its command, and a repository with none gets `setup-pre-commit` proposed.
+
+Team Lead
+- New sections before the loop: "In the human's seat" (which points at the entry's one list of what stays human), "One agent or a team" (one agent is the default; a teammate is for a large read the lead won't need afterwards, for truly independent slices with a written seam contract, or for a fresh check; the strongest model for planning, grilling and review, a cheaper one at lower effort for search and mechanical edits) and "Your context" (read by pointer, cap what comes back, write instructions down when given, Ask Matt's phase-boundary decision).
+- Sub-agents are a channel beside Herdr: the brief is still a file, a sub-agent that cannot write files returns in its final message and the lead saves it unedited before the receipt check, and `loads-proof` applies only to a worker with its own session log.
+- The four brief templates say what a return holds: under Claims only the names under Done means, and the whole return at most 60 lines unless the brief asks for more, pointing at files and sidecars instead of pasting output. They also tell a worker to load its procedures again after a compaction, and to give the return as its final message when it cannot write the file or ring, which is how a sub-agent returns.
+- A done-means names a command wherever one exists; a report is checked brakes first (deterministic checks, a fresh reviewer, then the lead's own read); a teammate's "infeasible" is a hypothesis to test; an unattended run starts from five written answers (what done is, how it checks itself, what it may touch, what stops it, where the result goes).
+- The retro asks first how the environment could change so the next run needs less of the lead, samples about one worker session in five, and a lesson becomes a rule only after it held on a later task; a durable change outside the task's repository is proposed to the human. Inside the task's repository such a change is part of the work, and the pull request is where the human reads it; the plan had every change to a skill or the Guide proposed separately.
+- No larger than before, and a test holds that. The example brief moved to `references/messages.md`; the hard line on parallel work merged into "One agent or a team"; the closing table keeps three rows, the others being said in the moments they belong to; M3 keeps its Herdr sentences, which tests from the release that added QUIET hold; comments that cite reading are labelled `source:` and `scar:` is kept for incidents.
+
+Fidelity to upstream
+- The "Self-improvement" block Mifal appended to vendored skills is removed, so Matt's skill bodies differ from upstream only by the invocation flag (kept, because the agent must be able to start every skill a human would type). The block asked the user a question at the end of every skill run and competed with the one retro.
+- `verification-before-completion` no longer ships: the entry's own completion rules and Matt's `code-review` cover it. 39 skills now ship.
+- `NOTICE` names Impeccable 4.9.2, the version 0.4.1 already shipped; it still said 4.8.0. A test now holds it to `third_party/provenance.json`.
+
+Not measured
+- These are instruction and checker changes with string and unit tests. No agent session was run on the new text, and one agent against a team was not compared on real tasks.
+
+**After updating, reload changed skills.** engineering-workflow, team-lead and every vendored skill that carried the self-improvement block changed.
+
 ## 0.4.1
 
 **The design guidance catches up with Impeccable 4.9.2: motion is judged on captured evidence by a fresh reviewer, new UI gets a visual judge, and references set the craft bar rather than the style.**

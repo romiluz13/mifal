@@ -1,7 +1,7 @@
 {
   "spec": "0001",
   "ticket": "02-stewardship-registries",
-  "generatedAt": "2026-11-18T01:18:41Z",
+  "generatedAt": "2026-11-23T10:53:53Z",
   "sources": {
     "pool": "~/.agents/skills",
     "lock": "~/.agents/.skill-lock.json",
@@ -12,7 +12,7 @@
     "briefs": "~/.agents/skills/team-lead/stewardship/briefs"
   },
   "reconciliation": {
-    "poolSkills": 40,
+    "poolSkills": 39,
     "lockEntries": 0,
     "lockedNotOnDisk": [],
     "onDiskNotLocked": [
@@ -51,7 +51,6 @@
       "to-spec",
       "to-tickets",
       "triage",
-      "verification-before-completion",
       "wait-what",
       "wayfinder",
       "wizard",
@@ -816,27 +815,6 @@
       "declaredInvocation": {
         "claudeDisableModelInvocation": null,
         "codexAllowImplicitInvocation": true,
-        "claudeAutomaticEligible": true,
-        "codexAutomaticEligible": true
-      },
-      "runtimeDiscovery": "unverified",
-      "dependencies": [],
-      "catalog": null
-    },
-    "verification-before-completion": {
-      "description": "Use when about to claim work is complete, fixed, or passing, before committing or creating PRs - requires running verification commands and confirming output before making any success claims; evidence before assertions always",
-      "origin": {
-        "type": "local",
-        "source": null
-      },
-      "owner": "local",
-      "maturity": "local",
-      "mirrors": "all",
-      "automaticPolicy": true,
-      "resolvedBody": "~/.agents/skills/verification-before-completion/SKILL.md",
-      "declaredInvocation": {
-        "claudeDisableModelInvocation": null,
-        "codexAllowImplicitInvocation": null,
         "claudeAutomaticEligible": true,
         "codexAutomaticEligible": true
       },

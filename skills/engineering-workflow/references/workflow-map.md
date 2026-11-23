@@ -1,6 +1,6 @@
 # Workflow map
 
-Ask Matt body: sha256:f2af6326c5864784b16c41520e290f1455679bc1d6716f8373163da7d80aba4c
+Ask Matt body: sha256:bbc34195f40f44231e3595cf662362797bcceb8111ea6f77751087af26ad0e25
 
 A hand-written table of the shipped skills: where each one runs, who invokes it, by what path, what it needs and what evidence shows it ran. It is not a router. Ask Matt (`skills/ask-matt/SKILL.md`) stays the only branch map, no row here decides a branch, and none of Matt's text is copied. `validate_contracts.py` reads this file at every Matt gate.
 
@@ -22,7 +22,7 @@ Columns: Route and phase also decides which step's start Check a body's read is 
 
 | Skill | Route and phase | Invoker | Invocation path | Dependencies | Evidence | Anchor |
 |---|---|---|---|---|---|---|
-| ask-matt | all: scope (entry; picks the procedure for the active phase) | lead; a worker only when its brief lists it | engineering-workflow Required entry step 2; brief `Procedure:` line | the skills it routes to | `Procedure:` and `Loaded:` lines in every Matt record (the validator requires both) | ask-matt: this body |
+| ask-matt | all: scope (entry; picks the procedure for the active phase) | lead; a worker only when its brief lists it | engineering-workflow Required entry step 2; brief `Procedure:` line | the skills it routes to | `Procedure:` and `Loaded:` lines in the lead's record (the validator requires both); a worker brief under that record leaves them out | ask-matt: this body |
 | grill-with-docs | plan: resolve (main flow step 1, in a working directory) | lead; the griller worker by brief when the lead's plan is grilled | Skill tool (lead); brief `Procedure:` line | grilling, domain-modeling | `Grilling:` line; `Procedure:` and `Loaded:` for grill-with-docs, grilling and domain-modeling; at accepted, the plan artifact pinned by digest with `## Accepted scope` and `## Design decisions` | ask-matt: main flow step 1 |
 | grill-me | plan: resolve (main flow step 1, with no working directory) | lead | Skill tool (lead); brief `Procedure:` line | grilling | `Grilling:` line; `Procedure:` and `Loaded:` for grill-me and grilling | ask-matt: Standalone |
 | grilling | plan: resolve (the interview primitive under every grill wrapper; triage, wayfinder and improve-codebase-architecture also run it; used directly only when you want the interview with no wrapper around it) | lead, through a wrapper or directly; the griller worker by brief | the wrapper's own Skill tool call; or a direct Skill tool call or brief `Procedure:` line | no dependencies | `Loaded:` line (the validator requires it with the wrapper, and in a griller task at `Grilling: accepted`) | ask-matt: Standalone |

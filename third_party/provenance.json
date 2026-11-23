@@ -39,41 +39,25 @@
           "upstream": "skills/engineering/code-review",
           "commit": "4ae2317ddb22b046e26455e4f9c9b3aaaf62212d",
           "tree": "a8ef561571acbb611de8ff19ba6da75b197c63a8",
-          "modified": {
-            "changed": [
-              "SKILL.md"
-            ]
-          }
+          "modified": {}
         },
         "codebase-design": {
           "upstream": "skills/engineering/codebase-design",
           "commit": "4ae2317ddb22b046e26455e4f9c9b3aaaf62212d",
           "tree": "4cbe1c131e1ea54109cb1e4e5f3c505810db6606",
-          "modified": {
-            "changed": [
-              "SKILL.md"
-            ]
-          }
+          "modified": {}
         },
         "diagnosing-bugs": {
           "upstream": "skills/engineering/diagnosing-bugs",
           "commit": "49dd158d1076134a641b33efb035946536778336",
           "tree": "5fdd6cc53385395441910b026c72d71768e993d4",
-          "modified": {
-            "changed": [
-              "SKILL.md"
-            ]
-          }
+          "modified": {}
         },
         "domain-modeling": {
           "upstream": "skills/engineering/domain-modeling",
           "commit": "49dd158d1076134a641b33efb035946536778336",
           "tree": "ea30ee454ba264543dbe40737973b1a5afb9f0e6",
-          "modified": {
-            "changed": [
-              "SKILL.md"
-            ]
-          }
+          "modified": {}
         },
         "grill-me": {
           "upstream": "skills/productivity/grill-me",
@@ -101,11 +85,7 @@
           "upstream": "skills/productivity/grilling",
           "commit": "4ae2317ddb22b046e26455e4f9c9b3aaaf62212d",
           "tree": "f551b6e0d219fdda0b6abf277f8f915b3127d1e9",
-          "modified": {
-            "changed": [
-              "SKILL.md"
-            ]
-          }
+          "modified": {}
         },
         "handoff": {
           "upstream": "skills/productivity/handoff",
@@ -160,21 +140,13 @@
           "upstream": "skills/engineering/prototype",
           "commit": "49dd158d1076134a641b33efb035946536778336",
           "tree": "e41d92e171f074a2b6887d8f6faca4a15c83d1ca",
-          "modified": {
-            "changed": [
-              "SKILL.md"
-            ]
-          }
+          "modified": {}
         },
         "research": {
           "upstream": "skills/engineering/research",
           "commit": "4ae2317ddb22b046e26455e4f9c9b3aaaf62212d",
           "tree": "2f8f36af48796faed5c687c75bb650071631a984",
-          "modified": {
-            "changed": [
-              "SKILL.md"
-            ]
-          }
+          "modified": {}
         },
         "retro": {
           "upstream": "skills/engineering/retro",
@@ -202,21 +174,13 @@
           "upstream": "skills/misc/setup-pre-commit",
           "commit": "49dd158d1076134a641b33efb035946536778336",
           "tree": "5b63f9f665bacc9be04cae51982e9ef1469d6699",
-          "modified": {
-            "changed": [
-              "SKILL.md"
-            ]
-          }
+          "modified": {}
         },
         "tdd": {
           "upstream": "skills/engineering/tdd",
           "commit": "49dd158d1076134a641b33efb035946536778336",
           "tree": "667dbdd00c09d0e2189e082986e6a4d61a67c2a6",
-          "modified": {
-            "changed": [
-              "SKILL.md"
-            ]
-          }
+          "modified": {}
         },
         "teach": {
           "upstream": "skills/productivity/teach",
@@ -299,21 +263,13 @@
           "upstream": "skills/engineering/wizard",
           "commit": "49dd158d1076134a641b33efb035946536778336",
           "tree": "e396d3ba97c723a78ffd350fb14a3c409137b306",
-          "modified": {
-            "changed": [
-              "SKILL.md"
-            ]
-          }
+          "modified": {}
         },
         "writing-for-agents": {
           "upstream": "skills/productivity/writing-for-agents",
           "commit": "49dd158d1076134a641b33efb035946536778336",
           "tree": "ad2925850efb8973a72d2e666f7a975f9a2d4a9b",
-          "modified": {
-            "changed": [
-              "SKILL.md"
-            ]
-          }
+          "modified": {}
         }
       },
       "paths": [
@@ -411,8 +367,7 @@
       "licence": "MIT",
       "revision": "per skill: the upstream commit whose folder tree matched the skill lock",
       "paths": [
-        "skills/receiving-code-review/*",
-        "skills/verification-before-completion/*"
+        "skills/receiving-code-review/*"
       ],
       "licence_file": "third_party/licenses/superpowers.txt",
       "copyright": "Copyright (c) 2025 Jesse Vincent",
@@ -421,16 +376,6 @@
           "upstream": "skills/receiving-code-review",
           "commit": "3fb75974186ea7fada621d8ab77b3b02169baf57",
           "tree": "b5e154fc3ec7a6a0b1e710eebacc2168620cc428",
-          "modified": {
-            "changed": [
-              "SKILL.md"
-            ]
-          }
-        },
-        "verification-before-completion": {
-          "upstream": "skills/verification-before-completion",
-          "commit": "3be5aad3dd2400ef23b15680969f4bcd3b6d7b8b",
-          "tree": "a4cb0b69aaefeab540947a7f1642bdaad810e37a",
           "modified": {
             "changed": [
               "SKILL.md"
@@ -449,17 +394,12 @@
           "upstream": "skills/agent-browser",
           "commit": "b06e2533ba9b3823b8a96c859d455cb55f4d7893",
           "tree": "d75a393c9a371295c6d6be46c34938e76ef21184",
-          "modified": {
-            "changed": [
-              "SKILL.md"
-            ]
-          }
+          "modified": {}
         }
       },
       "paths": [
         "skills/agent-browser/*"
       ],
-      "adaptations": "the self-improvement section",
       "licence_file": "third_party/licenses/agent-browser.txt",
       "copyright": "Copyright 2025 Vercel Inc."
     },
@@ -531,11 +471,7 @@
           "upstream": "skills/herdr",
           "commit": "ee5bfb5041bb3e4a49d591c72308aae3c81ecdde",
           "tree": "2be0d86d481d1bb29c62e11ef37b78d27d01b478",
-          "modified": {
-            "changed": [
-              "SKILL.md"
-            ]
-          }
+          "modified": {}
         }
       },
       "paths": [
