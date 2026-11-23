@@ -367,8 +367,7 @@
       "licence": "MIT",
       "revision": "per skill: the upstream commit whose folder tree matched the skill lock",
       "paths": [
-        "skills/receiving-code-review/*",
-        "skills/verification-before-completion/*"
+        "skills/receiving-code-review/*"
       ],
       "licence_file": "third_party/licenses/superpowers.txt",
       "copyright": "Copyright (c) 2025 Jesse Vincent",
@@ -377,16 +376,6 @@
           "upstream": "skills/receiving-code-review",
           "commit": "3fb75974186ea7fada621d8ab77b3b02169baf57",
           "tree": "b5e154fc3ec7a6a0b1e710eebacc2168620cc428",
-          "modified": {
-            "changed": [
-              "SKILL.md"
-            ]
-          }
-        },
-        "verification-before-completion": {
-          "upstream": "skills/verification-before-completion",
-          "commit": "3be5aad3dd2400ef23b15680969f4bcd3b6d7b8b",
-          "tree": "a4cb0b69aaefeab540947a7f1642bdaad810e37a",
           "modified": {
             "changed": [
               "SKILL.md"

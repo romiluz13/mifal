@@ -22,7 +22,7 @@ ASK_MATT = (
     "wait-what", "teach", "writing-for-agents", "setup-matt-pocock-skills")
 SHIPPED = set(ASK_MATT) | {
     "receiving-code-review", "ddd", "ddd-scope", "ddd-ground", "ddd-verify", "frontend-design", "agent-browser",
-    "engineering-workflow", "team-lead", "setup-pre-commit", "verification-before-completion", "herdr", "herdr-core"}
+    "engineering-workflow", "team-lead", "setup-pre-commit", "herdr", "herdr-core"}
 # Skills that exist elsewhere and do not ship; a shipped body must not depend on them.
 UNSHIPPED = (
     "cloudflare", "codebase-hygiene", "commit", "compact-safe", "deploy-to-vercel", "diff-driven-docs",
@@ -69,8 +69,8 @@ CREDIT_FILES = {"LICENSE", "NOTICE", "third_party/provenance.json", "skills/team
                 "lib/mifal/update.py", "README.md"}
 CREDIT_LINE = re.compile(r'Copyright|"copyright"|^\s*author:|github\.com/|"repo":')
 TOKEN = re.compile(r"[a-z0-9_-]+")
-# Shipped by plan D9 but not rows of the workflow map: the implementer role names one, the lead uses the other.
-OUTSIDE_THE_MAP = {"verification-before-completion", "herdr", "herdr-core"}
+# Shipped by plan D9 but not rows of the workflow map: the lead uses them.
+OUTSIDE_THE_MAP = {"herdr", "herdr-core"}
 
 
 def tracked():
@@ -96,7 +96,7 @@ class ShippedSet(unittest.TestCase):
     def test_exactly_the_planned_skills_ship(self):
         folders = {p.name for p in (REPO / "skills").iterdir() if p.is_dir() and p.name != "__pycache__"}
         self.assertEqual(folders, SHIPPED)
-        self.assertEqual(len(folders), 40)
+        self.assertEqual(len(folders), 39)
 
     def test_no_vendored_skill_carries_mifals_self_improvement_block(self):
         carrying = [p for p in tracked() if p.startswith(("skills/", "third_party/")) or p == "NOTICE"

@@ -12,8 +12,8 @@ recorded in third_party/provenance.json.
   Copyright (c) 2026 Matt Pocock.
 - DDD (github.com/romiluz13/ddd): ddd, ddd-scope, ddd-ground, ddd-verify. MIT,
   Copyright (c) 2026 DDD Methodology.
-- Superpowers (github.com/obra/superpowers): receiving-code-review,
-  verification-before-completion. MIT, Copyright (c) 2025 Jesse Vincent.
+- Superpowers (github.com/obra/superpowers): receiving-code-review. MIT,
+  Copyright (c) 2025 Jesse Vincent.
 - agent-browser (github.com/vercel-labs/agent-browser): the agent-browser
   skill. Apache-2.0, Copyright 2025 Vercel Inc.
 - Anthropic skills (github.com/anthropics/skills): the base of frontend-design.

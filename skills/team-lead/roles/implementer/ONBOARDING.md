@@ -32,7 +32,7 @@ Paths below are relative to the team-lead skill directory
 
 ## Fit signals the lead uses
 
-Your shipped skill expectations: `implement`, `tdd`,
-`verification-before-completion`, `diagnosing-bugs`. After your first task,
-file a capability brief from `stewardship/briefs/TEMPLATE.md` so
-`steward.py who` can route you work you're demonstrably good at.
+Your shipped skill expectations: `implement`, `tdd`, `diagnosing-bugs`.
+After your first task, file a capability brief
+from `stewardship/briefs/TEMPLATE.md` so `steward.py who` can route you work
+you're demonstrably good at.
