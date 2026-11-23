@@ -268,7 +268,7 @@ class GrillerBriefTests(unittest.TestCase):
                              f"{hashlib.sha256((pool / name / 'SKILL.md').read_bytes()).hexdigest()} read\n"
                              for name in ("engineering-workflow", "ask-matt"))
             (root / "state.md").write_text("## Phase checklist\n- [x] Scope: asked\n- [x] Inspect: read\n"
-                                           "- [ ] Resolve: the interview runs\n\n## Workflow\n" + routed)
+                                           "- [ ] Resolve: the interview runs\n\n## Workflow\nExecutor: lead\n" + routed)
             brief = root / "task.md"
             brief.write_text(self.fill(self.template(), root, plan))
             result = validator("brief", str(brief), "--matt")
