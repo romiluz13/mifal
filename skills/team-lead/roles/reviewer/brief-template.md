@@ -33,7 +33,7 @@ with severity, location, and fix direction, and coverage is stated.
 
 You are a bounded worker: follow this brief's phase; do not restart the parent workflow or recruit more workers.
 A read made after the work began cannot establish that a procedure was followed, so load each procedure the
-brief names before its work. A `Loaded:` line records the sha256 of the body you read (`validate_contracts.py
+brief names before its work. After a compaction, load them again. A `Loaded:` line records the sha256 of the body you read (`validate_contracts.py
 read <path>` prints it).
 
 ## Reserved
@@ -71,4 +71,5 @@ passed/failed/untested, Evidence pointers; findings as a sidecar in
 Claims lists only the names under Done means; a limit, a decision you need
 or a lesson has its own section in the receipt contract. Unless this brief
 asks for more, keep the whole return to at most 60 lines: point at files and
-sidecars instead of pasting output.
+sidecars instead of pasting output. If you cannot write the file or
+ring, give the same return as your final message.

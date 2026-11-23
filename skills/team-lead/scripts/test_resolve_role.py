@@ -80,6 +80,7 @@ class ReservedSectionTests(unittest.TestCase):
                 self.assertIn("Claims lists only the names under Done means", section)
                 self.assertIn("the whole return to at most 60 lines", section)
                 self.assertIn("has its own section in the receipt contract", section)
+                self.assertIn("give the same return as your final message", section)
 
     def test_every_brief_template_carries_the_identical_reserved_section_before_the_stop_rule(self):
         self.assertEqual(sorted(p.parent.name for p in ROLES.glob("*/brief-template.md")), SHIPPED, "a template for every shipped role, and no other")
@@ -122,6 +123,7 @@ class WorkerRulesTests(unittest.TestCase):
     COMMUNICATION = ROLES.parent / "references" / "communication.md"
     RULES = ("follow this brief's phase; do not restart the parent workflow or recruit more workers",
              "A read made after the work began cannot establish that a procedure was followed",
+             "After a compaction, load them again",
              "A `Loaded:` line records the sha256 of the body you read")
 
     def templates(self):

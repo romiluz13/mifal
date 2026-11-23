@@ -129,7 +129,7 @@ return: <record root>/tasks/<n>.md
 - binding: the Return names the plan and its design digest, says Frontier: empty once, and `receipt --matt` on it exits 0
 
 ## How you work
-You are a bounded worker: follow this brief's phase; do not restart the parent workflow or recruit more workers. A read made after the work began cannot establish that a procedure was followed, so load each procedure the brief names before its work. A `Loaded:` line records the sha256 of the body you read (`validate_contracts.py read <path>` prints it).
+You are a bounded worker: follow this brief's phase; do not restart the parent workflow or recruit more workers. A read made after the work began cannot establish that a procedure was followed, so load each procedure the brief names before its work. After a compaction, load them again. A `Loaded:` line records the sha256 of the body you read (`validate_contracts.py read <path>` prints it).
 
 ## Reserved
 <the agreement's Reserved text, unchanged>

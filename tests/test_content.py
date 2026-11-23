@@ -273,6 +273,11 @@ class SoloEntry(unittest.TestCase):
         self.assertIn("**A team when it pays.** One agent is the default.", readme)
         trust = " ".join((REPO / "docs/TRUST.md").read_text(encoding="utf-8").split())
         self.assertIn("leaves cutting a step to you", trust)
+        self.assertIn("which was the entry gate at the time", " ".join(readme.split()))
+        self.assertIn("Ask what only the human can settle in one round", " ".join(lead.split()))
+        self.assertIn("only when the request or an accepted plan states the behaviour concretely", entry)
+        impeccable = next(c for c in json.loads((REPO / "third_party/provenance.json").read_text())["components"] if "impeccable" in c["repo"].lower())
+        self.assertIn("Impeccable " + impeccable["version"] + " (", (REPO / "NOTICE").read_text())
         self.assertIn("for a read, a fresh check or a scoped task; parallel writers need the request's or the agreement's word", lead)
         for name, text in (("team-lead", lead), ("README", readme)):
             with self.subTest(file=name):

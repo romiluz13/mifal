@@ -168,9 +168,8 @@ resending.
 
 **New:** learn the mission, roster, and agreement (fields in
 [team memory](references/team-memory.md)), including what the human reserves.
-Ask every question whose prerequisites are settled in one
-round, each with your recommended answer, so the human corrects rather than
-composes.
+Ask what only the human can settle in one round, each with your
+recommended answer, so the human corrects rather than composes.
 For Matt engineering, you choose the path with Ask Matt's branches and show
 it, with any branch that drops a main-flow step, on the entry's `Path:` line. Only the human
 cuts a step Ask Matt keeps, and silence is not a cut: record one only as

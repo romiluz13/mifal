@@ -24,7 +24,7 @@ recorded in third_party/provenance.json.
 - herdr-core (github.com/herdrdev/herdr-core): the herdr-core skill. Apache-2.0;
   no copyright owner is stated upstream. herdr-core and Herdr Desktop are
   installed separately and are not part of this repository.
-- Impeccable 4.8.0 (github.com/pbakaus/impeccable): guidance adapted into
+- Impeccable 4.9.2 (github.com/pbakaus/impeccable): guidance adapted into
   frontend-design's interface appendix. Apache-2.0, copyright Paul Bakaus and
   contributors. Its upstream NOTICE.md is kept in third_party/licenses/.
 - LottieFiles motion-design 1.0.0 (github.com/LottieFiles/motion-design-skill):
