@@ -188,7 +188,8 @@ class SoloEntry(unittest.TestCase):
         self.assertIn("before the first edit or dispatch", text)
         self.assertIn("Owner: Matt | Route: ROUTE | Phase: PHASE | Next gate: EVIDENCE", text)
         self.assertIn("one `Path:` line", text)
-        self.assertIn("you do not ask the human which steps to run", text)
+        self.assertIn("The path is yours to choose", text)
+        self.assertIn("A briefed worker loads the procedures its brief lists instead", text)
         self.assertNotIn(self.RETIRED_QUESTION, text)
 
     def test_the_guide_puts_the_agent_in_the_humans_seat_and_says_when_the_human_is_asked(self):
@@ -196,7 +197,9 @@ class SoloEntry(unittest.TestCase):
         self.assertIn("You sit in the human's seat of Matt's flow", text)
         self.assertIn("a reserved or irreversible action", text)
         self.assertIn("have not said they are away", text)
+        self.assertIn("when you cannot tell, ask once", text)
         self.assertIn("take the reversible option, record the assumption", text)
+        self.assertIn("a design choice is hard to reverse", text)
         self.assertIn("A briefed worker follows its brief", text)
 
     def test_the_guide_keeps_the_cut_for_the_human(self):
@@ -255,7 +258,27 @@ class SoloEntry(unittest.TestCase):
 
     def test_the_ordered_phases_paragraph_lets_the_driver_choose_the_path_and_keeps_the_cut_human(self):
         text = " ".join(self.workflow().split())
-        self.assertIn("do not ask the human which steps to run", text)
+        self.assertIn("You choose the path with Ask Matt's branches, show it and start", text)
+        self.assertIn("The solo form's sampled retro is the one recorded exception", text)
+
+    def test_what_stays_human_is_one_list_and_the_other_files_point_at_it(self):
+        entry = " ".join(self.workflow().split())
+        self.assertEqual(entry.count("push, publish, deploy, release and merge"), 1)
+        lead = " ".join((REPO / "skills/team-lead/SKILL.md").read_text(encoding="utf-8").split())
+        self.assertIn("the one list of what stays human", lead)
+        readme = " ".join((REPO / "README.md").read_text(encoding="utf-8").split())
+        self.assertIn("one list in the `engineering-workflow` entry", readme)
+        for name, text in (("team-lead", lead), ("README", readme)):
+            with self.subTest(file=name):
+                self.assertNotRegex(text, r"(?i)push, publish, deploy")
+
+    def test_the_solo_overrides_of_matts_procedures_are_recorded_with_their_source(self):
+        text = " ".join(self.workflow().split())
+        bullet = text.split("Local overrides of Matt's procedures", 1)[1].split(" - ", 1)[0]
+        for needle in ("under Team Lead, the grilled user is the lead", "written decision list", "the retro is sampled",
+                       "docs/engineering/retro.md", "the shipped `retro` body has no such rule"):
+            with self.subTest(needle=needle):
+                self.assertIn(needle, bullet)
         self.assertIn("Only the human cuts a step", text)
         self.assertIn("silence is not a cut", text)
 
@@ -305,9 +328,16 @@ class EntryBudget(unittest.TestCase):
         self.assertIn("Reference", head)
         self.assertNotIn("Read at Matt entry", head)
 
-    def test_team_lead_points_at_the_card_and_not_at_the_whole_phase_record_before_a_dispatch(self):
+    def test_team_lead_points_at_the_card_and_not_at_the_phase_record(self):
         text = " ".join((REPO / self.TEAM_LEAD).read_text(encoding="utf-8").split())
         self.assertIn("record-card.md", text)
+        self.assertNotIn("phase-record.md", text)
+
+    def test_a_reload_after_compaction_reads_the_same_in_the_three_places_that_teach_it(self):
+        for rel in (self.ENTRY, self.TEAM_LEAD, self.PHASE_RECORD):
+            text = " ".join((REPO / rel).read_text(encoding="utf-8").split())
+            with self.subTest(file=rel):
+                self.assertRegex(text, r"(?i)Ask Matt (too )?(when|while) a routing decision is (still )?ahead")
 
     def test_the_solo_and_lead_reading_is_smaller_than_at_9a064f2(self):
         solo = self.size(self.ENTRY, self.ASK_MATT)

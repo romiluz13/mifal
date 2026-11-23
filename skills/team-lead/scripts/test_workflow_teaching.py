@@ -174,7 +174,7 @@ class TheDriverChoosesThePathTests(unittest.TestCase):
         for body in (ENTRY, TEAM_LEAD):
             with self.subTest(body=body.parent.name):
                 text = prose(body)
-                self.assertRegex(text, r"(?i)do(es)? not ask the human which steps to run")
+                self.assertRegex(text, r"(?i)you choose the path with Ask Matt's branches")
                 self.assertNotRegex(text, r"(?i)full workflow or (a )?cut")
 
 
@@ -187,7 +187,8 @@ class FullWorkflowTests(StepFixture):
                 self.assertRegex(text, r"(?i)silence is not a cut")
                 self.assertIn(CUT_FORM, text)
                 self.assertIn(ROUTE_FORM, text)
-        self.assertRegex(prose(TEAM_LEAD), r"(?i)`Path:` line")
+        self.assertRegex(prose(TEAM_LEAD), r"(?i)branch that drops a main-flow step[^.]*`Path:` line")
+        self.assertIn("the Ask Matt branch that dropped any", prose(ENTRY))
 
     def test_the_taught_cut_line_is_one_the_gate_accepts_for_a_missing_step(self):
         skipped = steps("Scope", "Implement")
