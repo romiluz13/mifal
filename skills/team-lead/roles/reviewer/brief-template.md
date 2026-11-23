@@ -68,6 +68,7 @@ Write the return in `$return` below this brief (per the receipt contract:
 passed/failed/untested, Evidence pointers; findings as a sidecar in
 `tasks/$task/` if long), then ring the doorbell: `DONE $task $return`.
 
-Claims lists only the names under Done means; anything else you found goes
-in Result. Keep the return to at most 60 lines of claims with pointers; bulk
-material goes in `tasks/$task/`.
+Claims lists only the names under Done means; a limit, a decision you need
+or a lesson has its own section in the receipt contract. Unless this brief
+asks for more, keep the whole return to at most 60 lines: point at files and
+sidecars instead of pasting output.

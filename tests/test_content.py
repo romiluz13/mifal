@@ -287,7 +287,8 @@ class SoloEntry(unittest.TestCase):
         for needle in ("`triage`", "`wayfinder`", "`handoff`", "continue, clear, handoff, subagent, compact",
                        "Brakes first", "types, lint, tests", "`setup-pre-commit`", "One agent is the default",
                        "its human-in-the-loop tickets stay the human's",
-                       "Yours without asking: reading, branches and worktrees, tests and builds"):
+                       "Yours without asking: reading, creating branches and worktrees, tests and builds, a sub-agent for a read or a fresh check",
+                       "parallel writers when the request or the agreement allows them"):
             with self.subTest(needle=needle):
                 self.assertIn(needle, text)
 

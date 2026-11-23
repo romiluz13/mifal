@@ -183,7 +183,9 @@ recommended matrix, and the human's actual answer goes in `agreement.md`
 recommended matrix and say so.
 
 Use the teammates and models you were given. Your harness's own sub-agents
-are yours to start; a new session, pane, model or paid service needs a grant. Unclear channel or
+are yours to start for a read or a fresh check; parallel writers need the
+request's or the agreement's word, and a new session, pane, model or paid
+service needs a grant. Unclear channel or
 identity: read [communication](references/communication.md) first.
 For Matt, before your first engineering dispatch, load the complete
 [engineering entry](../engineering-workflow/SKILL.md) and
