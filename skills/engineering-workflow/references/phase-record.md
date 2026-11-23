@@ -251,7 +251,12 @@ Herdr adapter Matt task JSON forwards the optional `implement` value into
 the brief; tasks under another methodology keep their own contract.
 
 List only the selected phase's procedures/references, one `Procedure` per
-path, including the current Engineering Workflow and Ask Matt. `Procedures` and the adapter's `Required skill
+path, including the current Engineering Workflow and Ask Matt. A worker brief
+whose `State:` names a parent record that lists both as `Procedure` and has a
+`Loaded:` line for each leaves those two out, since the parent took the routing
+decision; `brief --matt` and `receipt --matt` refuse the omission, naming what
+the parent lacks, when it lacks either line for either body or cannot be read.
+`workflow --gate` still requires both in the lead's own record. `Procedures` and the adapter's `Required skill
 paths` are accepted aliases for comma-separated paths. Each selected path
 must exist and have a matching `Loaded: <path> | <executor>: sha256:<body digest> <read pointer>` record.
 Core and applicable DDD/UX paths must resolve to the canonical bodies in

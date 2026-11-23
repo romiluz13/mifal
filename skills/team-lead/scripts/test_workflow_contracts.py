@@ -1251,6 +1251,77 @@ class WorkflowTests(unittest.TestCase):
         result = self.run_check("brief", self.brief() + text, "--matt")
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def routed_parent(self, drop=()):
+        """A lead's State that lists and loaded both router bodies, less every line containing a `drop` string."""
+        parent = self.root / "state.md"
+        lines = [f"Procedure: {self.router}", f"Procedure: {self.entry}",
+                 f"Loaded: {self.router} | lead: sha256:{self.router_digest} read event lead-1 before work",
+                 f"Loaded: {self.entry} | lead: sha256:{self.entry_digest} read event lead-2 before work"]
+        kept = [line for line in lines if not any(d in line for d in drop)]
+        parent.write_text("## Workflow\nExecutor: lead\nImplement: n/a: coordination: the worker owns the code\n"
+                          + "".join(line + "\n" for line in kept) +
+                          "\n## Phase checklist\n- [x] Plan: evidence exists\n- [ ] Implement: test pending\n")
+        return parent
+
+    def without_router(self, text):
+        return "\n".join(line for line in text.splitlines()
+                         if str(self.router) not in line and str(self.entry) not in line) + "\n"
+
+    def test_a_worker_under_a_routed_parent_need_not_list_the_router_bodies(self):
+        parent = self.routed_parent()
+        brief = self.brief() + self.without_router(
+            self.workflow().split("\n## Phase checklist")[0] + f"State: {parent}\n")
+        checked = self.run_check("brief", brief, "--matt")
+        self.assertEqual(checked.returncode, 0, checked.stderr)
+        receipt = self.run_check("receipt", brief + self.without_router(
+            self.matt_return("- behavior: passed at fixture\n")), "--matt")
+        self.assertEqual(receipt.returncode, 0, receipt.stderr)
+        listed = self.brief() + self.workflow().split("\n## Phase checklist")[0] + f"State: {parent}\n"
+        stale = listed.replace(self.router_digest, "0" * 64)
+        for kind, text, code in (("brief", listed, 0),
+                                 ("receipt", listed + self.matt_return("- behavior: passed at fixture\n"), 0),
+                                 ("receipt", stale + self.matt_return("- behavior: passed at fixture\n").replace(
+                                     self.router_digest, "0" * 64), 1)):
+            with self.subTest(kind=kind, code=code):
+                result = self.run_check(kind, text, "--matt")
+                self.assertEqual(result.returncode, code, result.stderr)
+        self.assertIn("Loaded body changed", result.stderr)
+
+    def test_naming_a_state_is_no_way_round_the_router(self):
+        cases = [(f"no Procedure for {name}", (f"Procedure: {body}",), f"no 'Procedure:' line for {body}")
+                 for name, body in (("ask-matt", self.router), ("engineering-workflow", self.entry))]
+        cases += [(f"no Loaded for {name}", (f"Loaded: {body}",), f"no 'Loaded:' line for {body}")
+                  for name, body in (("ask-matt", self.router), ("engineering-workflow", self.entry))]
+        for label, drop, lacks in cases:
+            with self.subTest(label):
+                parent = self.routed_parent(drop)
+                brief = self.brief() + self.without_router(
+                    self.workflow().split("\n## Phase checklist")[0] + f"State: {parent}\n")
+                result = self.run_check("brief", brief, "--matt")
+                self.assertEqual(result.returncode, 1, result.stderr)
+                self.assertIn("Procedure must include the canonical Ask Matt SKILL.md routing body", result.stderr)
+                self.assertIn("Procedure must include the current Engineering Workflow SKILL.md", result.stderr)
+                self.assertIn(lacks, result.stderr)
+        with self.subTest("unreadable State"):
+            brief = self.brief() + self.without_router(
+                self.workflow().split("\n## Phase checklist")[0] + f"State: {self.root / 'absent.md'}\n")
+            result = self.run_check("brief", brief, "--matt")
+            self.assertEqual(result.returncode, 1, result.stderr)
+            self.assertIn("routing body", result.stderr)
+            self.assertIn("cannot be read", result.stderr)
+        for name, body in (("ask-matt", self.router), ("engineering-workflow", self.entry)):
+            with self.subTest(f"no State, no {name}"):
+                text = "\n".join(line for line in self.workflow().splitlines() if str(body) not in line)
+                result = self.run_check("brief", self.brief() + text, "--matt")
+                self.assertEqual(result.returncode, 1, result.stderr)
+                self.assertIn("names no parent State:", result.stderr)
+        with self.subTest("the lead's own workflow gate"):
+            parent = self.routed_parent()
+            text = self.without_router(self.workflow().replace("\n## Phase checklist", f"\nState: {parent}\n\n## Phase checklist"))
+            result = self.run_check("workflow", text, "--gate", "entry")
+            self.assertEqual(result.returncode, 1, result.stderr)
+            self.assertIn("routing body", result.stderr)
+
     def artifact_snapshot(self):
         artifact = self.root / "reviewed.txt"
         artifact.write_text("reviewed behavior\n")

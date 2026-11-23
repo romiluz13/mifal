@@ -128,6 +128,9 @@ return: <record root>/tasks/<n>.md
 - findings: the plan grilled to an empty frontier, with decisions settled, decisions escalated to the human and changes recommended
 - binding: the Return names the plan and its design digest, says Frontier: empty once, and `receipt --matt` on it exits 0
 
+## How you work
+You are a bounded worker: follow this brief's phase; do not restart the parent workflow or recruit more workers. A read made after the work began cannot establish that a procedure was followed, so load each procedure the brief names before its work. A `Loaded:` line records the sha256 of the body you read (`validate_contracts.py read <path>` prints it).
+
 ## Reserved
 <the agreement's Reserved text, unchanged>
 
@@ -142,8 +145,6 @@ Grilling: interview: <decisions under test>
 DDD: n/a: <why no documentation-validation trigger applies>
 UX: n/a: <why no user journey changes>
 State: <record root>/state.md
-Procedure: <pool>/engineering-workflow/SKILL.md
-Procedure: <pool>/ask-matt/SKILL.md
 Procedure: <pool>/grill-with-docs/SKILL.md
 Procedure: <pool>/grilling/SKILL.md
 Procedure: <pool>/domain-modeling/SKILL.md
