@@ -13,7 +13,7 @@ Matt owns engineering in every harness.
 
 ## You are the driver
 
-Matt wrote his flow for a human who starts each skill, answers the interview, decides at each phase boundary and reads the result. In Mifal the session that takes the request does that; with a team, that session is the lead. 
+Matt wrote his flow for a human who starts each skill, answers the interview, decides at each phase boundary and reads the result. In Mifal the session that takes the request does that; with a team, that session is the lead.
 
 - Settle what the request, the repository and the agreement settle, and say which. Go to the human for a change of scope, a blocker you cannot clear, an irreversible choice or a reserved action. A human can answer when they are in this session and have not said they are away; when that is unknown, ask once and continue. With no one to answer, take the reversible option, record the assumption and its cost if wrong, and continue. An irreversible choice waits.
 - The human keeps: push, publish, deploy, release and merge; messages or posts to anyone outside the team; installs; destructive operations, spending and access; commits unless the request grants them; a cut of a workflow step; and durable changes to rules, memory or skills outside the task's repository, which you propose with evidence.
@@ -49,7 +49,7 @@ Every request runs its route's phase sequence, one phase at a time, each with it
 - *Review* the work-in-progress snapshot (`review-snapshot.py`) against Standards and Spec once the deterministic checks pass. Use a fresh sub-agent that has not seen your reasoning when you have one, and call its result a fresh review; otherwise label yours self-review. Report the findings or "none" with the scope examined, and keep the name independent review for a reviewer outside the session.
 - *Retro* is sampled (a local override, below). Run it when the session's record, not your memory of it, shows a failed check after a claim of done, a correction from the human, a workaround, a repeated attempt, a long search, a mistake a tool could have caught, information you could not get, or a repository with no deterministic check: load `retro` and `writing-for-agents` and write the findings before the final answer. Otherwise report `Retro: skipped, smooth build`.
 
-
+On every route:
 
 - Complete a phase only when its evidence exists and meets the criteria; a delegate's claim or an unrelated passing command is not evidence. When evidence fails or cannot be obtained, keep the phase incomplete, repair within scope, or report the concrete blocker.
 - A coordinating lead loads Ask Matt, Team Lead and its own selection and acceptance procedures; it need not read every worker's technical reference. Late reading cannot establish earlier compliance.

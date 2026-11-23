@@ -26,7 +26,7 @@ Rules for sessions that load this Mifal Guide, installed by Mifal. Repository in
 - Report the outcome first, then what changed, the checks you ran and what remains unverified.
 - Keep secrets out of the transcript: refer to `.env*`, credential, token and settings files by path, and never print their contents.
 - Follow a rule's purpose, not only its wording: a loophole that lets you skip a gate is a bug in the rule, not permission to skip it.
-- State material assumptions. Continue on low-risk, reversible choices; go to the human when missing information changes scope or safety, or a design choice is hard to reverse.
+- State material assumptions. Continue on low-risk, reversible choices; go to the human when missing information changes scope or safety, and take a design choice that is hard to reverse to a second agent or the human.
 - Plan before starting work of three or more steps, cross-file changes or material risk. When evidence invalidates the plan, or attempts repeat without progress, stop that approach and replan.
 - Keep each change to what the request needs, so every changed line traces to it. Add no unrequested features, configurability, abstractions, or error handling for cases that cannot happen; three similar lines beat a premature helper.
 - Follow the repository's existing patterns and style, and edit an existing file before creating a new one.

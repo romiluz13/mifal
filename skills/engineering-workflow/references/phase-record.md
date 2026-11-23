@@ -457,10 +457,10 @@ check uses that latest return, not the parent's reads or an old attempt.
 return without the governing brief cannot supply this preparation check.
 The worker can use its existing task/journal to preserve a read at entry;
 no second tracker is needed. Reconcile
-the same active record after compaction; reload the engineering entry and the
-current specialist (a lead also reloads `team-lead`, and Ask Matt when a
-routing decision is still ahead; a worker reloads what its brief lists),
-record the reads, and resume the first incomplete phase. Preserve passed evidence only while its inputs hold.
+the same active record after compaction: a worker reloads what its brief lists;
+a solo agent or a lead reloads the engineering entry and the current specialist
+(a lead also `team-lead`); anyone reloads Ask Matt when a routing decision is
+still ahead. Record the reads, and resume the first incomplete phase. Preserve passed evidence only while its inputs hold.
 
 Pin the brief when you dispatch it. `brief-digest <brief>` prints
 `sha256:<digest>` of the brief text above its first `## Return` line (one inside

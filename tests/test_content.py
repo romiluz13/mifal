@@ -199,7 +199,7 @@ class SoloEntry(unittest.TestCase):
         self.assertIn("have not said they are away", text)
         self.assertIn("when you cannot tell, ask once", text)
         self.assertIn("take the reversible option, record the assumption", text)
-        self.assertIn("a design choice is hard to reverse", text)
+        self.assertIn("a design choice that is hard to reverse to a second agent or the human", text)
         self.assertIn("A briefed worker follows its brief", text)
 
     def test_the_guide_keeps_the_cut_for_the_human(self):
@@ -260,6 +260,8 @@ class SoloEntry(unittest.TestCase):
         text = " ".join(self.workflow().split())
         self.assertIn("You choose the path with Ask Matt's branches, show it and start", text)
         self.assertIn("The solo form's sampled retro is the one recorded exception", text)
+        self.assertIn("Only the human cuts a step", text)
+        self.assertIn("silence is not a cut", text)
 
     def test_what_stays_human_is_one_list_and_the_other_files_point_at_it(self):
         entry = " ".join(self.workflow().split())
@@ -279,8 +281,6 @@ class SoloEntry(unittest.TestCase):
                        "docs/engineering/retro.md", "the shipped `retro` body has no such rule"):
             with self.subTest(needle=needle):
                 self.assertIn(needle, bullet)
-        self.assertIn("Only the human cuts a step", text)
-        self.assertIn("silence is not a cut", text)
 
     def test_the_entry_gives_matts_on_ramps_the_boundary_decision_and_the_brakes_a_place(self):
         text = " ".join(self.workflow().split())
@@ -338,6 +338,9 @@ class EntryBudget(unittest.TestCase):
             text = " ".join((REPO / rel).read_text(encoding="utf-8").split())
             with self.subTest(file=rel):
                 self.assertRegex(text, r"(?i)Ask Matt (too )?(when|while) a routing decision is (still )?ahead")
+        record = " ".join((REPO / self.PHASE_RECORD).read_text(encoding="utf-8").split())
+        self.assertIn("a worker reloads what its brief lists", record)
+        self.assertNotRegex(record, r"a lead also reloads `team-lead`, and Ask Matt")
 
     def test_the_solo_and_lead_reading_is_smaller_than_at_9a064f2(self):
         solo = self.size(self.ENTRY, self.ASK_MATT)

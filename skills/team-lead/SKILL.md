@@ -426,8 +426,8 @@ A retro is complete only when it names the asset it produced (a rule, a
 check, a test or an eval), or says "none needed" and why. Ask the blameless
 system question: what in the setup or brief made this failure likely? The action item names the brief or setup, not the model. A lesson
 enters `lessons.md` dated, with its evidence; it becomes a rule after it held
-on a later task, and a change to an installed skill or the Guide is proposed to
-the human.
+on a later task, and a durable change outside the task's repository is proposed to
+the human (the entry's list).
 <!-- scar: 2026-10-16 — ticket 5: retros that named no asset changed nothing, and blaming the model hid the brief -->
 
 **Record:** the changes in `agreement.md` (versioned); the progress log.
