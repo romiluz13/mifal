@@ -137,15 +137,3 @@ Glossaries, in particular, are an essential reference. Once one is created, it s
 ## `NOTES.md`
 
 The user will sometimes express preferences of how they want to be taught, or things you should keep in mind. This is the place to record those preferences, so you can refer back to them when designing lessons or working with the user.
-<!-- self-improvement-loop -->
-
-
-## Self-improvement
-
-At the end of every run of this skill, before ending:
-1. Did any step fail or need a workaround?
-2. Did the user correct or reject anything meaningful?
-3. Did you discover something a future run might need?
-
-Only propose the change if it's a meaningful improvement. Ask the user before applying.
-

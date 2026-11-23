@@ -1,6 +1,6 @@
 # Workflow map
 
-Ask Matt body: sha256:f2af6326c5864784b16c41520e290f1455679bc1d6716f8373163da7d80aba4c
+Ask Matt body: sha256:bbc34195f40f44231e3595cf662362797bcceb8111ea6f77751087af26ad0e25
 
 A hand-written table of the shipped skills: where each one runs, who invokes it, by what path, what it needs and what evidence shows it ran. It is not a router. Ask Matt (`skills/ask-matt/SKILL.md`) stays the only branch map, no row here decides a branch, and none of Matt's text is copied. `validate_contracts.py` reads this file at every Matt gate.
 

@@ -98,6 +98,11 @@ class ShippedSet(unittest.TestCase):
         self.assertEqual(folders, SHIPPED)
         self.assertEqual(len(folders), 40)
 
+    def test_no_vendored_skill_carries_mifals_self_improvement_block(self):
+        carrying = [p for p in tracked() if p.startswith(("skills/", "third_party/")) or p == "NOTICE"
+                    if "self-improvement" in (REPO / p).read_text(encoding="utf-8", errors="replace").lower()]
+        self.assertEqual(carrying, [])
+
     def test_left_out_parts_of_team_lead_are_absent(self):
         self.assertEqual([p for p in LEFT_OUT if (REPO / p).exists()], [])
 

@@ -72,15 +72,3 @@ Only offer to create an ADR when all three are true:
 3. **The result of a real trade-off**: there were genuine alternatives and you picked one for specific reasons
 
 If any of the three is missing, skip the ADR. Use the format in [ADR-FORMAT.md](./ADR-FORMAT.md).
-<!-- self-improvement-loop -->
-
-
-## Self-improvement
-
-At the end of every run of this skill, before ending:
-1. Did any step fail or need a workaround?
-2. Did the user correct or reject anything meaningful?
-3. Did you discover something a future run might need?
-
-Only propose the change if it's a meaningful improvement. Ask the user before applying.
-

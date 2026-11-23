@@ -112,15 +112,3 @@ Good interfaces make testing natural:
 
 - **Deepening a cluster given its dependencies**, see [DEEPENING.md](DEEPENING.md): dependency categories, seam discipline, and replace-don't-layer testing.
 - **Exploring alternative interfaces**, see [DESIGN-IT-TWICE.md](DESIGN-IT-TWICE.md): spin up parallel sub-agents to design the interface several radically different ways, then compare on depth, locality, and seam placement.
-<!-- self-improvement-loop -->
-
-
-## Self-improvement
-
-At the end of every run of this skill, before ending:
-1. Did any step fail or need a workaround?
-2. Did the user correct or reject anything meaningful?
-3. Did you discover something a future run might need?
-
-Only propose the change if it's a meaningful improvement. Ask the user before applying.
-

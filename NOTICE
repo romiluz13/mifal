@@ -32,7 +32,7 @@ recorded in third_party/provenance.json.
 - tomli 2.4.1 (github.com/hukkin/tomli): the TOML parser the engine reads a Codex
   Home's config.toml with, unmodified. MIT, Copyright (c) 2021 Taneli Hukkinen.
 
-Changes Mifal made to vendored skills: a self-improvement section appended to
-each SKILL.md; invocation blockers removed so every skill is model-invoked;
-agents/openai.yaml interface metadata added; frontend-design extended with a
-local interface appendix. Apache-2.0 files Mifal changed say so at their end.
+Changes Mifal made to vendored skills: invocation blockers removed so every
+skill is model-invoked; agents/openai.yaml interface metadata added;
+frontend-design extended with a local interface appendix. Apache-2.0 files
+Mifal changed say so at their end.
