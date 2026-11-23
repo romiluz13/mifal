@@ -182,9 +182,9 @@ recommended matrix, and the human's actual answer goes in `agreement.md`
 ([team memory](references/team-memory.md)); with the human away, use the
 recommended matrix and say so.
 
-Use the teammates and models you were given. Your harness's own sub-agents
-are yours to start for a read or a fresh check; parallel writers need the
-request's or the agreement's word, and a new session, pane, model or paid
+Use the teammates and models you have. Your harness's own sub-agents are
+yours to start for a read, a fresh check or a scoped task; parallel writers
+need the request's or the agreement's word, and a new session, pane, model or paid
 service needs a grant. Unclear channel or
 identity: read [communication](references/communication.md) first.
 For Matt, before your first engineering dispatch, load the complete

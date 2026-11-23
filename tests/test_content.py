@@ -270,6 +270,10 @@ class SoloEntry(unittest.TestCase):
         self.assertIn("the one list of what stays human", lead)
         readme = " ".join((REPO / "README.md").read_text(encoding="utf-8").split())
         self.assertIn("one list in the `engineering-workflow` entry", readme)
+        self.assertIn("**A team when it pays.** One agent is the default.", readme)
+        trust = " ".join((REPO / "docs/TRUST.md").read_text(encoding="utf-8").split())
+        self.assertIn("leaves cutting a step to you", trust)
+        self.assertIn("for a read, a fresh check or a scoped task; parallel writers need the request's or the agreement's word", lead)
         for name, text in (("team-lead", lead), ("README", readme)):
             with self.subTest(file=name):
                 self.assertNotRegex(text, r"(?i)push, publish, deploy")
@@ -287,8 +291,8 @@ class SoloEntry(unittest.TestCase):
         for needle in ("`triage`", "`wayfinder`", "`handoff`", "continue, clear, handoff, subagent, compact",
                        "Brakes first", "types, lint, tests", "`setup-pre-commit`", "One agent is the default",
                        "its human-in-the-loop tickets stay the human's",
-                       "Yours without asking: reading, creating branches and worktrees, tests and builds, a sub-agent for a read or a fresh check",
-                       "parallel writers when the request or the agreement allows them"):
+                       "Yours without asking: reading, creating branches and worktrees, tests and builds, a sub-agent for a read, a fresh check or a scoped task",
+                       "parallel writers when the request or the agreement says so"):
             with self.subTest(needle=needle):
                 self.assertIn(needle, text)
 

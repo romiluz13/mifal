@@ -29,7 +29,7 @@ An agent's "done" message is not independent proof that the work passed its chec
   The validator reads records; it does not run your tests or prove an agent loaded a skill. [docs/TRUST.md](docs/TRUST.md) draws that line.
 
 - ↩️ **Previewed, and undone where unchanged.** `--dry-run` lists the planned changes before anything changes. Your own rules files keep everything you wrote; Mifal adds one Marked block, or the opt-in Codex key described below. `mifal uninstall` removes unchanged managed files, links and blocks, preserves your edits and additions, and restores a moved-aside backup only when its target is free (otherwise it keeps and reports the backup); Herdr stays installed.
-- 👥 **A team, not a single chat.** The team lead skill has the lead brief agents in [Herdr](https://herdr.dev) panes, check their receipts with the validator, and send their work to a reviewer before accepting it.
+- 👥 **A team when it pays.** One agent is the default. When independent slices, a large read or a fresh check justify a team, the team lead skill has the lead brief agents in [Herdr](https://herdr.dev) panes or as its own sub-agents, check their receipts with the validator, and send their work to a reviewer before accepting it.
 
 ## Where the lead's authority ends
 
