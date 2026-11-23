@@ -1251,13 +1251,14 @@ class WorkflowTests(unittest.TestCase):
         result = self.run_check("brief", self.brief() + text, "--matt")
         self.assertEqual(result.returncode, 0, result.stderr)
 
-    def routed_parent(self, drop=()):
-        """A lead's State that lists and loaded both router bodies, less every line containing a `drop` string."""
+    def routed_parent(self, drop=(), replace=None):
+        """A lead's State that lists and loaded both router bodies, less every line containing a `drop` string;
+        `replace` maps a line to the text written in its place."""
         parent = self.root / "state.md"
         lines = [f"Procedure: {self.router}", f"Procedure: {self.entry}",
                  f"Loaded: {self.router} | lead: sha256:{self.router_digest} read event lead-1 before work",
                  f"Loaded: {self.entry} | lead: sha256:{self.entry_digest} read event lead-2 before work"]
-        kept = [line for line in lines if not any(d in line for d in drop)]
+        kept = [(replace or {}).get(line, line) for line in lines if not any(d in line for d in drop)]
         parent.write_text("## Workflow\nExecutor: lead\nImplement: n/a: coordination: the worker owns the code\n"
                           + "".join(line + "\n" for line in kept) +
                           "\n## Phase checklist\n- [x] Plan: evidence exists\n- [ ] Implement: test pending\n")
@@ -1302,6 +1303,33 @@ class WorkflowTests(unittest.TestCase):
                 self.assertIn("Procedure must include the canonical Ask Matt SKILL.md routing body", result.stderr)
                 self.assertIn("Procedure must include the current Engineering Workflow SKILL.md", result.stderr)
                 self.assertIn(lacks, result.stderr)
+        router_line = f"Loaded: {self.router} | lead: sha256:{self.router_digest} read event lead-1 before work"
+        entry_line = f"Loaded: {self.entry} | lead: sha256:{self.entry_digest} read event lead-2 before work"
+        bare = f"Loaded: {self.router}"
+        wrong = router_line.replace(self.router_digest, "0" * 64)
+        stranger = router_line.replace("| lead:", "| someone:")
+        for label, replace, expected in (
+                ("bare Loaded line", {router_line: bare}, (f"'{bare}'", "Loaded needs")),
+                ("commented Loaded lines", {router_line: "<!--\n" + router_line, entry_line: entry_line + "\n-->"},
+                 (f"no 'Loaded:' line for {self.router}", f"no 'Loaded:' line for {self.entry}")),
+                ("one-line comment", {router_line: f"<!-- {router_line} -->"}, (f"no 'Loaded:' line for {self.router}",)),
+                ("wrong digest", {router_line: wrong}, (f"'{wrong}'", "changed since that read")),
+                ("not the parent's Executor", {router_line: stranger}, (f"'{stranger}'", "Loaded needs"))):
+            with self.subTest(label):
+                parent = self.routed_parent(replace=replace)
+                brief = self.brief() + self.without_router(
+                    self.workflow().split("\n## Phase checklist")[0] + f"State: {parent}\n")
+                result = self.run_check("brief", brief, "--matt")
+                self.assertEqual(result.returncode, 1, result.stderr)
+                self.assertIn("routing body", result.stderr)
+                for text in expected:
+                    self.assertIn(text, result.stderr)
+        with self.subTest("a correct parent still passes"):
+            parent = self.routed_parent()
+            brief = self.brief() + self.without_router(
+                self.workflow().split("\n## Phase checklist")[0] + f"State: {parent}\n")
+            result = self.run_check("brief", brief, "--matt")
+            self.assertEqual(result.returncode, 0, result.stderr)
         with self.subTest("unreadable State"):
             brief = self.brief() + self.without_router(
                 self.workflow().split("\n## Phase checklist")[0] + f"State: {self.root / 'absent.md'}\n")
