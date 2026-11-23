@@ -12,8 +12,8 @@ recorded in third_party/provenance.json.
   Copyright (c) 2026 Matt Pocock.
 - DDD (github.com/romiluz13/ddd): ddd, ddd-scope, ddd-ground, ddd-verify. MIT,
   Copyright (c) 2026 DDD Methodology.
-- Superpowers (github.com/obra/superpowers): receiving-code-review,
-  verification-before-completion. MIT, Copyright (c) 2025 Jesse Vincent.
+- Superpowers (github.com/obra/superpowers): receiving-code-review. MIT,
+  Copyright (c) 2025 Jesse Vincent.
 - agent-browser (github.com/vercel-labs/agent-browser): the agent-browser
   skill. Apache-2.0, Copyright 2025 Vercel Inc.
 - Anthropic skills (github.com/anthropics/skills): the base of frontend-design.
@@ -32,7 +32,7 @@ recorded in third_party/provenance.json.
 - tomli 2.4.1 (github.com/hukkin/tomli): the TOML parser the engine reads a Codex
   Home's config.toml with, unmodified. MIT, Copyright (c) 2021 Taneli Hukkinen.
 
-Changes Mifal made to vendored skills: a self-improvement section appended to
-each SKILL.md; invocation blockers removed so every skill is model-invoked;
-agents/openai.yaml interface metadata added; frontend-design extended with a
-local interface appendix. Apache-2.0 files Mifal changed say so at their end.
+Changes Mifal made to vendored skills: invocation blockers removed so every
+skill is model-invoked; agents/openai.yaml interface metadata added;
+frontend-design extended with a local interface appendix. Apache-2.0 files
+Mifal changed say so at their end.

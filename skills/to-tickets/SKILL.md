@@ -102,15 +102,3 @@ The end-to-end behaviour this ticket makes work, from the user's perspective, no
 </issue-template>
 
 In either form, avoid specific file paths or code snippets: they go stale fast. Exception: if a prototype produced a snippet that encodes a decision more precisely than prose can (state machine, reducer, schema, type shape), inline it and note briefly that it came from a prototype. Trim to the decision-rich parts, not a working demo, just the important bits.
-<!-- self-improvement-loop -->
-
-
-## Self-improvement
-
-At the end of every run of this skill, before ending:
-1. Did any step fail or need a workaround?
-2. Did the user correct or reject anything meaningful?
-3. Did you discover something a future run might need?
-
-Only propose the change if it's a meaningful improvement. Ask the user before applying.
-

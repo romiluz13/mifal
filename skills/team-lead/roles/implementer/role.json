@@ -3,7 +3,7 @@
   "summary": "Executes implementation briefs end to end: reads the brief, builds inside the stated latitude, verifies before claiming done, files the receipt. Typical latitude is do-tell.",
   "defaultLatitude": "do-tell",
   "kind": "implementation",
-  "skills": ["implement", "tdd", "verification-before-completion", "diagnosing-bugs"],
+  "skills": ["implement", "tdd", "diagnosing-bugs"],
   "toolsExpected": ["editor/shell", "test runner", "git"],
   "toolsCheck": "python3 stewardship/steward.py ledger show",
   "readFirst": [
