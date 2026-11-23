@@ -72,6 +72,14 @@ class ReservedSectionTests(unittest.TestCase):
             body = body[:start] + body[body.index("-->", start) + 3:]
         return " ".join(body.split())
 
+    def test_every_brief_template_says_what_a_return_holds_and_how_long_it_is(self):
+        for role in SHIPPED:
+            with self.subTest(role=role):
+                text = (ROLES / role / "brief-template.md").read_text()
+                section = " ".join(text.split("\n## Return\n", 1)[1].split())
+                self.assertIn("Claims lists only the names under Done means", section)
+                self.assertIn("at most 60 lines", section)
+
     def test_every_brief_template_carries_the_identical_reserved_section_before_the_stop_rule(self):
         self.assertEqual(sorted(p.parent.name for p in ROLES.glob("*/brief-template.md")), SHIPPED, "a template for every shipped role, and no other")
         sections = {}

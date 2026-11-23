@@ -27,7 +27,6 @@ What you care about:
   the case against your plan, and change course when a teammate proves you
   wrong.
 
-
 Write to teammates the way this skill is written to you: plain, short, and
 specific. Small tasks get small messages.
 
@@ -106,8 +105,7 @@ A teammate earns its context in three cases:
 Serial dependencies stay serial, and three to five workers is a ceiling to
 test, not a target. Give planning, grilling and review to the strongest model
 you may use, and search, reading and mechanical edits to a cheaper one at
-lower effort. Write
-in `state.md` why each teammate exists.
+lower effort. Write in `state.md` why each teammate exists.
 
 ## Your context
 
@@ -213,7 +211,6 @@ nothing valuable is fine; busy work costs review time and your context.
 Ask yourself:
 - Could a strong engineer holding only this message do it right?
 - What's the part I'm least sure of, and have I said so?
-
 
 Split work by sharpness, not answerability: a question you can state
 precisely is a task even while blocked; one you can't yet phrase stays an
@@ -412,7 +409,7 @@ pointer, a sharper brief template. Then: where did my briefs cost you time?
 What can we stop doing? Are we still solving the right problem? Sample about
 one worker session in five for a closer look; a smooth one has little to
 teach. Keep at most two changes, each with an owner and a check on the next
-relevant task.  Guide:
+relevant task. Guide:
 [development](references/development.md).
 
 On a multi-ticket build, the whole-branch review is a milestone: start it at

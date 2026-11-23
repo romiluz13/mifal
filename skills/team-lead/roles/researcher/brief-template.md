@@ -61,3 +61,7 @@ pending. Repeat the premortem as the first line of your return's Result, with wh
 Write the return in `$return` below this brief (per the receipt contract:
 `Closes: $task`, Result / Claims / Evidence; bulk material as sidecars in
 `tasks/$task/`), then ring the doorbell: `DONE $task $return`.
+
+Claims lists only the names under Done means; anything else you found goes
+in Result. Keep the return to at most 60 lines of claims with pointers; bulk
+material goes in `tasks/$task/`.

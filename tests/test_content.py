@@ -285,7 +285,9 @@ class SoloEntry(unittest.TestCase):
     def test_the_entry_gives_matts_on_ramps_the_boundary_decision_and_the_brakes_a_place(self):
         text = " ".join(self.workflow().split())
         for needle in ("`triage`", "`wayfinder`", "`handoff`", "continue, clear, handoff, subagent, compact",
-                       "Brakes first", "types, lint, tests", "`setup-pre-commit`", "One agent is the default"):
+                       "Brakes first", "types, lint, tests", "`setup-pre-commit`", "One agent is the default",
+                       "its human-in-the-loop tickets stay the human's",
+                       "Yours without asking: reading, branches and worktrees, tests and builds"):
             with self.subTest(needle=needle):
                 self.assertIn(needle, text)
 
