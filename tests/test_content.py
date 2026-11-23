@@ -170,8 +170,7 @@ class Loading(unittest.TestCase):
 
 class SoloEntry(unittest.TestCase):
     """String contracts: they show the instruction text is present, not that any agent follows it."""
-    QUESTION = "Full workflow or cut? Recommended: full workflow."
-    CHOICE_B = "Full workflow; no steps cut."
+    RETIRED_QUESTION = "Full workflow or cut?"
 
     def guide(self):
         return (REPO / "guide/AGENTS.md").read_text(encoding="utf-8")
@@ -179,20 +178,25 @@ class SoloEntry(unittest.TestCase):
     def workflow(self):
         return (REPO / "skills/engineering-workflow/SKILL.md").read_text(encoding="utf-8")
 
-    def test_the_guide_asks_for_the_entry_line_the_checklist_and_the_question_before_the_first_edit(self):
+    def test_the_guide_asks_for_the_entry_line_and_the_path_line_before_the_first_edit_and_no_question(self):
         text = " ".join(self.guide().split())
         self.assertIn("before the first edit or dispatch", text)
         self.assertIn("Owner: Matt | Route: ROUTE | Phase: PHASE | Next gate: EVIDENCE", text)
-        self.assertIn("phase checklist", text)
-        self.assertIn(self.QUESTION, text)
-        self.assertRegex(text, r"plain-text message that ends (the|your) turn, never through a user-input tool")
+        self.assertIn("one `Path:` line", text)
+        self.assertIn("you do not ask the human which steps to run", text)
+        self.assertNotIn(self.RETIRED_QUESTION, text)
 
-    def test_the_guide_names_the_skill_that_requires_the_question_and_who_asks_it(self):
+    def test_the_guide_puts_the_agent_in_the_humans_seat_and_says_when_the_human_is_asked(self):
         text = " ".join(self.guide().split())
-        self.assertRegex(text, r"requirement of the `engineering-workflow` skill")
-        self.assertIn("name that skill and quote its rule", text)
-        self.assertIn("a briefed worker follows its brief", text)
-        self.assertIn("no one to answer", text)
+        self.assertIn("You sit in the human's seat of Matt's flow", text)
+        self.assertIn("a reserved or irreversible action", text)
+        self.assertIn("have not said they are away", text)
+        self.assertIn("take the reversible option, record the assumption", text)
+        self.assertIn("A briefed worker follows its brief", text)
+
+    def test_the_guide_keeps_the_cut_for_the_human(self):
+        text = " ".join(self.guide().split())
+        self.assertIn("Only the human cuts a step", text)
         self.assertIn("is not a cut", text)
         self.assertIn("`Cut: <steps> | <quote> | <source>`", text)
         self.assertNotIn("Cut: none", text)
@@ -219,27 +223,92 @@ class SoloEntry(unittest.TestCase):
         self.assertIn("existing failing test", row)
         self.assertIn("diagnosis-only", row)
 
-    def test_the_solo_form_carries_the_entry_the_self_review_and_the_retro(self):
+    def test_the_solo_form_carries_the_path_the_decision_list_the_review_and_the_sampled_retro(self):
         text = " ".join(self.workflow().split())
         self.assertIn("**Solo form.**", text)
         form = text.split("**Solo form.**", 1)[1].split("- Complete a phase only when", 1)[0]
-        for needle in (self.QUESTION, "no further stops", "review-snapshot.py", "self-review", "independent review",
-                       "`retro`", "`writing-for-agents`", "before the final answer"):
+        for needle in ("`Path:` line", "no further stops", "written list of your design decisions", "hard to reverse",
+                       "a public interface, data or a schema, a deletion, security, a new dependency",
+                       "states the behaviour concretely", "review-snapshot.py", "self-review", "independent review",
+                       "the session's record", "`retro`", "`writing-for-agents`", "before the final answer",
+                       "`Retro: skipped, smooth build`"):
             with self.subTest(needle=needle):
                 self.assertIn(needle, form)
+        self.assertNotIn(self.RETIRED_QUESTION, form)
 
-    def test_the_ordered_phases_paragraph_keeps_the_question_and_adds_the_recommended_answer(self):
+    def test_the_driver_section_names_what_stays_human_and_caps_a_loop_of_attempts(self):
         text = " ".join(self.workflow().split())
-        self.assertIn('ask "full workflow or cut?"', text)
-        self.assertIn("recommended answer", text.split("silence is not a cut", 1)[0].split("Only the human cuts", 1)[1])
+        self.assertIn("## You are the driver", text)
+        section = text.split("## You are the driver", 1)[1].split("## Required entry", 1)[0]
+        for needle in ("push, publish, deploy, release and merge", "outside the team", "installs",
+                       "destructive operations, spending and access", "commits unless the request grants them",
+                       "a cut of a workflow step", "have not said they are away", "An irreversible choice waits",
+                       "three tries without progress", "decision-ready brief",
+                       "A human reads the pull request before it merges"):
+            with self.subTest(needle=needle):
+                self.assertIn(needle, section)
+
+    def test_the_ordered_phases_paragraph_lets_the_driver_choose_the_path_and_keeps_the_cut_human(self):
+        text = " ".join(self.workflow().split())
+        self.assertIn("do not ask the human which steps to run", text)
+        self.assertIn("Only the human cuts a step", text)
         self.assertIn("silence is not a cut", text)
 
-    def test_every_text_that_teaches_the_question_keeps_it_and_none_carries_the_unchosen_line(self):
-        for rel in ("README.md", "guide/AGENTS.md", "skills/engineering-workflow/SKILL.md", "skills/team-lead/SKILL.md"):
+    def test_the_entry_gives_matts_on_ramps_the_boundary_decision_and_the_brakes_a_place(self):
+        text = " ".join(self.workflow().split())
+        for needle in ("`triage`", "`wayfinder`", "`handoff`", "continue, clear, handoff, subagent, compact",
+                       "Brakes first", "types, lint, tests", "`setup-pre-commit`", "One agent is the default"):
+            with self.subTest(needle=needle):
+                self.assertIn(needle, text)
+
+    def test_no_text_still_teaches_the_retired_question(self):
+        self.assertIn("`Path:` line", " ".join((REPO / "README.md").read_text(encoding="utf-8").split()))
+        for rel in ("guide/AGENTS.md", "skills/engineering-workflow/SKILL.md", "skills/team-lead/SKILL.md",
+                    "skills/engineering-workflow/references/phase-record.md",
+                    "skills/engineering-workflow/references/record-card.md"):
             text = " ".join((REPO / rel).read_text(encoding="utf-8").split())
             with self.subTest(file=rel):
-                self.assertRegex(text, r"(?i)full workflow or (a )?cut")
-                self.assertNotIn(self.CHOICE_B, text)
+                self.assertNotRegex(text, r"(?i)full workflow or (a )?cut")
+
+
+class EntryBudget(unittest.TestCase):
+    """What an agent must read before its first edit, in bytes, held below its size at commit 9a064f2.
+    Sizes are a proxy for tokens; the test stops the entry reading from growing back, it does not measure a session."""
+    ENTRY = "skills/engineering-workflow/SKILL.md"
+    ASK_MATT = "skills/ask-matt/SKILL.md"
+    CARD = "skills/engineering-workflow/references/record-card.md"
+    PHASE_RECORD = "skills/engineering-workflow/references/phase-record.md"
+    TEAM_LEAD = "skills/team-lead/SKILL.md"
+    STEWARDSHIP = "skills/team-lead/stewardship/README.md"
+    SOLO_AT_9A064F2 = 64828
+    LEAD_AT_9A064F2 = 96171
+
+    def size(self, *rels):
+        return sum(len((REPO / rel).read_bytes()) for rel in rels)
+
+    def test_each_entry_body_stays_within_its_cap(self):
+        for rel, cap in ((self.ENTRY, 16000), (self.CARD, 6000), (self.TEAM_LEAD, 26576)):
+            with self.subTest(file=rel):
+                self.assertLessEqual(self.size(rel), cap)
+
+    def test_the_entry_sends_a_solo_agent_to_no_record_reference(self):
+        text = " ".join((REPO / self.ENTRY).read_text(encoding="utf-8").split())
+        self.assertIn("reads no record reference", text)
+        self.assertNotRegex(text, r"Read \[phase record and checks\]")
+        self.assertIn("[record card](references/record-card.md)", text)
+        head = " ".join((REPO / self.PHASE_RECORD).read_text(encoding="utf-8").split())[:400]
+        self.assertIn("Reference", head)
+        self.assertNotIn("Read at Matt entry", head)
+
+    def test_team_lead_points_at_the_card_and_not_at_the_whole_phase_record_before_a_dispatch(self):
+        text = " ".join((REPO / self.TEAM_LEAD).read_text(encoding="utf-8").split())
+        self.assertIn("record-card.md", text)
+
+    def test_the_solo_and_lead_reading_is_smaller_than_at_9a064f2(self):
+        solo = self.size(self.ENTRY, self.ASK_MATT)
+        lead = solo + self.size(self.CARD, self.STEWARDSHIP, self.TEAM_LEAD)
+        self.assertLess(solo, self.SOLO_AT_9A064F2 // 2)
+        self.assertLess(lead, self.LEAD_AT_9A064F2 * 2 // 3)
 
 
 # Release 0.3.0 E7: product text that names no launcher, no second methodology owner and no retired team member.

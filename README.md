@@ -12,7 +12,7 @@ An agent's "done" message is not independent proof that the work passed its chec
 
 ## What you get
 
-- 🧭 **One workflow, five agents.** For each selected home that can be wired, the installer adds the same Guide. The Guide instructs the agent to load `engineering-workflow` before an engineering request, name its owner, route, phase and next gate, and ask whether you want the full workflow or a cut; Mifal does not force that invocation. A multi-session build runs scope → grill → spec → tickets → implement → review → retro in order; research, planning, debugging and review take shorter routes. `mifal doctor` checks the recorded install, the Guide blocks, the configured skill paths and declared skill-setting files; it does not start agents or prove they loaded the Guide or the skills.
+- 🧭 **One workflow, five agents.** For each selected home that can be wired, the installer adds the same Guide. The Guide instructs the agent to load `engineering-workflow` before an engineering request, name its owner, route, phase and next gate, and say in one `Path:` line which steps will run; Mifal does not force that invocation. The agent sits in the human's seat of Matt Pocock's flow: it starts each skill, answers the planning interview from written sources and reviews the result, and what stays yours is listed once (push, publish, deploy, release, merge, installs, destructive operations, spending, access, a cut). A multi-session build runs scope → grill → spec → tickets → implement → review → retro in order; research, planning, debugging and review take shorter routes. `mifal doctor` checks the recorded install, the Guide blocks, the configured skill paths and declared skill-setting files; it does not start agents or prove they loaded the Guide or the skills.
 - 📋 **A brief, not a prompt.** The lead writes each task as a file before work starts: why it matters, what done looks like, the claims that must hold with the check behind each one, a stop rule, and the line it is **least sure of**, the assumption most likely wrong and the observation that would settle it. It makes the uncertainty specific enough to investigate.
 - 🧾 **A receipt, not a "done".** The worker answers every claim in the brief with passed, failed or untested, cites the revision it checked and points at what it ran; an omitted claim keeps the receipt invalid, never passed.
 - 🏠 **Several Homes of one agent.** `--home NAME=PATH`, repeatable, names each Home; for a Harness named this way only those Homes are served, and a reinstall keeps every Home already recorded (only `mifal uninstall` drops one). A Codex Home whose rules file is a link is served through one Mifal-marked `developer_instructions` key in its own `config.toml`, every other byte kept; a Home with its own `SessionStart` hook is recorded pending and the hook is never edited. `mifal doctor` prints one line per recorded Home and names an unrecorded Home that reads a shared rules file.
@@ -57,7 +57,7 @@ The install puts the `mifal` command in `~/.local/bin`; if that folder is not on
 mifal doctor
 ```
 
-Start a session in any agent Mifal wired, in a project folder, and ask for engineering work as you normally would. The Guide tells the agent to scope the request, ask whether you want the full workflow or a cut, and work phase by phase. For a team, start the session inside Herdr (`herdr`) or in a Herdr Desktop terminal, and ask for one.
+Start a session in any agent Mifal wired, in a project folder, and ask for engineering work as you normally would. The Guide tells the agent to scope the request, say which steps will run, and work phase by phase without waiting on you; it comes back for a change of scope, a blocker, or an action only you can take. For a team, start the session inside Herdr (`herdr`) or in a Herdr Desktop terminal, and ask for one.
 
 ## How it works
 
@@ -85,7 +85,7 @@ Mifal 0.1 was built by a Mifal team: a Claude lead, a Codex reviewer, a Claude r
 
 ## Status
 
-**Alpha**, version 0.4.1. The installer, update, uninstall, doctor and validator are covered by tests, run in CI on macOS under the system Python and the current python3. What a program checks, and what still relies on the agent following the Guide, is spelled out in [docs/TRUST.md](docs/TRUST.md).
+**Alpha**, version 0.5.0. The installer, update, uninstall, doctor and validator are covered by tests, run in CI on macOS under the system Python and the current python3. What a program checks, and what still relies on the agent following the Guide, is spelled out in [docs/TRUST.md](docs/TRUST.md).
 
 ## Support
 
